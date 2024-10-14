@@ -9,6 +9,8 @@ This is a gymnasium environment for wind farm simulations. It is built on the [D
 
 Coming soon
 
+![Animation of flowfield](images/Flowfield_animation.mp4)
+
 ## Future work
 - Make a petting zoo wrapper to make the env multi agent compatible 
 - Adding more noise options to the sensors
