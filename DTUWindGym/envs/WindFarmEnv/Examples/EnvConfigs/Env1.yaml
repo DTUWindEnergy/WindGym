@@ -1,0 +1,79 @@
+# Configuration for the environment, using a yaml file. 
+
+#Some initial things
+yaw_init: "Random"
+noise: "None"
+BaseController: "Local"
+ActionMethod: "wind"      #Can be: "yaw", "wind", "absolute"
+Track_power: False       #If the farm should produce a specified power output
+
+
+#Farm parameters
+farm:
+  yaw_min: -45
+  yaw_max: 45
+  xDist: 4
+  yDist: 4
+  nx: 2
+  ny: 2
+
+#Wind conditions
+wind:
+  ws_min: 10
+  ws_max: 15
+  TI_min: 0.07
+  TI_max: 0.07
+  wd_min: 255
+  wd_max: 285
+
+#Penalty parameters
+act_pen:
+  action_penalty: 0.0
+  action_penalty_type: "Change"
+
+#Power reward parameters
+power_def:
+  Power_reward: "Baseline" #Power reward. Can be "Baseline", "Power_avg" or "Power_diff"
+  Power_avg: 10 #Size of the average window. If 1 then we only save the current power output.
+  Power_scaling: 1.0  #Scaling of the power reward
+    
+#Define the measurement levels
+mes_level:
+  turb_ws: True 
+  turb_wd: False
+  turb_TI: False
+  turb_power: False
+  farm_ws: False
+  farm_wd: False 
+  farm_TI: False    
+  farm_power: False  
+
+#For WS
+ws_mes:
+ ws_current: False 
+ ws_rolling_mean: True 
+ ws_history_N: 1
+ ws_history_length: 25
+ ws_window_length: 25
+#For WD
+wd_mes:
+  wd_current: False
+  wd_rolling_mean: False
+  wd_history_N: 1 
+  wd_history_length: 20
+  wd_window_length: 20
+#For YAW
+yaw_mes:
+  yaw_current: False
+  yaw_rolling_mean: True
+  yaw_history_N: 1
+  yaw_history_length: 10
+  yaw_window_length: 10
+#For Power
+power_mes:
+  power_current: False
+  power_rolling_mean: False
+  power_history_N: 1
+  power_history_length: 10
+  power_window_length: 10
+
