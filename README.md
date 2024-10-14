@@ -19,7 +19,7 @@ pip install -e .
 ## List of avaliable environments
 
 A current list of environments are:
-- [WindFarmEnv](DTUWindGym/envs/WindFarmEnv/README.md)
+- [WindFarmEnv](DTUWindGym/envs/WindFarmEnv/)
 - 
 
 
