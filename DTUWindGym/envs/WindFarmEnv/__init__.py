@@ -1,4 +1,4 @@
 from .Wind_Farm_Env import WindFarmEnv
 from .AgentEval import AgentEval
 from .PyWakeAgent import PyWakeAgent
-from .EnvEval import EnvEval
+from .FarmEval import FarmEval

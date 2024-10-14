@@ -22,7 +22,8 @@ import time
 from .WindEnv import WindEnv
 from .MesClass import farm_mes
 
-
+from py_wake.wind_turbines import WindTurbines as WindTurbinesPW
+from py_wake.utils.plotting import setup_plot
 from collections import deque
 import itertools
 import yaml
@@ -211,7 +212,7 @@ class WindFarmEnv(WindEnv):
         self.action_space = gym.spaces.Box(low= -1, high=1, 
                                            shape=((self.n_turb * act_var), ), dtype=np.float32) 
 
-        # self.reset(seed=seed)  #I dont hope anything breaks by not having this here.
+        self.reset(seed=seed)  #I dont hope anything breaks by not having this here.
 
         #TODO the render mode is not implemented yet. I think?
         #Asserting that the render_mode is valid.
@@ -274,11 +275,13 @@ class WindFarmEnv(WindEnv):
     def init_render(self):
         plt.ion()
 
-        self.figure, self.ax = plt.subplots(figsize=(10,4))
-        self.a = np.linspace(-200 + min(self.x_pos), 1000 + max(self.x_pos), 250)
-        self.b = np.linspace(-200 + min(self.y_pos), 200 + max(self.y_pos), 250)
+        x_turb, y_turb = self.fs.windTurbines.positions_xyz[:2]
 
-        self.view = XYView(z=70, x=self.a, y=self.b, ax=self.ax, adaptive=False)
+        self.figure, self.ax = plt.subplots(figsize=(10,4))
+        self.a = np.linspace(-200 + min(x_turb), 1000 + max(x_turb), 250)
+        self.b = np.linspace(-200 + min(y_turb), 200 + max(y_turb), 250)
+
+        self.view = XYView(z=self.turbine.hub_height(), x=self.a, y=self.b, ax=self.ax, adaptive=False)
 
         plt.close()
 
@@ -647,20 +650,32 @@ class WindFarmEnv(WindEnv):
             return self._render_frame()
         
     def _render_frame(self):
+        """
+        This is the rendering function.
+        It renders the flow field and the wind turbines
+        Can be much improved, but it is a start
+        """
         
         plt.ion()
-        plt.gca()
-        uvw = self.fs.get_windspeed(self.view, include_wakes=True, xarray=False)
-        
-        u_plot = uvw[0]
+        ax1 = plt.gca()
 
-        plt.pcolormesh(self.a, self.b, u_plot.T, shading="nearest")
-        plt.axis('scaled')
-        plt.title("U speed at time= " + str(self.fs.time))
+        
+        # uvw = self.fs.get_windspeed(self.view, include_wakes=True, xarray=False)
+        uvw = self.fs.get_windspeed(self.view, include_wakes=True, xarray=True)
+        
+        wt = self.fs.windTurbines
+        x_turb, y_turb = self.fs.windTurbines.positions_xyz[:2]
+        yaw, tilt = wt.yaw_tilt()
+
+
+        plt.pcolormesh(uvw.x.values, uvw.y.values, uvw[0].T, shading="nearest")  #[0] is the u component of the wind speed
+        # plt.colorbar().set_label('Wind speed, u [m/s]')
+        WindTurbinesPW.plot_xy(self.fs.windTurbines, x_turb, y_turb, types=self.fs.windTurbines.types, 
+                               wd=self.fs.wind_direction, ax=ax1, yaw=yaw, tilt=tilt)
+        ax1.set_title('Flow field at {} s'.format(self.fs.time))
         display.display(plt.gcf())
         display.clear_output(wait=True)
 
-        time.sleep(0.01)
 
         if self.render_mode == "human":
                 pass

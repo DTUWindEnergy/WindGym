@@ -9,6 +9,7 @@ This is a gymnasium environment for wind farm simulations. It is built on the [D
 
 Coming soon
 
+An example animation of the turbines in the flow. 
 ![Animation of flowfield](images/Flowfield_animation.mp4)
 
 ## Future work

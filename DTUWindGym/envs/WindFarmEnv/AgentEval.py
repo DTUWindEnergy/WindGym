@@ -211,7 +211,8 @@ class AgentEval():
                 view = XYView(z=70, x= a, y=b, ax=fig.gca(), adaptive=False)
 
                 wt = self.env.fs.windTurbines
-                x_turb, y_turb = wt.positions_xyz(self.env.fs.wind_direction, self.env.fs.center_offset)[:2]
+                # x_turb, y_turb = wt.positions_xyz(self.env.fs.wind_direction, self.env.fs.center_offset)[:2]
+                x_turb, y_turb = wt.positions_xyz[:2]
                 yaw, tilt = wt.yaw_tilt()
             
                 #Plot the flowfield in ax1

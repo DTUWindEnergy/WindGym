@@ -6,7 +6,7 @@ This is a wrapper for the WindFarmEnv class. It is used to evaluate the environm
 The difference is that we can set the wind values directly, and we can also set the yaw values directly.
 """
 
-class EnvEval(WindFarmEnv):
+class FarmEval(WindFarmEnv):
     metadata = {"render_modes": ["human", "rgb_array"]}
 
     def __init__(self, turbine,
