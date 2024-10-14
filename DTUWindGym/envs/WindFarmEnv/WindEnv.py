@@ -3,8 +3,11 @@ import numpy as np
 import gymnasium as gym
 from abc import abstractmethod
 
-#This is the base class for the wind environment
-# All the other wind environments will inherit from this class
+"""This is the base class for the wind environment
+All the other wind environments will inherit from this class.
+
+This just contains some helper functions that are used in the other classes
+"""
 
 class WindEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"]}
