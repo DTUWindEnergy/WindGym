@@ -2,8 +2,6 @@ import xarray as xr
 import numpy as np
 # import concurrent.futures
 # import multiprocessing
-from pathos.pools import ProcessPool
-import time
 from dynamiks.views import XYView, EastNorthView
 from dynamiks.visualizers.flow_visualizers import Flow2DVisualizer
 from py_wake.utils.plotting import setup_plot
@@ -11,15 +9,18 @@ import os
 import matplotlib.pyplot as plt
 from collections import deque 
 from py_wake.wind_turbines import WindTurbines as WindTurbinesPW
-from matplotlib.transforms import Bbox
+
 """
-This class is able to evaluate an agent on the PyWake environment.
+AgentEval is a class that is used to evaluate an agent on the EnvEval environment.
 The class is made to evaluate the agent for multiple wind directions, and then save a xarray dataset with the results.
+
 TODO: Finish the class so that it can plot the results, and save the results to a file. maybe? 
 TODO: We could add in a check that the agent has already been evaluated on a given condition. if yes, then we dont need to simulate it again.
 TODO: Add a function to animate the results.
 TODO: parallelize the evaluation in eval_multiple()
+TODO: Consolidate the plotting functions, so that they are more general.
 """
+
 class AgentEval():
     def __init__(self, env=None, model=None, name = "NoName", t_sim = 1000):
         #Initialize the evaluater with some default values.
@@ -87,13 +88,20 @@ class AgentEval():
         self.model = model
 
     def eval_single(self, save_figs=False, scale_obs=None, debug=False):
-        #Evaluate the agent on a singe run. 
-        # We should run the simulation for x time steps to allow the agent to take it's actions, and then simulate for y time steps to evaluate the "steady state" performance.
-        #If save_figs is True, then we should save the figures to a file.
+        """
+        Evaluate the agent on a singe run.
+        It resets the env, and then lets the agent take actions for t_sim time steps.
+        
+        save_figs: Bool  ->  If True save plots of the flowfild and some sensors to a dir.
+        scale_obs: Bool or list  ->  If True add scaled observations to the plot. If False, only add unscaled observations.
+        debug: Bool  ->  If True, we add both the scaled and unscaled observations to the plot.
+        """
+
         if not isinstance(scale_obs, list): #if not a list, make it one
             scaling = [scale_obs]
         if debug: #If debug, do both. 
             scaling = [True, False]
+            save_figs = True
         
         if self.model is None:
             AssertionError("You need to specify a model to evaluate the agent.")
@@ -107,27 +115,23 @@ class AgentEval():
         n_TI = 1                        #Number of turbulence intensities to simulate
 
         #Initialize the arrays to store the results
-        #Power at farm level and turbine level, for both the agent and the baseline farm
+        # _a is the agent and _b is the baseline
         powerF_a = np.zeros((time))
         powerF_b = np.zeros((time))
         powerT_a = np.zeros((time, n_turb))
         powerT_b = np.zeros((time, n_turb))
-        #Yaw angles for the agent and the baseline farm
         yaw_a = np.zeros((time, n_turb))
         yaw_b = np.zeros((time, n_turb))
-        #Wind speeds at the rotor for the agent and the baseline farm
         ws_a = np.zeros((time, n_turb))
         ws_b = np.zeros((time, n_turb))
-        #Time array
         time_plot = np.zeros((time))
-        #Percentage increase in power output, and reward
         pct_inc = np.zeros((time))
         rew_plot = np.zeros((time))
 
         #Initialize the environment
         obs, info = self.env.reset()
 
-        #After reset, if the model has a pywakeagent attribute, we can use this to set the yaw angles.
+        #This checks if we are using a pywakeagent. If we are, then we do this:
         if hasattr(self.model, "pywakeagent"):
             self.model.update_wind(self.env.ws, self.env.wd, self.env.ti)
             self.model.predict(obs, deterministic=True)[0]
@@ -169,7 +173,7 @@ class AgentEval():
             ws_max = self.env.ws+2
             ws_min = 3
 
-
+            #Define the x and y values for the flow field plot
             a = np.linspace(-200 + min(self.env.x_pos), 200 + max(self.env.x_pos), 200)
             b = np.linspace(-200 + min(self.env.y_pos), 200 + max(self.env.y_pos), 200)
 
@@ -200,24 +204,19 @@ class AgentEval():
                 yaw_deq.append(yaw_a[i])
                 ws_deq.append(ws_a[i])
 
-                # fig = plt.figure(constrained_layout=False, figsize=(12, 7.5))
-                fig = plt.figure(figsize=(12, 7.5))
-                # Create a grid spec with 2 rows and 2 columns
-                # gs = fig.add_gridspec(3, 2, width_ratios=[3, 1])
 
+                fig = plt.figure(figsize=(12, 7.5))
                 ax1 = plt.subplot2grid((3, 3), (0, 0), colspan=2, rowspan=3)
 
-                # ax1 = fig.add_subplot(gs[:, 0])
                 view = XYView(z=70, x= a, y=b, ax=fig.gca(), adaptive=False)
 
                 wt = self.env.fs.windTurbines
                 x_turb, y_turb = wt.positions_xyz(self.env.fs.wind_direction, self.env.fs.center_offset)[:2]
                 yaw, tilt = wt.yaw_tilt()
             
+                #Plot the flowfield in ax1
                 uvw = self.env.fs.get_windspeed(view, include_wakes=True, xarray=True)
-
                 plt.pcolormesh(uvw.x.values, uvw.y.values, uvw[0].T, shading="nearest", vmin=3, vmax=self.env.ws+2)  #[0] is the u component of the wind speed
-                # test = plt.colorbar()
                 plt.colorbar().set_label('Wind speed, u [m/s]')
                 WindTurbinesPW.plot_xy(wt, x_turb, y_turb, types=wt.types, wd=self.env.fs.wind_direction, ax=ax1, yaw=yaw, tilt=tilt)
 
@@ -229,22 +228,22 @@ class AgentEval():
                 ax3 = plt.subplot2grid((3, 3), (1, 2), )
                 ax4 = plt.subplot2grid((3, 3), (2, 2), )
 
-                # ax2 = fig.add_subplot(gs[0, 1])
+                #Plot the power in ax2
                 ax2.plot(time_deq, pow_deq, color='orange')
                 ax2.set_title('Farm power [W]')
-                # ax2.legend()
 
-                # ax3 = fig.add_subplot(gs[1, 1])
+
+                #Plot the yaws in ax3
                 ax3.plot(time_deq, yaw_deq, label=np.arange(n_turb))
                 ax3.set_title('Turbine yaws [deg]')
                 ax3.legend(loc='upper left')
 
-                # ax4 = fig.add_subplot(gs[2, 1])
+                #Plot the rotor windspeeds in ax4
                 ax4.plot(time_deq, ws_deq, label=np.arange(n_turb))
                 ax4.set_title('Rotor windspeeds [m/s]')
                 ax4.set_xlabel('Time [s]')
-                # ax4.legend()
 
+                #Set the x limits for the plots
                 ax2.set_xlim(time_deq[0], time_deq[-1])
                 ax3.set_xlim(time_deq[0], time_deq[-1])
                 ax4.set_xlim(time_deq[0], time_deq[-1])
@@ -267,13 +266,11 @@ class AgentEval():
                 ax4.locator_params(axis='x', nbins=5)
 
                 img_name = FOLDER + 'img_{:05d}.png'.format(i)
-                #Set the plot to be compact:
-                # plt.tight_layout()
 
-                #Add sensor data to the plot. 
-                for scale in scaling:
+
+                #Add a text to the plot with the sensor values
+                for scale in scaling: #scaling can be a list with True and False. If True, we add the scaled observations to the plot. If False, we only add the unscaled observations.
                     if scale is not None:
-                        # print("scale is not None")
                         turb_ws = np.round(self.env.farm_measurements.get_ws_turb(scale),2) 
                         turb_wd = np.round(self.env.farm_measurements.get_wd_turb(scale),2) 
                         turb_TI = np.round(self.env.farm_measurements.get_TI_turb(scale),2)
@@ -284,11 +281,9 @@ class AgentEval():
                         if scale:
                             text_plot = f" Agent observations scaled: \n Turbine level wind speed: {turb_ws} \n Turbine level wind direction: {turb_wd} \n Turbine level yaw: {turb_yaw} \n Turbine level TI: {turb_TI} \n Farm level wind speed: {farm_ws} \n Farm level wind direction: {farm_wd} \n Farm level TI: {farm_TI} "
                             ax1.text(1.1, 1.3, text_plot, verticalalignment='top', horizontalalignment='left', transform=ax1.transAxes)
-                            # plt.text(1.1, 1.3, text_plot, verticalalignment='top', horizontalalignment='left', transform=ax1.transAxes)
                         else:
                             text_plot = f" Agent observations: \n Turbine level wind speed: {turb_ws} [m/s] \n Turbine level wind direction: {turb_wd} [deg] \n Turbine level yaw: {turb_yaw} [deg] \n Turbine level TI: {turb_TI} \n Farm level wind speed: {farm_ws} [m/s] \n Farm level wind direction: {farm_wd} [deg] \n Farm level TI: {farm_TI} "
                             ax1.text(-0.1, 1.3, text_plot, verticalalignment='top', horizontalalignment='left', transform=ax1.transAxes)
-                            # plt.text(-0.1, 1.3, text_plot, verticalalignment='top', horizontalalignment='left', transform=ax1.transAxes)
                 #So I coudnt figure out how to add some space to the left, so I added a white text, and then use that to stretch the plot. Whatever, it works
                 ax1.text(1.95, 0.5, "Hey", verticalalignment='top', horizontalalignment='left', transform=ax1.transAxes, color='white')
 
@@ -298,7 +293,7 @@ class AgentEval():
                     
         self.env.close()
 
-        #Reshape the arrays
+        #Reshape the arrays and put them in a xarray dataset
         powerF_a = powerF_a.reshape(time, n_ws, n_wd, n_TI, n_turbbox)
         powerF_b = powerF_b.reshape(time, n_ws, n_wd, n_TI, n_turbbox)
         powerT_a = powerT_a.reshape(time, n_turb, n_ws, n_wd, n_TI, n_turbbox)
@@ -307,8 +302,6 @@ class AgentEval():
         yaw_b = yaw_b.reshape(time, n_turb, n_ws, n_wd, n_TI, n_turbbox)
         ws_a = ws_a.reshape(time, n_turb, n_ws, n_wd, n_TI, n_turbbox)
         ws_b = ws_b.reshape(time, n_turb, n_ws, n_wd, n_TI, n_turbbox)
-
-        # time_plot = time_plot.reshape(time, n_ws, n_wd, n_TI, n_turbbox)
         rew_plot = rew_plot.reshape(time, n_ws, n_wd, n_TI, n_turbbox)
         pct_inc = pct_inc.reshape(time, n_ws, n_wd, n_TI, n_turbbox)
 
@@ -316,20 +309,20 @@ class AgentEval():
         ds = xr.Dataset(
             data_vars={
                 #For agent:
-                "powerF_a": (("time", "ws", "wd", "TI", "turbbox"), powerF_a), #Power for the farm: [time, turbine, ws, wd, TI, turbbox]
+                "powerF_a": (("time", "ws", "wd", "TI", "turbbox"), powerF_a),          #Power for the farm: [time, turbine, ws, wd, TI, turbbox]
                 "powerT_a": (("time", "turb", "ws", "wd", "TI", "turbbox"), powerT_a),  #Power pr turbine [time, ws, wd, TI, turbbox]
-                "yaw_a": (("time", "turb", "ws", "wd", "TI", "turbbox"), yaw_a), #yaw is array of: [time, turbine, ws, wd, TI, turbbox]
-                "ws_a": (("time", "turb", "ws", "wd", "TI", "turbbox"), ws_a),   #Ws at each turbine: [time, turbine, ws, wd, TI, turbbox]
+                "yaw_a": (("time", "turb", "ws", "wd", "TI", "turbbox"), yaw_a),        #yaw is array of: [time, turbine, ws, wd, TI, turbbox]
+                "ws_a": (("time", "turb", "ws", "wd", "TI", "turbbox"), ws_a),          #Ws at each turbine: [time, turbine, ws, wd, TI, turbbox]
                 
                 #For baseline
-                "powerF_b": (("time", "ws", "wd", "TI", "turbbox"), powerF_b), #Power for the farm: [time, turbine, ws, wd, TI, turbbox]
+                "powerF_b": (("time", "ws", "wd", "TI", "turbbox"), powerF_b),          #Power for the farm: [time, turbine, ws, wd, TI, turbbox]
                 "powerT_b": (("time", "turb", "ws", "wd", "TI", "turbbox"), powerT_b),  #Power pr turbine [time, ws, wd, TI, turbbox]
-                "yaw_b": (("time", "turb", "ws", "wd", "TI", "turbbox"), yaw_b), #yaw is array of: [time, turbine, ws, wd, TI, turbbox]
-                "ws_b": (("time", "turb", "ws", "wd", "TI", "turbbox"), ws_b),   #Ws at each turbine: [time, turbine, ws, wd, TI, turbbox]
+                "yaw_b": (("time", "turb", "ws", "wd", "TI", "turbbox"), yaw_b),        #yaw is array of: [time, turbine, ws, wd, TI, turbbox]
+                "ws_b": (("time", "turb", "ws", "wd", "TI", "turbbox"), ws_b),          #Ws at each turbine: [time, turbine, ws, wd, TI, turbbox]
 
                 #For environment
-                "reward": (("time", "ws", "wd", "TI", "turbbox"), rew_plot), #Reward 
-                "pct_inc": (("time", "ws", "wd", "TI", "turbbox"), pct_inc), #Percentage increase in power output
+                "reward": (("time", "ws", "wd", "TI", "turbbox"), rew_plot),            #Reward 
+                "pct_inc": (("time", "ws", "wd", "TI", "turbbox"), pct_inc),            #Percentage increase in power output
                 
             },
             coords={
@@ -344,16 +337,15 @@ class AgentEval():
         return ds
 
     def eval_multiple(self, save_figs=False, scale_obs=None, debug=False):
-        #Evaluate the agent on multiple runs
-        #Make sure to update the set_conditions() first
-        if self.multiple_eval:
-            print("It looks like you have already run the multiple evaluations") #. If you want to run them again, please reinitialize the object.")
-            # return self.multiple_eval_ds  #we could do something like this, to try and prevent the user from running the simulations again. ? 
+        """
+        Evaluate the agent on multiple wind directions, wind speeds, turbulence intensities and turbulence boxes.
+
+        """
 
         print("Running for a total of ", len(self.winddirs)*len(self.windspeeds)*len(self.turbintensities)*len(self.turbboxes), " simulations.")
         self.multiple_eval = True  #Flag that we are running multiple evaluations.
 
-        #OLD CODE
+        #TODO this should be parallelized.
         ds_list = []
         for winddir in self.winddirs:
             for windspeed in self.windspeeds:
@@ -369,6 +361,7 @@ class AgentEval():
         ds_total = xr.merge(ds_list)
         self.multiple_eval_ds = ds_total
         return self.multiple_eval_ds
+        #### Keep this for later, as I will work on it at some point
 
         ### Failed tests with multiprocessing. ):
         # ds_list = []
@@ -413,7 +406,11 @@ class AgentEval():
         # return self.multiple_eval_ds           
 
     def run_simulation(self, winddir, windspeed, TI, box, save_figs, scale_obs, debug):
-        print("Running simulation for ws = ", windspeed, " wd = ", winddir, " TI = ", TI, " TurbBox = ", box)
+        """
+        Run a singel simulation. 
+        This function might be used for the parallelization of the simulation.
+        """
+        # print("Running simulation for ws = ", windspeed, " wd = ", winddir, " TI = ", TI, " TurbBox = ", box)
         #Run a singe simulation with the specified conditions.
         #Set the conditions
         self.set_condition(ws=windspeed, ti=TI, wd=winddir, turbbox=box)
@@ -423,8 +420,10 @@ class AgentEval():
         return ds
 
     def plot_initial(self):
-        #Plot the initial conditions of the simulation, AND the turbines with their numbering. 
-        #First we need to initialize the environment with the specified conditions. 
+        """
+        Plot the initial conditions of the simulation, alongside the turbines with their numbering.
+        """
+ 
         _, __ = self.env.reset()
 
         #Define the x, y and z for the plot
@@ -446,27 +445,37 @@ class AgentEval():
         setup_plot(ax=ax2, title=f'Alligned view, {self.env.wd} deg', xlabel='east [m]', ylabel='north [m]', grid=False)    
                 
     def plot_performance(self):
-        #Plot the performance of the agent, and the baseline farm. 
-        # We could plot the power output, the wind speed, the wind direction, the yaw angles, the turbulence intensity, the wake losses, etc.
-        # The return is a plot of the performance metrics. 
+        """
+        Plot the performance of the agent, and the baseline farm. 
+        We could plot the power output, the wind speed, the wind direction, the yaw angles, the turbulence intensity, the wake losses, etc.
+        The return is a plot of the performance metrics. 
+        """
         print("Not implemented yet")
         
 
     def save_performance(self):
-        #Save the xarray to a file. For now just on the main path.
+        """
+        Save the performance metrics to a file.
+        TODO: Maybe add the options for a specific path to save the file to.
+        """
         if self.multiple_eval:
             self.multiple_eval_ds.to_netcdf(self.name + "_eval.nc")
         else:
             print("It doenst look like you have any data to save my guy")
         
     def load_performance(self, path):
-        #Load the performance metrics from a file. 
-        #I dont know why you would do this, but now you can.
+        """
+        Load the performance metrics from a file. 
+        Can be used to see the results from a previous evaluation.
+        """
         self.multiple_eval_ds = xr.open_dataset(path)
         self.multiple_eval = True
 
 
     def plot_power_farm(self, WSS, WDS, avg_n=10, TI=0.07, TURBBOX="Default", axs=None, save=False):
+        """
+        Plot the power output for the farm.
+        """
         data = self.multiple_eval_ds #Just for easier writing
         if axs is None:
             fig, axs = plt.subplots(len(WSS), len(WDS), figsize=(4*int(len(WDS)), 3*int(len(WSS))), sharey=True)
@@ -502,6 +511,9 @@ class AgentEval():
         return fig, axs
 
     def plot_farm_inc(self, WSS, WDS, avg_n=10, TI=0.07, TURBBOX="Default", axs=None, save=False):
+        """
+        Plot the percentage increase in power output for the farm.
+        """
         data = self.multiple_eval_ds #Just for easier writing
         if axs is None:
             fig, axs = plt.subplots(len(WSS), len(WDS), figsize=(4*int(len(WDS)), 3*int(len(WSS))), sharey=True)
@@ -535,6 +547,9 @@ class AgentEval():
         return fig, axs
 
     def plot_power_turb(self, ws, WDS, avg_n=10, TI=0.07, TURBBOX="Default", axs=None, save=False):
+        """
+        Plot the power output for each turbine in the farm.
+        """
         data = self.multiple_eval_ds #Just for easier writing
         n_turb = len(data.turb.values)  #The number of turbines in the farm
         n_wds = len(WDS)  #The number of wind directions we are looking at
@@ -568,6 +583,9 @@ class AgentEval():
         return fig, axs
     
     def plot_yaw_turb(self, ws, WDS, avg_n=10, TI=0.07, TURBBOX="Default", axs=None, save=False):
+        """
+        Plot the yaw angle for each turbine in the farm.
+        """
         data = self.multiple_eval_ds #Just for easier writing
         n_turb = len(data.turb.values)  #The number of turbines in the farm
         n_wds = len(WDS)  #The number of wind directions we are looking at
@@ -601,6 +619,9 @@ class AgentEval():
         return fig, axs
     
     def plot_speed_turb(self, ws, WDS, avg_n=10, TI=0.07, TURBBOX="Default", axs=None, save=False):
+        """
+        Plot the rotor wind speed for each turbine in the farm.
+        """
         data = self.multiple_eval_ds #Just for easier writing
         n_turb = len(data.turb.values)  #The number of turbines in the farm
         n_wds = len(WDS)  #The number of wind directions we are looking at
@@ -634,6 +655,9 @@ class AgentEval():
         return fig, axs
     
     def plot_turb(self, ws, wd, avg_n=10, TI=0.07, TURBBOX="Default", axs=None, save=False):
+        """
+        Plot the power, yaw and rotor wind speed for each turbine in the farm.
+        """
         data = self.multiple_eval_ds #Just for easier writing
         n_turb = len(data.turb.values)  #The number of turbines in the farm
         # n_wds = len(WDS)  #The number of wind directions we are looking at

@@ -2,10 +2,15 @@
 
 
 ## Description 
-This is the environment for wind farm simulations. It is built on the [DYNAMIKS](https://gitlab.windenergy.dtu.dk/DYNAMIKS/dynamiks) 
+This is a gymnasium environment for wind farm simulations. It is built on the [DYNAMIKS](https://gitlab.windenergy.dtu.dk/DYNAMIKS/dynamiks)
 
 
-
-## Exanples
+## Examples
 
 Coming soon
+
+## Future work
+- Make a petting zoo wrapper to make the env multi agent compatible 
+- Adding more noise options to the sensors
+- Streamlining the sensor class initialization
+- Making example yaml files and example notebooks

@@ -20,13 +20,14 @@ pip install -e .
 
 A current list of environments are:
 - [WindFarmEnv](DTUWindGym/envs/WindFarmEnv/)
-- 
+- Thats it for now 
 
 
 ### Contributing
-If you would like to contribute, follow these steps:
+If you would like to contribute you can message me at manils@dtu.dk 
+
+Or you can follow these steps:
+follow these steps:
 - Fork this repository
 - Clone your fork
 - Set up pre-commit via `pre-commit install`
-
-Or message me at manils@dtu.dk 

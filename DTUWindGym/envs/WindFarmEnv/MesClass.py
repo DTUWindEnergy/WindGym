@@ -3,8 +3,26 @@ import itertools
 import numpy as np
 from .WindEnv import WindEnv
 
+"""
+This file contains the classes for the measurements of the wind farm.
+
+It is divided into three classes:
+- Mes: Baseclass for the measurements
+- turb_mes: Class for the measurements of the turbines
+- farm_mes: Class for the measurements of the farm
+
+The mes class is a baseclass for a type of measurements. It is just a deque with a get_measurements function that can return the desired measurements.
+
+The turb_mes class is a class for the measurements of the turbines. It contains mes classes for the type of sensors we want to use. It also contains a function for calculating the turbulence intensity.
+
+the farm_mes class is the senosrs for the farm. It contains a list of the turb_mes classes, and a mes class for the farm. It also contains a function for calculating the turbulence intensity for the farm.
+
+"""
+
+
 class Mes():
-    """Baseclass for the measurements,
+    """
+    Baseclass for the measurements,
     we can decide how large a memory we need, and also how many measurements we want to get back
     Current: bool, if true return the latest measurement
     Rolling Mean: bool, if true return the rolling mean of the measurements
@@ -23,19 +41,29 @@ class Mes():
         self.measurements = deque(maxlen=self.history_length) 
         
     def __call__(self, measurement):
-        #Append the measurement to the deque via the call function
+        """
+        Append the measurement to the deque via the call function
+        """
         self.measurements.append(measurement)
 
     def append(self, measurement):
-        #Append the measurement to the deque via the append function
+        """
+        Append the measurement to the deque via the append function
+        """
         self.measurements.append(measurement)
 
     def add_measurement(self, measurement):
-        #Append the measurement to the deque via the add_measurement function. This is just the append
+        """
+        Append the measurement to the deque via the add_measurement function. This is just the append
+        """
         self.measurements.append(measurement)
 
     def get_measurements(self):
-        #Get the desired measurements
+        """
+        Get the desired measurements
+        This can return an empty array if no measurements are desired. This is inteded behaviour
+        """
+
         return_vals = []
         if self.current:
             #Return the current measurement
@@ -64,8 +92,10 @@ class Mes():
 
 
 class turb_mes():
-    """Class for all measurements.
-    Each turbine stores measurements for wind speed, wind direction and yaw angle."""
+    """
+    Class for all measurements.
+    Each turbine stores measurements for wind speed, wind direction and yaw angle...
+    """
     
     def __init__(self, ws_current=False, ws_rolling_mean=True, ws_history_N=1, ws_history_length=10, ws_window_length=10,
                        wd_current=False, wd_rolling_mean=True, wd_history_N=1, wd_history_length=10, wd_window_length=10,
@@ -103,14 +133,19 @@ class turb_mes():
             self.get_TI = self.empty_np
 
     def empty_np(self, scaled=False):
-        #Return an empty array
+        """
+        Return an empty array
+        """
         return np.array([])
 
     def calc_TI(self, scaled=False):
-        #Get the Turbulence Intensity
+        """
+        Calcualte TI from the wind speed measurements
+        """
+
 
         u = np.array(self.ws.measurements)  #First we get the wind speed measurements and turn them into an array
-        U = u.mean()  #Then we calculate the mean wind speed
+        U = u.mean()                        #Then we calculate the mean wind speed
 
         TI = np.array([np.std(u - U)/U], dtype=np.float32) #Then we calculate the TI
 
@@ -121,12 +156,18 @@ class turb_mes():
             return TI 
 
     def max_hist(self):
-        #Return the maximum history length of the measurements
-        #This is to do with initialization
+        """
+        Return the maximum history length of the measurements
+        """
+
         return max([self.ws.history_length, self.wd.history_length, self.yaw.history_length])
 
     def observed_variables(self):
-        #Returns the number of observed variables
+        """
+        Returns the number of observed variables
+        """
+
+
         obs_var = 0
 
         #Number of ws variables
@@ -215,7 +256,7 @@ class turb_mes():
 class farm_mes(WindEnv):
     """
     Class for the measurements of the farm.
-    The farm stores measurements from each turbine for wind speed, wind direction, yaw angle
+    The farm stores measurements from each turbine for wind speed, wind direction, yaw angle, power
     """
     
     def __init__(self, n_turbines,
@@ -234,10 +275,10 @@ class farm_mes(WindEnv):
                        ):
         self.n_turbines = n_turbines
         self.turb_mes = []
-        self.turb_ws = turb_ws #do we want measurements from the turbines individually
-        self.turb_wd = turb_wd #do we want measurements from the turbines individually
-        self.turb_TI = turb_TI #do we want measurements from the turbines individually
-        self.turb_power = turb_power #do we want measurements from the turbines individually
+        self.turb_ws = turb_ws          #do we want measurements from the turbines individually
+        self.turb_wd = turb_wd          #do we want measurements from the turbines individually
+        self.turb_TI = turb_TI          #do we want measurements from the turbines individually
+        self.turb_power = turb_power    #do we want measurements from the turbines individually
 
         self.farm_ws = farm_ws #do we want measurements from the farm, i.e. the average of the turbines
         self.farm_wd = farm_wd #do we want measurements from the farm, i.e. the average of the turbines
@@ -255,7 +296,7 @@ class farm_mes(WindEnv):
 
         if turb_TI or farm_TI:
             #If we return the TI, then we check for the number of data points, and then set the TI_fun to the get_TI function
-            if ws_history_length < 60: #TODO figure out the best number of data points to use, and maybe dont hardcode this lol
+            if ws_history_length < 60: #TODO figure out the best number of data points to use
                 print(f"Warning: You are only saving the last {ws_history_length} data measurements of wind speed. It is these data points that are used for the TI calculations, so you might need more data points to get a good estimate of the TI. ")
             
 
@@ -306,7 +347,6 @@ class farm_mes(WindEnv):
         return np.array([])
 
     def add_ws(self, measurement):
-        print("Using the farm_mes.add_ws function... I think these are wrong?")
         measurement += self._add_noise(mean=0, std=self.ws_noise, n=len(measurement) )
         #add measurements to the ws
         for turb in self.turb_mes:
@@ -315,7 +355,6 @@ class farm_mes(WindEnv):
             self.farm_mes.add_ws(np.mean(measurement))
 
     def add_wd(self, measurement):
-        print("Using the farm_mes.add_wd function... I think these are wrong?")
         #add measurements to the wd
         measurement += self._add_noise(mean=0, std=self.wd_noise, n=len(measurement) )
         for turb in self.turb_mes:
@@ -324,14 +363,12 @@ class farm_mes(WindEnv):
             self.farm_mes.add_wd(np.mean(measurement))
 
     def add_yaw(self, measurement):
-        print("Using the farm_mes.add_yaw function... I think these are wrong?")
         #add measurements to the yaw
         measurement += self._add_noise(mean=0, std=self.yaw_noise, n=len(measurement) )
         for turb in self.turb_mes:
             turb.add_yaw(measurement)
 
     def add_power(self, measurement):
-        print("Using the farm_mes.add_power function... I think these are wrong?")
         #add measurements to the power
         measurement += self._add_noise(mean=0, std=self.power_noise, n=len(measurement) )
         for turb in self.turb_mes:
@@ -341,7 +378,6 @@ class farm_mes(WindEnv):
 
     def add_measurements(self, ws, wd, yaws, powers):
         #add measurements to the ws, wd and yaw in one go
-        #But I am saving a for loop here
 
         #Adding noise to the measurements
         # print("Before noise in farm: ws: ", ws, "| wd: ", wd, "| yaws: ", yaws, "| powers: ", powers)
@@ -368,13 +404,16 @@ class farm_mes(WindEnv):
             self.farm_mes.add_power(np.sum(powers))
 
     def max_hist(self):
-        #Return the maximum history length of the measurements
-        #This is to do with initialization
+        """
+        Return the maximum history length of the measurements
+        """
+
         return self.turb_mes[0].max_hist()
 
     def observed_variables(self):
-        #Returns the number of observed variables
-        ########## Add farm level observations to the number lol
+        """
+        Returns the number of observed variables
+        """
 
         return self.turb_mes[0].observed_variables() * self.n_turbines + self.farm_observed_variables
     
