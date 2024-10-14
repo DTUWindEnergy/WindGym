@@ -1,17 +1,27 @@
-# Gymnasium Examples
-Some simple examples of Gymnasium environments and wrappers.
-For some explanations of these examples, see the [Gymnasium documentation](https://gymnasium.farama.org).
+# DTUWindGym
 
-### Environments
-This repository hosts the examples that are shown [on the environment creation documentation](https://gymnasium.farama.org/tutorials/gymnasium_basics/environment_creation/).
-- `GridWorldEnv`: Simplistic implementation of gridworld environment
+## Description
 
-### Wrappers
-This repository hosts the examples that are shown [on wrapper documentation](https://gymnasium.farama.org/api/wrappers/).
-- `ClipReward`: A `RewardWrapper` that clips immediate rewards to a valid range
-- `DiscreteActions`: An `ActionWrapper` that restricts the action space to a finite subset
-- `RelativePosition`: An `ObservationWrapper` that computes the relative position between an agent and a target
-- `ReacherRewardWrapper`: Allow us to weight the reward terms for the reacher environment
+The goal of this is to collect the different RL environments from DTU at one place. 
+
+The hope is that this can help bring more attention to what is being worked on and foster collaboration. 
+
+## Installation
+
+To install your new environment, run the following commands:
+
+```{shell}
+git clone https://gitlab.windenergy.dtu.dk/manils/dtu_wind_gym.git
+cd DTUWindGym
+pip install -e .
+```
+
+## List of avaliable environments
+
+A current list of environments are:
+- [WindFarmEnv](DTUWindGym/envs/WindFarmEnv/README.md)
+- 
+
 
 ### Contributing
 If you would like to contribute, follow these steps:
@@ -19,15 +29,4 @@ If you would like to contribute, follow these steps:
 - Clone your fork
 - Set up pre-commit via `pre-commit install`
 
-PRs may require accompanying PRs in [the documentation repo](https://github.com/Farama-Foundation/Gymnasium/tree/main/docs).
-
-
-## Installation
-
-To install your new environment, run the following commands:
-
-```{shell}
-cd MyTestEnv123
-pip install -e .
-```
-
+Or message me at manils@dtu.dk 
