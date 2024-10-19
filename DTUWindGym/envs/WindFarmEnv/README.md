@@ -17,4 +17,3 @@ An example animation of the turbines in the flow.
 - Make a petting zoo wrapper to make the env multi agent compatible 
 - Adding more noise options to the sensors
 - Streamlining the sensor class initialization
-- Making example yaml files and example notebooks
