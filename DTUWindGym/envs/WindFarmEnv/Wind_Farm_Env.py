@@ -67,10 +67,10 @@ class WindFarmEnv(WindEnv):
         
         #Predefined values
         self.power_setpoint = 0.0   #The power setpoint for the farm. This is used if the Track_power is True. (Not used yet)
-        act_var = 1                 #number of actions pr. turbine. For now it is just the yaw angles
+        self.act_var = 1                 #number of actions pr. turbine. For now it is just the yaw angles
         self.dt = 1                 #time step for the flow simulation. 
         self.yaw_start = 15.0       #This is the limit for the initialization of the yaw angles. This is used to make sure that the yaw angles are not too large at the start, but still not zero
-        self.maxturbpower = 2000000 #2 MW. Max power pr turbine. Used in the measurement class. For now just hardcoded. 
+        self.maxturbpower = max(turbine.power(np.arange(10, 25, 1))) #Max power pr turbine. Used in the measurement class
         self.yaw_step = 1           #The step size for the yaw angles. How manny degress the yaw angles can change pr. step
         self.d_particle = 0.1       #The distance between the particles. This is used in the flow simulation.
         
@@ -205,12 +205,7 @@ class WindFarmEnv(WindEnv):
 
 
         #Define the observation and action space
-        obs_var = self.farm_measurements.observed_variables()
-
-        self.observation_space = gym.spaces.Box(low=-1.0, high=1.0, 
-                                                shape=((obs_var), ), dtype=np.float32) 
-        self.action_space = gym.spaces.Box(low= -1, high=1, 
-                                           shape=((self.n_turb * act_var), ), dtype=np.float32) 
+        self.obs_var = self.farm_measurements.observed_variables()
 
         self.reset(seed=seed)  #I dont hope anything breaks by not having this here.
 
@@ -271,6 +266,15 @@ class WindFarmEnv(WindEnv):
         self.power_avg = self.power_def["Power_avg"]
         self.power_reward = self.power_def["Power_reward"]
 
+    def _init_spaces(self):
+        """
+        This function initializes the observation and action spaces. 
+        This is done in a seperate function, so we can replace it in the multi agent version of the environment
+        """
+        self.observation_space = gym.spaces.Box(low=-1.0, high=1.0, 
+                                                shape=((self.obs_var), ), dtype=np.float32) 
+        self.action_space = gym.spaces.Box(low= -1, high=1, 
+                                           shape=((self.n_turb * self.act_var), ), dtype=np.float32) 
 
     def init_render(self):
         plt.ion()
