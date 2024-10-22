@@ -207,7 +207,7 @@ class WindFarmEnv(WindEnv):
         #Define the observation and action space
         self.obs_var = self.farm_measurements.observed_variables()
 
-        # self.reset(seed=seed)  #I dont hope anything breaks by not having this here.
+        self.reset(seed=seed)  #I dont hope anything breaks by not having this here.
 
         #TODO the render mode is not implemented yet. I think?
         #Asserting that the render_mode is valid.
