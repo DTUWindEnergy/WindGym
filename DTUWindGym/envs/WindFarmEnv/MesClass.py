@@ -332,6 +332,7 @@ class farm_mes(WindEnv):
                                  yaw_current, yaw_rolling_mean, yaw_history_N, yaw_history_length, yaw_window_length,
                                  power_current and farm_power, power_rolling_mean and farm_power, power_history_N, power_history_length, power_window_length,       
                                  self.ws_min, self.ws_max, wd_min, wd_max, yaw_min, yaw_max,
+                                 TI_min, TI_max, farm_TI,
                                  power_max=power_max*n_turbines) #The max power is the sum of all the turbines
             
 
@@ -393,15 +394,21 @@ class farm_mes(WindEnv):
             turb.add_wd(direction)
             turb.add_yaw(yaw)
             turb.add_power(power)
+        
+        #Add to farm level measurements
+        self.farm_mes.add_ws(np.mean(ws))
+        self.farm_mes.add_wd(np.mean(wd))
+        self.farm_mes.add_power(np.sum(powers))
 
-        if self.farm_ws:
-            self.farm_mes.add_ws(np.mean(ws))
+        #
+        # if self.farm_ws:
+        #     self.farm_mes.add_ws(np.mean(ws))
 
-        if self.farm_wd:
-            self.farm_mes.add_wd(np.mean(wd))
+        # if self.farm_wd:
+        #     self.farm_mes.add_wd(np.mean(wd))
 
-        if self.farm_power:
-            self.farm_mes.add_power(np.sum(powers))
+        # if self.farm_power:
+        #     self.farm_mes.add_power(np.sum(powers))
 
     def max_hist(self):
         """
