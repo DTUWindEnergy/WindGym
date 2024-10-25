@@ -45,6 +45,7 @@ class WindFarmEnv(WindEnv):
     metadata = {"render_modes": ["human", "rgb_array"]}
 
     def __init__(self, turbine, 
+                 time_end = 5000,
                  TI_min_mes:float = 0.0, TI_max_mes:float = 0.50, 
                  TurbBox = "Default",
                  yaml_path = None,
@@ -73,11 +74,13 @@ class WindFarmEnv(WindEnv):
         self.maxturbpower = max(turbine.power(np.arange(10, 25, 1))) #Max power pr turbine. Used in the measurement class
         self.yaw_step = 1           #The step size for the yaw angles. How manny degress the yaw angles can change pr. step
         self.d_particle = 0.1       #The distance between the particles. This is used in the flow simulation.
-        
+
         #Saves to self
         self.seed = seed
         self.TurbBox = TurbBox
         self.turbine = turbine
+        self.time_max = time_end    #The maximum time of the simulation. This is used to make sure that the simulation doesnt run forever.  
+        self.timestep = 0
         
         self.TF_files = []
         self.yaw_initial = [0]      #The initial yaw of the turbines. This is used if the yaw_init is "Defined"
@@ -207,7 +210,9 @@ class WindFarmEnv(WindEnv):
         #Define the observation and action space
         self.obs_var = self.farm_measurements.observed_variables()
 
-        self.reset(seed=seed)  #I dont hope anything breaks by not having this here.
+        self._init_spaces()
+        
+        # self.reset(seed=seed)  #I dont hope anything breaks by not having this here.
 
         #TODO the render mode is not implemented yet. I think?
         #Asserting that the render_mode is valid.
@@ -232,6 +237,7 @@ class WindFarmEnv(WindEnv):
         self.ActionMethod = config.get('ActionMethod')
         # self.Baseline_comp = config.get('Baseline_comp')
         self.Track_power = config.get('Track_power')
+
         
         #Unpack the farm params
         farm_params = config.get('farm')
@@ -383,7 +389,7 @@ class WindFarmEnv(WindEnv):
         """
         # We need the following line to seed self.np_random
         super().reset(seed=seed)
-
+        self.timestep = 0
         #Sample global wind conditions and set the site
         self._set_windconditions()  
         self._def_site()
@@ -641,8 +647,21 @@ class WindFarmEnv(WindEnv):
         #The reward is: power reward - action penalty. This makes it possible to add a reward for power tracking, and/or damage, easily. 
         reward = power_rew + track_rew - action_penalty  #The reward is the power reward minus the action penalty
 
+        #If we are at the end of the simulation, we truncate the agents.
+        # Note that this is not the same as terminating the agents. 
+        # https://farama.org/Gymnasium-Terminated-Truncated-Step-API#theory
+        # https://arxiv.org/pdf/1712.00378
+        # https://gymnasium.farama.org/tutorials/gymnasium_basics/handling_time_limits/
+        if self.timestep >= self.time_max:
+            # terminated = {a: True for a in self.agents}
+            truncated = True
+        else:
+            truncated = False
+
+        self.timestep += 1
+
         terminated = False
-        truncated = False
+
 
         if self.render_mode == "human":
             self._render_frame()

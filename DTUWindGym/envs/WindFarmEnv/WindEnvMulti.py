@@ -24,13 +24,15 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
                  render_mode=None, seed = None,
                  ):
         #call the init function of the parent class.
-        WindFarmEnv.__init__(self, turbine=turbine, TI_min_mes=TI_min_mes, 
+        WindFarmEnv.__init__(self, turbine=turbine, 
+                               time_end=time_end,
+                               TI_min_mes=TI_min_mes, 
                                TI_max_mes=TI_max_mes, TurbBox=TurbBox, 
                                yaml_path=yaml_path, Baseline_comp=Baseline_comp, 
                                yaw_init=yaw_init, render_mode=render_mode, seed=seed)
         
         #I dont think the time limit wrapper works with the pettingzoo envs, so we just set the time limit here ourself. 
-        self.time_max = time_end #Maximum time of the simulation.
+        # self.time_max = time_end #Maximum time of the simulation.
 
         #Then we change some minor things.
         self.act_var = 1
@@ -141,7 +143,7 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
         # https://farama.org/Gymnasium-Terminated-Truncated-Step-API#theory
         # https://arxiv.org/pdf/1712.00378
         # https://gymnasium.farama.org/tutorials/gymnasium_basics/handling_time_limits/
-        if self.timestep >= self.time_max:
+        if truncated:
             # terminated = {a: True for a in self.agents}
             truncations = {a: True for a in self.agents}
         else:
