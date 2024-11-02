@@ -302,10 +302,15 @@ class WindFarmEnv(WindEnv):
         
         
         #Get the observation of the environment
-        self.current_ws = np.linalg.norm(self.fs.windTurbines.rotor_avg_windspeed(include_wakes=True), axis=0) #The current ws is the norm of the three components
+        #self.current_ws = np.linalg.norm(self.fs.windTurbines.rotor_avg_windspeed(include_wakes=True), axis=0)
+        #TODO make sure the implementation is correct
+        self.current_ws = np.linalg.norm(self.fs.windTurbines.rotor_avg_windspeed, axis=1) 
+         #The current ws is the norm of the three components
         #The current wd is the invtan of the u/v components of the wind speed. Remember to add the "global" wind direction to this measurement, as we are rotating the farm 
-        u_speed = self.fs.windTurbines.rotor_avg_windspeed(include_wakes=True)[1]
-        v_speed = self.fs.windTurbines.rotor_avg_windspeed(include_wakes=True)[0]
+        # u_speed = self.fs.windTurbines.rotor_avg_windspeed(include_wakes=True)[1]
+        u_speed = self.fs.windTurbines.rotor_avg_windspeed[:,1]
+        # v_speed = self.fs.windTurbines.rotor_avg_windspeed(include_wakes=True)[0]
+        v_speed = self.fs.windTurbines.rotor_avg_windspeed[:,0]
         self.current_wd = np.rad2deg(np.arctan( u_speed / v_speed)) + self.wd
 
         self.current_yaw = self.fs.windTurbines.yaw

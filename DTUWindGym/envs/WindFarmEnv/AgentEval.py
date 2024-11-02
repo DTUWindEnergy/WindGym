@@ -9,7 +9,7 @@ import os
 import matplotlib.pyplot as plt
 from collections import deque 
 from py_wake.wind_turbines import WindTurbines as WindTurbinesPW
-from pathos.pools import ProcessPool
+# from pathos.pools import ProcessPool
 
 """
 AgentEval is a class that is used to evaluate an agent on the EnvEval environment.
