@@ -45,7 +45,7 @@ class WindFarmEnv(WindEnv):
     metadata = {"render_modes": ["human", "rgb_array"]}
 
     def __init__(self, turbine, 
-                 time_end = 5000,
+                 n_passthrough = 5, 
                  TI_min_mes:float = 0.0, TI_max_mes:float = 0.50, 
                  TurbBox = "Default",
                  yaml_path = None,
@@ -56,6 +56,8 @@ class WindFarmEnv(WindEnv):
         """
         This is a steadystate environment. The environment only ever changes wind conditions at reset. Then the windconditions are constatnt for the rest of the episode
         Args: 
+            turbine: PyWakeWindTurbines: The wind turbine that is used in the environment
+            n_passthrough: int: The number of times the flow passes through the farm. This is used to calculate the maximum simulation time.
             TI_min_mes: float: The minimum value for the turbulence intensity measurements. Used for internal scaling
             TI_max_mes: float: The maximum value for the turbulence intensity measurements. Used for internal scaling
             TurbBox: str: The path to the turbulence box files. If Default, then it will use the default turbulence box files.
@@ -79,7 +81,8 @@ class WindFarmEnv(WindEnv):
         self.seed = seed
         self.TurbBox = TurbBox
         self.turbine = turbine
-        self.time_max = time_end    #The maximum time of the simulation. This is used to make sure that the simulation doesnt run forever.  
+        self.time_max = 0    #The maximum time of the simulation. This is used to make sure that the simulation doesnt run forever.  
+        self.n_passthrough = n_passthrough  #The number of times the flow passes through the farm. This is used to calculate the maximum simulation time.
         self.timestep = 0
         
         self.TF_files = []
@@ -415,14 +418,19 @@ class WindFarmEnv(WindEnv):
         self.fs.windTurbines.yaw = self._yaw_init(min_val=-self.yaw_start, max_val=self.yaw_start, n=self.n_turb, yaws=self.yaw_initial) 
         
         #Calulate the time it takes for the flow to develop.
-        
-        turb_place = np.linalg.norm(self.fs.windTurbines.positions_xyz, axis=0)
-        dist = turb_place.max() - turb_place.min()  
+        turb_xpos = self.fs.windTurbines.rotor_positions_xyz[0,:]
+        dist = turb_xpos.max() - turb_xpos.min() 
+        # turb_place = np.linalg.norm(self.fs.windTurbines.positions_xyz, axis=0)
+        # dist = turb_place.max() - turb_place.min()  
 
-        t_developed = int( (dist / self.ws) * 1.1 ) #The time it takes for the flow to develop. Also a bit extra.
+        t_inflow = dist / self.ws #Time it takes for the flow to travel from one side of the farm to the other
+        t_developed = int( t_inflow * 1.1 ) #The time it takes for the flow to develop. Also a bit extra.
 
+        self.time_max  = int(t_inflow * self.n_passthrough) #Max allowed timesteps        
         #first we run the simulation the time it takes the flow to develop
         self.fs.run(t_developed)  
+
+        
 
         #After the flow is fully developed, we fill up the measurements 
         for _ in range(int(  max( self.hist_max, self.power_len) )):
