@@ -386,6 +386,9 @@ class WindFarmEnv(WindEnv):
             tf_base = MannTurbulenceField.from_netcdf(filename = tf_file )
             tf_base.scale_TI(ti=self.ti, U=self.ws)  
             self.site_base = TurbulenceFieldSite(ws=self.ws, turbulenceField=tf_base)
+            del tf_base
+        del tf_agent
+
 
     def reset(self, seed: Optional[int] = None, options: Optional[dict] = None):
         """
