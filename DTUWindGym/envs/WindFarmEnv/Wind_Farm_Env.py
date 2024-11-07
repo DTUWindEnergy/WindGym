@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from dynamiks.utils.test_utils import tfp
 import copy
 import os
+import gc
 #For the site
 from dynamiks.sites import TurbulenceFieldSite
 from dynamiks.sites.turbulence_fields import MannTurbulenceField
@@ -388,7 +389,7 @@ class WindFarmEnv(WindEnv):
             self.site_base = TurbulenceFieldSite(ws=self.ws, turbulenceField=tf_base)
             del tf_base
         del tf_agent
-
+        gc.collect()
 
     def reset(self, seed: Optional[int] = None, options: Optional[dict] = None):
         """
@@ -672,6 +673,11 @@ class WindFarmEnv(WindEnv):
         if self.timestep >= self.time_max:
             # terminated = {a: True for a in self.agents}
             truncated = True
+            #Clean up the flow simulation. This is to make sure that we dont have a memory leak.
+            if self.Baseline_comp:
+                del self.fs_baseline
+            del self.fs
+            gc.collect()
         else:
             truncated = False
 
