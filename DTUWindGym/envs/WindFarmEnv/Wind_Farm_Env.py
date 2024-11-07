@@ -473,7 +473,8 @@ class WindFarmEnv(WindEnv):
         yaw_baseline = self.fs_baseline.windTurbines.yaw
 
         #Then by taking the inverse tan of the wind speed components, we get the LOCAL wind direction
-        wind_dir_baseline = np.rad2deg(np.arctan(self.fs_baseline.windTurbines.rotor_avg_windspeed(include_wakes=True)[1] / self.fs_baseline.windTurbines.rotor_avg_windspeed(include_wakes=True)[0]))
+        # wind_dir_baseline = np.rad2deg(np.arctan(self.fs_baseline.windTurbines.rotor_avg_windspeed(include_wakes=True)[1] / self.fs_baseline.windTurbines.rotor_avg_windspeed(include_wakes=True)[0]))
+        wind_dir_baseline = np.rad2deg(np.arctan(self.fs_baseline.windTurbines.rotor_avg_windspeed[:,1] /  self.fs_baseline.windTurbines.rotor_avg_windspeed[:,0] ))
         
         #The desired yaw offset is the difference between the baseline yaw and the baseline wind direction
         yaw_offset = wind_dir_baseline - yaw_baseline
