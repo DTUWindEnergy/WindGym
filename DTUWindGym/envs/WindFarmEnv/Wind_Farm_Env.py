@@ -79,6 +79,8 @@ class WindFarmEnv(WindEnv):
         self.d_particle = 0.1       #The distance between the particles. This is used in the flow simulation.
 
         #Saves to self
+        self.TI_min_mes = TI_min_mes
+        self.TI_max_mes = TI_max_mes
         self.seed = seed
         self.TurbBox = TurbBox
         self.turbine = turbine
@@ -162,21 +164,8 @@ class WindFarmEnv(WindEnv):
         else:
             self.Baseline_comp = False
 
-        #Initializing the measurements class with the specified values.
-        #TODO if history_length is 1, then we dont need to save the history, and we can just use the current values.
-        #TODO is history_N is 1 or larger, then it is kinda implied that the rolling_mean is true.. Therefore we can change the if self.rolling_mean: check in the Mes() class, to be a if self.history_N >= 1 check... or something like that
-        self.farm_measurements = farm_mes(self.n_turb, self.noise,  
-                                          self.mes_level["turb_ws"], self.mes_level["turb_wd"], self.mes_level["turb_TI"], self.mes_level["turb_power"],
-                                          self.mes_level["farm_ws"], self.mes_level["farm_wd"], self.mes_level["farm_TI"], self.mes_level["farm_power"],
-                                          self.ws_mes["ws_current"], self.ws_mes["ws_rolling_mean"], self.ws_mes["ws_history_N"], self.ws_mes["ws_history_length"], self.ws_mes["ws_window_length"],
-                                          self.wd_mes["wd_current"], self.wd_mes["wd_rolling_mean"], self.wd_mes["wd_history_N"], self.wd_mes["wd_history_length"], self.wd_mes["wd_window_length"],
-                                          self.yaw_mes["yaw_current"], self.yaw_mes["yaw_rolling_mean"], self.yaw_mes["yaw_history_N"], self.yaw_mes["yaw_history_length"], self.yaw_mes["yaw_window_length"],
-                                          self.power_mes["power_current"], self.power_mes["power_rolling_mean"], self.power_mes["power_history_N"], self.power_mes["power_history_length"], self.power_mes["power_window_length"],
-                                          2.0, 25.0,                        #Max and min values for wind speed measuremenats
-                                          self.wd_min-5, self.wd_max+5,     #Max and min values for wind direction measurements   NOTE i have added 5 for some slack in the measurements. so the scaling is better.
-                                          self.yaw_min, self.yaw_max,       #Max and min values for yaw measurements
-                                          TI_min_mes, TI_max_mes,           #Max and min values for the turbulence intensity measurements
-                                          power_max=self.maxturbpower)   
+        # #Initializing the measurements class with the specified values.
+        self._init_farm_mes()
 
         self.hist_max = self.farm_measurements.max_hist()  #The maximum history length of the measurements
          
@@ -275,6 +264,27 @@ class WindFarmEnv(WindEnv):
         self.Power_scaling = self.power_def["Power_scaling"]
         self.power_avg = self.power_def["Power_avg"]
         self.power_reward = self.power_def["Power_reward"]
+
+    def _init_farm_mes(self):
+        """
+        This function initializes the farm measurements class.
+        This id done partly due to modularity, but also because we can delete it from memory later, as I suspect this might be the source of the memory leak
+        """
+                #Initializing the measurements class with the specified values.
+        #TODO if history_length is 1, then we dont need to save the history, and we can just use the current values.
+        #TODO is history_N is 1 or larger, then it is kinda implied that the rolling_mean is true.. Therefore we can change the if self.rolling_mean: check in the Mes() class, to be a if self.history_N >= 1 check... or something like that
+        self.farm_measurements = farm_mes(self.n_turb, self.noise,  
+                                          self.mes_level["turb_ws"], self.mes_level["turb_wd"], self.mes_level["turb_TI"], self.mes_level["turb_power"],
+                                          self.mes_level["farm_ws"], self.mes_level["farm_wd"], self.mes_level["farm_TI"], self.mes_level["farm_power"],
+                                          self.ws_mes["ws_current"], self.ws_mes["ws_rolling_mean"], self.ws_mes["ws_history_N"], self.ws_mes["ws_history_length"], self.ws_mes["ws_window_length"],
+                                          self.wd_mes["wd_current"], self.wd_mes["wd_rolling_mean"], self.wd_mes["wd_history_N"], self.wd_mes["wd_history_length"], self.wd_mes["wd_window_length"],
+                                          self.yaw_mes["yaw_current"], self.yaw_mes["yaw_rolling_mean"], self.yaw_mes["yaw_history_N"], self.yaw_mes["yaw_history_length"], self.yaw_mes["yaw_window_length"],
+                                          self.power_mes["power_current"], self.power_mes["power_rolling_mean"], self.power_mes["power_history_N"], self.power_mes["power_history_length"], self.power_mes["power_window_length"],
+                                          2.0, 25.0,                        #Max and min values for wind speed measuremenats
+                                          self.wd_min-5, self.wd_max+5,     #Max and min values for wind direction measurements   NOTE i have added 5 for some slack in the measurements. so the scaling is better.
+                                          self.yaw_min, self.yaw_max,       #Max and min values for yaw measurements
+                                          self.TI_min_mes, self.TI_max_mes,           #Max and min values for the turbulence intensity measurements
+                                          power_max=self.maxturbpower)   
 
     def _init_spaces(self):
         """
@@ -383,11 +393,12 @@ class WindFarmEnv(WindEnv):
         tf_agent.scale_TI(ti=self.ti, U=self.ws)  
         self.site = TurbulenceFieldSite(ws=self.ws, turbulenceField=tf_agent)
 
-        if self.Baseline_comp:
-            tf_base = MannTurbulenceField.from_netcdf(filename = tf_file )
-            tf_base.scale_TI(ti=self.ti, U=self.ws)  
-            self.site_base = TurbulenceFieldSite(ws=self.ws, turbulenceField=tf_base)
-            del tf_base
+        # if self.Baseline_comp:
+        #     tf_base = MannTurbulenceField.from_netcdf(filename = tf_file )
+        #     tf_base.scale_TI(ti=self.ti, U=self.ws)  
+        #     self.site_base = TurbulenceFieldSite(ws=self.ws, turbulenceField=tf_base)
+        #     del tf_base
+        tf_agent = None
         del tf_agent
         gc.collect()
 
@@ -405,7 +416,8 @@ class WindFarmEnv(WindEnv):
         #Sample global wind conditions and set the site
         self._set_windconditions()  
         self._def_site()
-
+        #Restart the measurement class. This is done to make sure that the measurements are not carried over from the last episode
+        self._init_farm_mes()
 
         self.rated_power = self.turbine.power(self.ws) #This is the rated poweroutput of the turbine at the given ws. Used for reward scaling. 
 
@@ -435,7 +447,6 @@ class WindFarmEnv(WindEnv):
         self.fs.run(t_developed)  
 
         
-
         #After the flow is fully developed, we fill up the measurements 
         for _ in range(int(  max( self.hist_max, self.power_len) )):
             self.fs.step()  #Take a step in the flow simulation
@@ -444,7 +455,14 @@ class WindFarmEnv(WindEnv):
             
         #Do the same for the baseline farm
         if self.Baseline_comp:
-            self.fs_baseline = DWMFlowSimulation(site=self.site_base, 
+            # self.fs_baseline = DWMFlowSimulation(site=self.site_base, 
+            #                                     windTurbines=self.wts_baseline, 
+            #                                     wind_direction=self.wd,
+            #                                     particleDeficitGenerator=jDWMAinslieGenerator(), 
+            #                                     dt=self.dt,
+            #                                     d_particle = self.d_particle,
+            #                                     particleMotionModel=HillVortexParticleMotion()) 
+            self.fs_baseline = DWMFlowSimulation(site=self.site, 
                                                 windTurbines=self.wts_baseline, 
                                                 wind_direction=self.wd,
                                                 particleDeficitGenerator=jDWMAinslieGenerator(), 
@@ -675,10 +693,16 @@ class WindFarmEnv(WindEnv):
             truncated = True
             #Clean up the flow simulation. This is to make sure that we dont have a memory leak.
             if self.Baseline_comp:
+                self.fs_baseline = None
+                # self.site_base = None
                 del self.fs_baseline
-                del self.site_base
+                # del self.site_base
+            self.fs = None
+            self.site = None
+            self.farm_measurements = None
             del self.fs
             del self.site
+            del self.farm_measurements
             gc.collect()
         else:
             truncated = False
