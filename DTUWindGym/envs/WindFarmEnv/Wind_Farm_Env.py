@@ -374,7 +374,7 @@ class WindFarmEnv(WindEnv):
         """
         Defines the self.site. This is the site that the flow simulation is run on.
         We choose a random turbulence box, and scale it to the correct TI and wind speed
-        It is repeated for the baseline is we have that.
+        It is repeated for the baseline if we have that.
         """
 
         tf_file = self.np_random.choice( self.TF_files ) 
@@ -676,7 +676,9 @@ class WindFarmEnv(WindEnv):
             #Clean up the flow simulation. This is to make sure that we dont have a memory leak.
             if self.Baseline_comp:
                 del self.fs_baseline
+                del self.site_base
             del self.fs
+            del self.site
             gc.collect()
         else:
             truncated = False
