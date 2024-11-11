@@ -590,8 +590,15 @@ class WindFarmEnv(WindEnv):
         power_agent = np.mean(self.farm_pow_deq)
         power_baseline = np.mean(self.base_pow_deq)
 
-        reward = (power_agent / power_baseline - 1)    
-
+        #There was issued with the baseline power being zero. This is a quick fix for that.
+        if power_baseline == 0:
+            reward = 0
+            print("The baseline power is zero. This is probably not good")
+            print("The agent power is: ", power_agent)
+            print("self.farm_pow_deq: ", self.farm_pow_deq)
+            print("self.base_pow_deq: ", self.base_pow_deq)
+        else:
+            reward = (power_agent / power_baseline - 1)    
         return reward
 
     def power_rew_avg(self):
