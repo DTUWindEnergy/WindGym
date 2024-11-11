@@ -197,7 +197,7 @@ class WindFarmEnv(WindEnv):
                 raise ValueError("The BaseController must be either Local or Global... For now")
             #Definde the turbines
             self.wts_baseline = PyWakeWindTurbines(x=self.x_pos, y=self.y_pos,   # x and y position of two wind turbines
-                                        windTurbine=turbine)
+                                        windTurbine=self.turbine)
 
 
         #Define the observation and action space
@@ -316,15 +316,15 @@ class WindFarmEnv(WindEnv):
         
         
         #Get the observation of the environment
-        #self.current_ws = np.linalg.norm(self.fs.windTurbines.rotor_avg_windspeed(include_wakes=True), axis=0)
+        self.current_ws = np.linalg.norm(self.fs.windTurbines.rotor_avg_windspeed(include_wakes=True), axis=0)
         #TODO make sure the implementation is correct
-        self.current_ws = np.linalg.norm(self.fs.windTurbines.rotor_avg_windspeed, axis=1) 
+        # self.current_ws = np.linalg.norm(self.fs.windTurbines.rotor_avg_windspeed, axis=1) 
          #The current ws is the norm of the three components
         #The current wd is the invtan of the u/v components of the wind speed. Remember to add the "global" wind direction to this measurement, as we are rotating the farm 
-        # u_speed = self.fs.windTurbines.rotor_avg_windspeed(include_wakes=True)[1]
-        u_speed = self.fs.windTurbines.rotor_avg_windspeed[:,1]
-        # v_speed = self.fs.windTurbines.rotor_avg_windspeed(include_wakes=True)[0]
-        v_speed = self.fs.windTurbines.rotor_avg_windspeed[:,0]
+        u_speed = self.fs.windTurbines.rotor_avg_windspeed(include_wakes=True)[1]
+        # u_speed = self.fs.windTurbines.rotor_avg_windspeed[:,1]
+        v_speed = self.fs.windTurbines.rotor_avg_windspeed(include_wakes=True)[0]
+        # v_speed = self.fs.windTurbines.rotor_avg_windspeed[:,0]
         self.current_wd = np.rad2deg(np.arctan( u_speed / v_speed)) + self.wd
 
         self.current_yaw = self.fs.windTurbines.yaw
@@ -368,7 +368,8 @@ class WindFarmEnv(WindEnv):
             return_dict["yaw angles base"] = self.fs_baseline.windTurbines.yaw
             return_dict["Power baseline"] = self.fs_baseline.windTurbines.power().sum()
             return_dict["Power pr turbine baseline"] = self.fs_baseline.windTurbines.power()
-        
+            # return_dict["Wind speed at turbines baseline"] = self.fs_baseline.windTurbines.rotor_avg_windspeed[:,0] #Just the largest component
+            return_dict["Wind speed at turbines baseline"] = self.fs_baseline.windTurbines.rotor_avg_windspeed(include_wakes=True)[0,:] #Just the largest component
         return return_dict
 
     def _set_windconditions(self):
@@ -393,11 +394,11 @@ class WindFarmEnv(WindEnv):
         tf_agent.scale_TI(ti=self.ti, U=self.ws)  
         self.site = TurbulenceFieldSite(ws=self.ws, turbulenceField=tf_agent)
 
-        # if self.Baseline_comp:
-        #     tf_base = MannTurbulenceField.from_netcdf(filename = tf_file )
-        #     tf_base.scale_TI(ti=self.ti, U=self.ws)  
-        #     self.site_base = TurbulenceFieldSite(ws=self.ws, turbulenceField=tf_base)
-        #     del tf_base
+        if self.Baseline_comp: #I am pretty sure we need to have 2 sites, as the flow simulation is run on the site, and the measurements are taken from the site.
+            tf_base = MannTurbulenceField.from_netcdf(filename = tf_file )
+            tf_base.scale_TI(ti=self.ti, U=self.ws)  
+            self.site_base = TurbulenceFieldSite(ws=self.ws, turbulenceField=tf_base)
+            del tf_base
         tf_agent = None
         del tf_agent
         gc.collect()
@@ -462,7 +463,7 @@ class WindFarmEnv(WindEnv):
             #                                     dt=self.dt,
             #                                     d_particle = self.d_particle,
             #                                     particleMotionModel=HillVortexParticleMotion()) 
-            self.fs_baseline = DWMFlowSimulation(site=self.site, 
+            self.fs_baseline = DWMFlowSimulation(site=self.site_base, 
                                                 windTurbines=self.wts_baseline, 
                                                 wind_direction=self.wd,
                                                 particleDeficitGenerator=jDWMAinslieGenerator(), 
@@ -495,8 +496,8 @@ class WindFarmEnv(WindEnv):
         yaw_baseline = self.fs_baseline.windTurbines.yaw
 
         #Then by taking the inverse tan of the wind speed components, we get the LOCAL wind direction
-        # wind_dir_baseline = np.rad2deg(np.arctan(self.fs_baseline.windTurbines.rotor_avg_windspeed(include_wakes=True)[1] / self.fs_baseline.windTurbines.rotor_avg_windspeed(include_wakes=True)[0]))
-        wind_dir_baseline = np.rad2deg(np.arctan(self.fs_baseline.windTurbines.rotor_avg_windspeed[:,1] /  self.fs_baseline.windTurbines.rotor_avg_windspeed[:,0] ))
+        wind_dir_baseline = np.rad2deg(np.arctan(self.fs_baseline.windTurbines.rotor_avg_windspeed(include_wakes=True)[1] / self.fs_baseline.windTurbines.rotor_avg_windspeed(include_wakes=True)[0]))
+        # wind_dir_baseline = np.rad2deg(np.arctan(self.fs_baseline.windTurbines.rotor_avg_windspeed[:,1] /  self.fs_baseline.windTurbines.rotor_avg_windspeed[:,0] ))
         
         #The desired yaw offset is the difference between the baseline yaw and the baseline wind direction
         yaw_offset = wind_dir_baseline - yaw_baseline
@@ -592,11 +593,12 @@ class WindFarmEnv(WindEnv):
 
         #There was issued with the baseline power being zero. This is a quick fix for that.
         if power_baseline == 0:
-            reward = 0
             print("The baseline power is zero. This is probably not good")
             print("The agent power is: ", power_agent)
             print("self.farm_pow_deq: ", self.farm_pow_deq)
             print("self.base_pow_deq: ", self.base_pow_deq)
+            0/0 #This will raise an error, and stop the simulation
+            reward = 0
         else:
             reward = (power_agent / power_baseline - 1)    
         return reward
@@ -701,9 +703,9 @@ class WindFarmEnv(WindEnv):
             #Clean up the flow simulation. This is to make sure that we dont have a memory leak.
             if self.Baseline_comp:
                 self.fs_baseline = None
-                # self.site_base = None
+                self.site_base = None
                 del self.fs_baseline
-                # del self.site_base
+                del self.site_base
             self.fs = None
             self.site = None
             self.farm_measurements = None
