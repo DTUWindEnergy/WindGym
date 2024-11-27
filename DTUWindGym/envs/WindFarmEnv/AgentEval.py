@@ -25,6 +25,7 @@ TODO: Consolidate the plotting functions, so that they are more general.
 # def eval_single_fast(env, model, ws=10.0, ti=0.05, wd=270, yaw=0.0, turbbox="Default", t_sim=1000, save_figs=False, scale_obs=None, debug=False):
 
 def eval_single_fast(env, model, 
+                model_step,
                 ws=10.0, ti=0.05, 
                 wd=270, yaw=0.0, 
                 turbbox="Default",

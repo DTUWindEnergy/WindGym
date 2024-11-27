@@ -14,6 +14,7 @@ class FarmEval(WindFarmEnv):
                 yaw_init = "Zeros", 
                 TurbBox = "Default",
                 yaml_path = None,
+                Baseline_comp = False,
                 render_mode=None, seed = None,
                 ):
         
@@ -24,10 +25,18 @@ class FarmEval(WindFarmEnv):
                          yaml_path=yaml_path,
                          yaw_init=yaw_init, 
                          TurbBox=TurbBox,
-                         Baseline_comp = True, #We always want to compare to the baseline, so this is true
+                         Baseline_comp = Baseline_comp, #UPDATE: Changed so that we dont need the baseline farm anymore. Before it was always true! #We always want to compare to the baseline, so this is true
                          seed=seed,
                          )
         
+    def reset(self, seed=None, options=None):
+        #Overwrite the reset function so that we never terminates.
+        observation, info = WindFarmEnv.reset(self, seed, options)
+
+        self.time_max = 999999 #Just set to a very high number, so that we never terminate.
+
+        return observation, info
+
     def set_wind_vals(self, ws=None, ti=None, wd=None):
         """
         Set the wind values to be used in the evaluation

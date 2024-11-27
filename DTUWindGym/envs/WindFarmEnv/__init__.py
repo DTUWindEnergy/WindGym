@@ -3,3 +3,4 @@ from .AgentEval import AgentEval
 # from .PyWakeAgent import PyWakeAgent
 from .FarmEval import FarmEval
 from .WindEnvMulti import WindFarmEnvMulti
+from .AgentEvalFast import eval_single_fast as AgentEvalFast

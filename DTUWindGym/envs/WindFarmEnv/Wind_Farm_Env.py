@@ -767,3 +767,15 @@ class WindFarmEnv(WindEnv):
 
     def close(self):
         plt.close()
+        if self.Baseline_comp:
+            self.fs_baseline = None
+            self.site_base = None
+            del self.fs_baseline
+            del self.site_base
+        self.fs = None
+        self.site = None
+        self.farm_measurements = None
+        del self.fs
+        del self.site
+        del self.farm_measurements
+        gc.collect()
