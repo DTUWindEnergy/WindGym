@@ -95,9 +95,8 @@ def eval_single_fast(env, model,
     if hasattr(model, "pywakeagent"):
         model.update_wind(env.ws, env.wd, env.ti)
         model.predict(obs, deterministic=True)[0]
-    # This checks if we are using a GreedyAgent. If we are, then we do this:
-    if hasattr(model, "GreedyAgent"):
-        print("The GreedyAgent is used")
+    # This checks if we are using an agent that needs the environment. If we are, then we do this
+    if hasattr(model, "UseEnv"):
         model.yaw_max = env.yaw_max
         model.yaw_min = env.yaw_min
         model.env = env

@@ -13,8 +13,8 @@ The agent will always try and get to zero yaw offset
 class GreedyAgent(BaseAgent):
     def __init__(self, type='local', yaw_max=45, yaw_min=-45, yaw_step=1, env=None):
         # This is used in a hasattr in the AgentEval class/function.
-        self.GreedyAgent = True
-        self.env = None
+        self.UseEnv = True
+        self.env = env
 
         # these are initial values, but they should be overwritten in the eval call
         self.yaw_max = yaw_max
