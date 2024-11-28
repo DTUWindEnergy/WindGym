@@ -34,7 +34,8 @@ def eval_single_fast(env, model,
                      scale_obs=None,
                      t_sim=1000,
                      name="NoName",
-                     debug=False):
+                     debug=False,
+                     deterministic=True):
     """
     This function evaluates the agent for a single wind direction, and then saves the results in a xarray dataset.
     The function can also save the figures, if save_figs is set to True.
@@ -52,6 +53,7 @@ def eval_single_fast(env, model,
     t_sim: The time to simulate.
     name: The name of the evaluation.
     debug: If True, the function will print debug information on the plots.
+    deterministic: If True, the agent will be deterministic.
 
     """
 
@@ -94,7 +96,7 @@ def eval_single_fast(env, model,
     # This checks if we are using a pywakeagent. If we are, then we do this:
     if hasattr(model, "pywakeagent"):
         model.update_wind(env.ws, env.wd, env.ti)
-        model.predict(obs, deterministic=True)[0]
+        model.predict(obs, deterministic=deterministic)[0]
     # This checks if we are using an agent that needs the environment. If we are, then we do this
     if hasattr(model, "UseEnv"):
         model.yaw_max = env.yaw_max
@@ -142,7 +144,7 @@ def eval_single_fast(env, model,
     # Run the simulation
     for i in range(1, time):
 
-        action = model.predict(obs, deterministic=True)[0]
+        action = model.predict(obs, deterministic=deterministic)[0]
         obs, reward, terminated, truncated, info = env.step(action)
 
         # Put the values in the arrays
