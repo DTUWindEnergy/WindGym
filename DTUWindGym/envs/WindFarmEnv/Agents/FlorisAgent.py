@@ -8,8 +8,8 @@ from floris.optimization.yaw_optimization.yaw_optimizer_sr import YawOptimizatio
 from floris.turbine_library import build_cosine_loss_turbine_dict
 
 import matplotlib.pyplot as plt
-from .Base_Agent import BaseAgent
-
+from .BaseAgent import BaseAgent
+import os
 """
 The FlorisAgent is a class that is used to optimize the yaw angles of a wind farm using the PyWake library.
 It interfaces with the AgentEval class in the dtu_wind_gym library.
@@ -38,7 +38,9 @@ class FlorisAgent(BaseAgent):
         self.n_wt = len(x_pos)
 
         # Define the floris farm:
-        self.fmodel = FlorisModel("gch.yaml")
+        current_path = os.path.dirname(os.path.realpath(__file__))
+        # print("The current path is: ", current_path)
+        self.fmodel = FlorisModel(f"{current_path}/gch.yaml")
 
         # Turn the pywake turbine into a floris turbine
         wind_speeds = np.linspace(1, 30, 100)
