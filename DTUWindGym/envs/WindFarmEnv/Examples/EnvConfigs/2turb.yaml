@@ -1,13 +1,13 @@
 # Configuration for the environment, using a yaml file. 
 
-#Some initial things
-yaw_init: "Zeros"
-noise: "Normal"   #Can be "None", "Normal" 
-BaseController: "Local"
-ActionMethod: "yaw"      #Can be: "yaw", "wind", "absolute"
-Track_power: False       #If the farm should produce a specified power output
+#
+yaw_init: "Zeros"       # How the yaw angles are initialized at the beginning of an episode. "Zeros" or "Random"
+noise: "Normal"         # The Noise type to include. Can be "None", "Normal". Not really used at the moment
+BaseController: "Local" # If we have a baseline farm to comapre to, how are they controlled. Can be "Local" or "Global" 
+ActionMethod: "yaw"     #Can be: "yaw", "wind", "absolute"
+Track_power: False      #If the farm should produce a specified power output
 
-#Farm parameters
+#Farm parameters. Specify the number of turbines and the layout of the farm
 farm:
   yaw_min: -45
   yaw_max: 45
@@ -16,7 +16,7 @@ farm:
   nx: 2
   ny: 1
 
-#Wind conditions
+#Wind conditions. This is the limits for the wind conditions that are sampled at the beginning of an episode.
 wind:
   ws_min: 6
   ws_max: 15
@@ -32,28 +32,31 @@ act_pen:
 
 #Power reward parameters
 power_def:
-  Power_reward: "Baseline" #Method for calculating the power reward. Can be "Baseline", "Power_avg" or "Power_diff"
-  Power_avg: 1 #Size of the average window for the power reward. If 1 then we only save the current power output.
-  Power_scaling: 1.0  #Scaling of the power reward
+  Power_reward: "Baseline"  #Method for calculating the power reward. Can be "Baseline", "Power_avg" or "Power_diff"
+  Power_avg: 1              #Size of the average window for the power reward. If 1 then we only save the current power output.
+  Power_scaling: 1.0        #Scaling of the power reward
     
 #Define the measurement levels
 mes_level:
-  turb_ws: True 
-  turb_wd: False
-  turb_TI: False
-  turb_power: False
-  farm_ws: False
-  farm_wd: False 
-  farm_TI: False  
-  farm_power: False  
+  turb_ws: True       #Do we measure wind speed at the turbine level
+  turb_wd: False      #Do we measure wind direction at the turbine level
+  turb_TI: False      #Do we measure turbulence intensity at the turbine level
+  turb_power: False   #Do we measure power at the turbine level
+  farm_ws: False      #Do we measure wind speed at the farm level
+  farm_wd: False      #Do we measure wind direction at the farm level
+  farm_TI: False      #Do we measure turbulence intensity at the farm level
+  farm_power: False   #Do we measure power at the farm level
+
+#All sensor returns are defined here:
+#The wind speed measurements have additional comments, but the same structure is used for all measurements
 
 #For WS
 ws_mes:
- ws_current: False 
- ws_rolling_mean: True 
- ws_history_N: 1
- ws_history_length: 10
- ws_window_length: 10
+ ws_current: False      #Do we retunr the lates wind speed measurement
+ ws_rolling_mean: True  #Do we  retun the rolling mean of the wind speed
+ ws_history_N: 1        #How many rolling mean wind speed(s) measurements do we return
+ ws_history_length: 10  #How many measurements are saved in in the sensor history
+ ws_window_length: 10   #How many measurements are used to calculate the rolling mean
 #For WD
 wd_mes:
   wd_current: False

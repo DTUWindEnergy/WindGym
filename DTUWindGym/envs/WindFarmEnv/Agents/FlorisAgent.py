@@ -129,7 +129,7 @@ class FlorisAgent(BaseAgent):
 
         if self.optimized == False:
             self.optimize()
-            self.action = self.scale_yaw()
+            self.action = self.scale_yaw(self.optimized_yaws)
 
         return self.action, None
 

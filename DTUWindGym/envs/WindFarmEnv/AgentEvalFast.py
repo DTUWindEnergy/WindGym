@@ -94,7 +94,7 @@ def eval_single_fast(env, model,
     obs, info = env.reset()
 
     # This checks if we are using a pywakeagent. If we are, then we do this:
-    if hasattr(model, "pywakeagent"):
+    if hasattr(model, "pywakeagent") or hasattr(model, "florisagent"):
         model.update_wind(env.ws, env.wd, env.ti)
         model.predict(obs, deterministic=deterministic)[0]
     # This checks if we are using an agent that needs the environment. If we are, then we do this

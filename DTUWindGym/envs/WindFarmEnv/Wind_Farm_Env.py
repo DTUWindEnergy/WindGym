@@ -11,7 +11,7 @@ from dynamiks.dwm import DWMFlowSimulation
 from dynamiks.dwm.particle_deficit_profiles.ainslie import jDWMAinslieGenerator
 from dynamiks.dwm.particle_motion_models import HillVortexParticleMotion
 from dynamiks.sites import TurbulenceFieldSite
-from dynamiks.sites.turbulence_fields import MannTurbulenceField
+from dynamiks.sites.turbulence_fields import MannTurbulenceField, RandomTurbulence
 from dynamiks.wind_turbines import PyWakeWindTurbines
 from dynamiks.views import XYView
 from dynamiks.utils.test_utils import tfp
@@ -51,6 +51,7 @@ class WindFarmEnv(WindEnv):
                  n_passthrough=5,
                  TI_min_mes: float = 0.0, TI_max_mes: float = 0.50,
                  TurbBox="Default",
+                 turbtype="MannLoad",
                  yaml_path=None,
                  Baseline_comp=False,
                  yaw_init=None,
@@ -64,6 +65,7 @@ class WindFarmEnv(WindEnv):
             TI_min_mes: float: The minimum value for the turbulence intensity measurements. Used for internal scaling
             TI_max_mes: float: The maximum value for the turbulence intensity measurements. Used for internal scaling
             TurbBox: str: The path to the turbulence box files. If Default, then it will use the default turbulence box files.
+            turbtype: str: The type of turbulence box that is used. Can be one of the following: MannLoad, MannGenerate, MannFixed, Random, None
             yaml_path: str: The path to the yaml file that contains the configuration of the environment. TODO make a default value for this?
             Baseline_comp: bool: If true, then the environment will compare the performance of the agent with a baseline farm. This is only used in the EnvEval class.
             yaw_init: str: The method for initializing the yaw angles of the turbines. If 'Random', then the yaw angles will be random. Else they will be zeros.
@@ -83,6 +85,8 @@ class WindFarmEnv(WindEnv):
         self.yaw_step = 1
         # The distance between the particles. This is used in the flow simulation.
         self.d_particle = 0.1
+
+        self.turbtype = turbtype
 
         # Saves to self
         self.TI_min_mes = TI_min_mes
@@ -157,19 +161,15 @@ class WindFarmEnv(WindEnv):
                 "The Power_reward must be either Baseline, Power_avg, None or Power_diff")
 
         # Read in the turb boxes
-        if TurbBox == "Default":
-            self.TF_files.append(
-                tfp + "mann_turb/hipersim_mann_l29.4_ae1.0000_g3.9_h0_1024x128x32_3.200x3.20x3.20_s0001.nc")
-        else:
+        if turbtype == "MannLoad":
             try:
                 for f in os.listdir(TurbBox):
                     if f.split("_")[0] == "TF":
                         self.TF_files.append(os.path.join(TurbBox, f))
             except:
                 print(
-                    "Coudnt find the turbulence box file(s), so we just use the default one")
-                self.TF_files = [
-                    tfp + "mann_turb/hipersim_mann_l29.4_ae1.0000_g3.9_h0_1024x128x32_3.200x3.20x3.20_s0001.nc"]
+                    "Coudnt find the turbulence box file(s), so we switch to generated turbulence")
+                self.turbtype = "MannGenerate"
 
         # If we need to have a "baseline" farm, then we need to set up the baseline controller
         # This could be moved to the Power_reward check, but I have a feeling this will be expanded in the future, when we include damage.
@@ -219,7 +219,8 @@ class WindFarmEnv(WindEnv):
 
         self._init_spaces()
 
-        # self.reset(seed=seed)  #I dont hope anything breaks by not having this here.
+        # We should have this here, to set the seeding correctly
+        self.reset(seed=seed)
 
         # TODO the render mode is not implemented yet. I think?
         # Asserting that the render_mode is valid.
@@ -228,6 +229,7 @@ class WindFarmEnv(WindEnv):
         self.render_mode = render_mode
 
         if self.render_mode == "human":
+            self.reset()
             self.init_render()
 
     def load_config(self, config_path):
@@ -413,20 +415,83 @@ class WindFarmEnv(WindEnv):
 
     def _def_site(self):
         """
-        Defines the self.site. This is the site that the flow simulation is run on.
-        We choose a random turbulence box, and scale it to the correct TI and wind speed
-        It is repeated for the baseline if we have that.
+          We choose a random turbulence box and scale it to the correct TI and wind speed.
+        This is repeated for the baseline if we have that.
+
+        The turbulence box used for the simulation can be one of the following:
+        - MannLoad: The turbulence box is loaded from predefined Mann turbulence box files.
+        - MannGenerate: A random turbulence box is generated.
+        - MannFixed: A fixed turbulence box is used with a constant seed.
+        - Random: Specifies the 'box' as random turbulence.
+        - None: Zero turbulence site.
         """
 
-        tf_file = self.np_random.choice(self.TF_files)
+        if self.turbtype == "MannLoad":
 
-        tf_agent = MannTurbulenceField.from_netcdf(filename=tf_file)
-        tf_agent.scale_TI(ti=self.ti, U=self.ws)
+            # Load the turbbox from predefined folder somewhere
+            # selects one at random
+            tf_file = self.np_random.choice(self.TF_files)
+            # print("Loading Mann turbulence box: ", tf_file)
+
+            tf_agent = MannTurbulenceField.from_netcdf(filename=tf_file)
+            tf_agent.scale_TI(ti=self.ti, U=self.ws)
+
+        elif self.turbtype == "MannGenerate":
+
+            # Create the turbbox with a random seed.
+            # TODO this can be improved in the future.
+            TF_seed = self.np_random.integers(0, 100000)
+            # print("Generating Mann turbulence box with seed: ", TF_seed)
+            tf_agent = MannTurbulenceField.generate(alphaepsilon=.1,  # use correct alphaepsilon or scale later
+                                                    L=33.6,  # length scale
+                                                    Gamma=3.9,  # anisotropy parameter
+                                                    # numbers should be even and should be large enough to cover whole farm in all dimensions and time, see above
+                                                    Nxyz=(8192, 512, 64),
+                                                    # should be small enough to capture variations needed for the wind the turbine model
+                                                    dxyz=(3.0, 3.0, 3.0),
+                                                    seed=TF_seed,  # seed for random generator
+                                                    # HighFreqComp=0, # the high frequency compensation is questionable and it is recommened to switch it off
+                                                    # double_xyz=(False, False, False), # turbulence periodicity is not expected to be an issue in a wind farm
+                                                    )
+            tf_agent.scale_TI(ti=self.ti, U=self.ws)
+
+        elif self.turbtype == "Random":
+            # Specifies the 'box' as random turbulence
+            raise NotImplementedError(
+                "This turbulence type doenst work with the current dynamiks version")
+            TF_seed = self.np_random.integers(0, 100000)
+            # print("Using Random turbulence with seed:", TF_seed)
+            tf_agent = RandomTurbulence(
+                ti=self.ti, ws=self.ws, seed=TF_seed)
+
+        elif self.turbtype == "MannFixed":
+            # print("Using fixed Mann turbulence box")
+            # Generates a fixed mann box
+            TF_seed = 1234  # Hardcoded for now
+            tf_agent = MannTurbulenceField.generate(alphaepsilon=.1,  # use correct alphaepsilon or scale later
+                                                    L=33.6,  # length scale
+                                                    Gamma=3.9,  # anisotropy parameter
+                                                    # numbers should be even and should be large enough to cover whole farm in all dimensions and time, see above
+                                                    Nxyz=(8192, 512, 64),
+                                                    # should be small enough to capture variations needed for the wind the turbine model
+                                                    dxyz=(3.0, 3.0, 3.0),
+                                                    seed=TF_seed,  # seed for random generator
+                                                    )
+            tf_agent.scale_TI(ti=self.ti, U=self.ws)
+
+        elif self.turbtype == "None":
+            # Zero turbulence site.
+            raise NotImplementedError(
+                "This turbulence type doenst work with the current dynamiks version")
+            tf_agent = RandomTurbulence(ti=0, ws=self.ws)
+        else:
+            # Throw and error:
+            raise ValueError("Invalid turbulence type specified")
+
         self.site = TurbulenceFieldSite(ws=self.ws, turbulenceField=tf_agent)
 
         if self.Baseline_comp:  # I am pretty sure we need to have 2 sites, as the flow simulation is run on the site, and the measurements are taken from the site.
-            tf_base = MannTurbulenceField.from_netcdf(filename=tf_file)
-            tf_base.scale_TI(ti=self.ti, U=self.ws)
+            tf_base = copy.deepcopy(tf_agent)
             self.site_base = TurbulenceFieldSite(
                 ws=self.ws, turbulenceField=tf_base)
             del tf_base
@@ -491,13 +556,6 @@ class WindFarmEnv(WindEnv):
 
         # Do the same for the baseline farm
         if self.Baseline_comp:
-            # self.fs_baseline = DWMFlowSimulation(site=self.site_base,
-            #                                     windTurbines=self.wts_baseline,
-            #                                     wind_direction=self.wd,
-            #                                     particleDeficitGenerator=jDWMAinslieGenerator(),
-            #                                     dt=self.dt,
-            #                                     d_particle = self.d_particle,
-            #                                     particleMotionModel=HillVortexParticleMotion())
             self.fs_baseline = DWMFlowSimulation(site=self.site_base,
                                                  windTurbines=self.wts_baseline,
                                                  wind_direction=self.wd,
