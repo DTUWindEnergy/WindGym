@@ -13,7 +13,3 @@ An example animation of the turbines in the flow.
 
 
 ![Animation of flowfield](images/Flowfield_animation.mp4)
-
-## Future work
-- Expand on the multi agent env
-- Adding more noise options to the sensors
