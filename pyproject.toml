@@ -8,16 +8,32 @@ packages = ["DTUWindGym"]
 [project]
 name = "DTUWindGym"
 version = "0.0.1"
+requires-python = ">=3.7, <3.11"
 dependencies = [
   "gymnasium",
+  "stable_baselines3",
   "pygame>=2.1.3",
   "hipersim==0.1.6",
-  "dynamiks[test] @ git+https://gitlab.windenergy.dtu.dk/DYNAMIKS/dynamiks.git@05a10bd4262f158cbbb02da5cca0f445d95718b9",
-  "h2lib[test]",
+  "dynamiks @ git+https://gitlab.windenergy.dtu.dk/DYNAMIKS/dynamiks.git@05a10bd4262f158cbbb02da5cca0f445d95718b9",
+  #"h2lib[test]",
   "floris==4.2.1",
   "topfarm",
-  "h2lib",
+  #"h2lib",
   "pettingzoo",
   "wetb",
-  "pre-commit",
 ]
+
+[tool.pixi.project]
+channels = ["conda-forge"]
+platforms = ["osx-arm64"]
+
+[tool.pixi.pypi-dependencies]
+DTUWindGym = { path = ".", editable = true }
+
+[tool.pixi.dependencies]
+hdf5 = "*"
+h5py = "*"
+netcdf4 = "*"
+numpy = "<2"
+
+[tool.pixi.tasks]
