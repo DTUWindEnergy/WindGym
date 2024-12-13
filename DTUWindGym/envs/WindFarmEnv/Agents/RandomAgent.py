@@ -1,5 +1,5 @@
-
 from .BaseAgent import BaseAgent
+
 """
 This agent takes random actions, and is used to test the environment.
 """

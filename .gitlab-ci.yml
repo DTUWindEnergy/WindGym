@@ -1,0 +1,39 @@
+##############################################
+### GitLab CI Configuration for DTUWindGym ###
+##############################################
+
+default:
+  image: ghcr.io/prefix-dev/pixi:latest
+
+.default_rules: &default_rules
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - when: never
+
+pre_commit:
+  stage: test
+  variables:
+    PRE_COMMIT_HOME: ${CI_PROJECT_DIR}/.cache/pre-commit
+  script:
+    - apt-get update && apt-get install -y git
+    - pixi run pre-commit run --all-files
+  cache:
+    key: pre-commit-cache # Retains cache across all branches
+    paths:
+      - ${PRE_COMMIT_HOME}
+  tags:
+    - linux
+  <<: *default_rules
+
+test_linux:
+  stage: test
+  needs:
+    - pre_commit
+  script:
+    - apt-get update && apt-get install -y git
+    - pixi run pytest
+  coverage: '/(?i)total.*? (100(?:\.0+)?\%|[1-9]?\d(?:\.\d+)?\%)$/'
+  tags:
+    - linux
+  <<: *default_rules

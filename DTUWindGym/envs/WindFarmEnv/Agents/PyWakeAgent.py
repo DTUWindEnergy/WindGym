@@ -22,10 +22,20 @@ Based on the global wind conditons it can optimize the yaw angles and then use t
 
 
 class PyWakeAgent(BaseAgent):
-    def __init__(self, x_pos, y_pos,
-                 wind_speed=8, wind_dir=270, TI=0.07, yaw_max=45,
-                 yaw_min=-45, maxiter=100, tol=1e-4, ec=1e-4,
-                 turbine=V80()):
+    def __init__(
+        self,
+        x_pos,
+        y_pos,
+        wind_speed=8,
+        wind_dir=270,
+        TI=0.07,
+        yaw_max=45,
+        yaw_min=-45,
+        maxiter=100,
+        tol=1e-4,
+        ec=1e-4,
+        turbine=V80(),
+    ):
         # This is used in a hasattr in the AgentEval class.
         self.pywakeagent = True
         self.optimized = False  # Is false before we have optimized the farm.
@@ -50,7 +60,11 @@ class PyWakeAgent(BaseAgent):
         site.initial_position = np.array([x_pos, y_pos]).T
 
         self.wf_model = Blondel_Cathelain_2020(
-            site, turbine, turbulenceModel=CrespoHernandez(), deflectionModel=JimenezWakeDeflection())
+            site,
+            turbine,
+            turbulenceModel=CrespoHernandez(),
+            deflectionModel=JimenezWakeDeflection(),
+        )
 
         # initial condition of yaw angles
         self.yaw_zero = np.zeros((self.n_wt, 1, 1))
@@ -60,8 +74,9 @@ class PyWakeAgent(BaseAgent):
         """
         Function to calculate the power output of the wind farm.
         """
-        simres = self.wf_model(self.x_pos, self.y_pos, wd=self.wdir,
-                               ws=self.wsp, yaw=yaw_ilk, tilt=0)
+        simres = self.wf_model(
+            self.x_pos, self.y_pos, wd=self.wdir, ws=self.wsp, yaw=yaw_ilk, tilt=0
+        )
         aep = simres.aep().sum()
         return aep
 
@@ -76,29 +91,40 @@ class PyWakeAgent(BaseAgent):
 
     def reset(self):
         """
-        Reset the wind things for the objective. 
+        Reset the wind things for the objective.
         """
         self.optimized = False
 
-        self.pywakefarm = self.wf_model(self.x_pos, self.y_pos,
-                                        wd=self.wdir, ws=self.wsp,
-                                        yaw=self.yaw_zero, tilt=0, TI=self.TI)
+        self.pywakefarm = self.wf_model(
+            self.x_pos,
+            self.y_pos,
+            wd=self.wdir,
+            ws=self.wsp,
+            yaw=self.yaw_zero,
+            tilt=0,
+            TI=self.TI,
+        )
 
-        self.cost_comp = CostModelComponent(input_keys=[('yaw_ilk', np.zeros((self.n_wt, 1, 1)))],
-                                            n_wt=self.n_wt,
-                                            cost_function=self.power_func,
-                                            objective=True,
-                                            maximize=True,
-                                            output_keys=[('AEP', 0)]
-                                            )
+        self.cost_comp = CostModelComponent(
+            input_keys=[("yaw_ilk", np.zeros((self.n_wt, 1, 1)))],
+            n_wt=self.n_wt,
+            cost_function=self.power_func,
+            objective=True,
+            maximize=True,
+            output_keys=[("AEP", 0)],
+        )
 
-        self.problem = TopFarmProblem(design_vars={'yaw_ilk': (self.yaw_zero, self.yaw_min, self.yaw_max)},  # setting up initial values and lower and upper bounds for yaw angles
-                                      n_wt=self.n_wt,
-                                      cost_comp=self.cost_comp,
-                                      driver=EasyScipyOptimizeDriver(
-                                          optimizer='COBYLA', maxiter=self.maxiter, tol=self.tol),
-                                      plot_comp=NoPlot(),
-                                      )
+        self.problem = TopFarmProblem(
+            design_vars={
+                "yaw_ilk": (self.yaw_zero, self.yaw_min, self.yaw_max)
+            },  # setting up initial values and lower and upper bounds for yaw angles
+            n_wt=self.n_wt,
+            cost_comp=self.cost_comp,
+            driver=EasyScipyOptimizeDriver(
+                optimizer="COBYLA", maxiter=self.maxiter, tol=self.tol
+            ),
+            plot_comp=NoPlot(),
+        )
 
     def optimize(self):
         """
@@ -106,7 +132,7 @@ class PyWakeAgent(BaseAgent):
         """
         _, state, self.info = self.problem.optimize()
         self.optimized = True  # Now the farm has been optimized
-        self.optimized_yaws = state['yaw_ilk'][:, 0, 0]
+        self.optimized_yaws = state["yaw_ilk"][:, 0, 0]
 
     def predict(self, *args, **kwargs):
         """
@@ -115,7 +141,7 @@ class PyWakeAgent(BaseAgent):
         Note that we dont use the obs or the deterministic arguments.
         """
 
-        if self.optimized == False:
+        if self.optimized is False:
             self.optimize()
             self.action = self.scale_yaw(self.optimized_yaws)
 
@@ -125,12 +151,18 @@ class PyWakeAgent(BaseAgent):
         """
         Plot the flowfield of the wind farm.
         """
-        if self.optimized == False:
+        if self.optimized is False:
             self.optimize()
         simulationResult = self.wf_model(
-            self.x_pos, self.y_pos, wd=self.wdir, ws=self.wsp, yaw=self.optimized_yaws, tilt=0)
+            self.x_pos,
+            self.y_pos,
+            wd=self.wdir,
+            ws=self.wsp,
+            yaw=self.optimized_yaws,
+            tilt=0,
+        )
         plt.figure(figsize=(12, 4))
         simulationResult.flow_map().plot_wake_map()
-        plt.xlabel('x [m]')
-        plt.ylabel('y [m]')
+        plt.xlabel("x [m]")
+        plt.ylabel("y [m]")
         plt.show()
