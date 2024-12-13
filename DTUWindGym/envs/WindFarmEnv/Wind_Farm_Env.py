@@ -14,10 +14,8 @@ from dynamiks.sites import TurbulenceFieldSite
 from dynamiks.sites.turbulence_fields import MannTurbulenceField, RandomTurbulence
 from dynamiks.wind_turbines import PyWakeWindTurbines
 from dynamiks.views import XYView
-from dynamiks.utils.test_utils import tfp
 
 from IPython import display
-import time
 
 # DTUWindGym imports
 from .WindEnv import WindEnv
@@ -25,7 +23,6 @@ from .MesClass import farm_mes
 from .BasicControllers import local_yaw_controller, global_yaw_controller
 
 from py_wake.wind_turbines import WindTurbines as WindTurbinesPW
-from py_wake.utils.plotting import setup_plot
 from collections import deque
 import itertools
 import yaml
@@ -47,19 +44,23 @@ For now it only supports the PyWakeWindTurbines, but it should be easy to expand
 class WindFarmEnv(WindEnv):
     metadata = {"render_modes": ["human", "rgb_array"]}
 
-    def __init__(self, turbine,
-                 n_passthrough=5,
-                 TI_min_mes: float = 0.0, TI_max_mes: float = 0.50,
-                 TurbBox="Default",
-                 turbtype="MannLoad",
-                 yaml_path=None,
-                 Baseline_comp=False,
-                 yaw_init=None,
-                 render_mode=None, seed=None,
-                 ):
+    def __init__(
+        self,
+        turbine,
+        n_passthrough=5,
+        TI_min_mes: float = 0.0,
+        TI_max_mes: float = 0.50,
+        TurbBox="Default",
+        turbtype="MannLoad",
+        yaml_path=None,
+        Baseline_comp=False,
+        yaw_init=None,
+        render_mode=None,
+        seed=None,
+    ):
         """
         This is a steadystate environment. The environment only ever changes wind conditions at reset. Then the windconditions are constatnt for the rest of the episode
-        Args: 
+        Args:
             turbine: PyWakeWindTurbines: The wind turbine that is used in the environment
             n_passthrough: int: The number of times the flow passes through the farm. This is used to calculate the maximum simulation time.
             TI_min_mes: float: The minimum value for the turbulence intensity measurements. Used for internal scaling
@@ -76,7 +77,9 @@ class WindFarmEnv(WindEnv):
         # Predefined values
         # The power setpoint for the farm. This is used if the Track_power is True. (Not used yet)
         self.power_setpoint = 0.0
-        self.act_var = 1  # number of actions pr. turbine. For now it is just the yaw angles
+        self.act_var = (
+            1  # number of actions pr. turbine. For now it is just the yaw angles
+        )
         self.dt = 1  # time step for the flow simulation.
         self.yaw_start = 15.0  # This is the limit for the initialization of the yaw angles. This is used to make sure that the yaw angles are not too large at the start, but still not zero
         # Max power pr turbine. Used in the measurement class
@@ -142,7 +145,9 @@ class WindFarmEnv(WindEnv):
 
         # Define the power production reward function
         if self.power_reward == "Baseline":
-            self._power_rew = self.power_rew_baseline  # The baseline power reward function
+            self._power_rew = (
+                self.power_rew_baseline
+            )  # The baseline power reward function
         elif self.power_reward == "Power_avg":
             self._power_rew = self.power_rew_avg  # The power_avg reward function
         elif self.power_reward == "None":
@@ -155,10 +160,12 @@ class WindFarmEnv(WindEnv):
             if self.power_avg < 40:
                 # Why 40? I just chose this as the minimum value. In reality 2 could have sufficed, but to save myself a headache, I set it to 10
                 raise ValueError(
-                    "The Power_avg must be larger then 40 for the Power_diff reward. Also it should probably be way larger my guy")
+                    "The Power_avg must be larger then 40 for the Power_diff reward. Also it should probably be way larger my guy"
+                )
         else:
             raise ValueError(
-                "The Power_reward must be either Baseline, Power_avg, None or Power_diff")
+                "The Power_reward must be either Baseline, Power_avg, None or Power_diff"
+            )
 
         # Read in the turb boxes
         if turbtype == "MannLoad":
@@ -166,9 +173,10 @@ class WindFarmEnv(WindEnv):
                 for f in os.listdir(TurbBox):
                     if f.split("_")[0] == "TF":
                         self.TF_files.append(os.path.join(TurbBox, f))
-            except:
+            except FileNotFoundError:
                 print(
-                    "Coudnt find the turbulence box file(s), so we switch to generated turbulence")
+                    "Coudnt find the turbulence box file(s), so we switch to generated turbulence"
+                )
                 self.turbtype = "MannGenerate"
 
         # If we need to have a "baseline" farm, then we need to set up the baseline controller
@@ -188,17 +196,20 @@ class WindFarmEnv(WindEnv):
 
         D = turbine.diameter()
 
-        x = np.linspace(0, D*self.xDist*self.nx, self.nx)
-        y = np.linspace(0, D*self.yDist*self.ny, self.ny)
+        x = np.linspace(0, D * self.xDist * self.nx, self.nx)
+        y = np.linspace(0, D * self.yDist * self.ny, self.ny)
 
-        xv, yv = np.meshgrid(x, y, indexing='xy')
+        xv, yv = np.meshgrid(x, y, indexing="xy")
 
         self.x_pos = xv.flatten()
         self.y_pos = yv.flatten()
         self.y_pos += 200  # Note we move the farm 200 units up. This is done because I think I saw some weird behaviour with y = 0 :/
 
-        self.wts = PyWakeWindTurbines(x=self.x_pos, y=self.y_pos,   # x and y position of two wind turbines
-                                      windTurbine=self.turbine)
+        self.wts = PyWakeWindTurbines(
+            x=self.x_pos,
+            y=self.y_pos,  # x and y position of two wind turbines
+            windTurbine=self.turbine,
+        )
 
         # Setting up the baseline controller if we need it
         if self.Baseline_comp:
@@ -209,10 +220,14 @@ class WindFarmEnv(WindEnv):
                 self._base_controller = global_yaw_controller
             else:
                 raise ValueError(
-                    "The BaseController must be either Local or Global... For now")
+                    "The BaseController must be either Local or Global... For now"
+                )
             # Definde the turbines
-            self.wts_baseline = PyWakeWindTurbines(x=self.x_pos, y=self.y_pos,   # x and y position of two wind turbines
-                                                   windTurbine=self.turbine)
+            self.wts_baseline = PyWakeWindTurbines(
+                x=self.x_pos,
+                y=self.y_pos,  # x and y position of two wind turbines
+                windTurbine=self.turbine,
+            )
 
         # Define the observation and action space
         self.obs_var = self.farm_measurements.observed_variables()
@@ -233,22 +248,22 @@ class WindFarmEnv(WindEnv):
             self.init_render()
 
     def load_config(self, config_path):
-        """ 
-        This loads in the yaml file, and sets a bunch of internal values. 
         """
-        with open(config_path, 'r') as file:
+        This loads in the yaml file, and sets a bunch of internal values.
+        """
+        with open(config_path, "r") as file:
             config = yaml.safe_load(file)  # Load the YAML file
 
         # Set the attributes of the class based on the config file
-        self.yaw_init = config.get('yaw_init')
-        self.noise = config.get('noise')
-        self.BaseController = config.get('BaseController')
-        self.ActionMethod = config.get('ActionMethod')
+        self.yaw_init = config.get("yaw_init")
+        self.noise = config.get("noise")
+        self.BaseController = config.get("BaseController")
+        self.ActionMethod = config.get("ActionMethod")
         # self.Baseline_comp = config.get('Baseline_comp')
-        self.Track_power = config.get('Track_power')
+        self.Track_power = config.get("Track_power")
 
         # Unpack the farm params
-        farm_params = config.get('farm')
+        farm_params = config.get("farm")
         self.yaw_min = farm_params["yaw_min"]
         self.yaw_max = farm_params["yaw_max"]
         self.xDist = farm_params["xDist"]
@@ -257,7 +272,7 @@ class WindFarmEnv(WindEnv):
         self.ny = farm_params["ny"]
 
         # Unpack the wind params
-        wind_params = config.get('wind')
+        wind_params = config.get("wind")
         self.ws_min = wind_params["ws_min"]
         self.ws_max = wind_params["ws_max"]
         self.TI_min = wind_params["TI_min"]
@@ -265,13 +280,13 @@ class WindFarmEnv(WindEnv):
         self.wd_min = wind_params["wd_min"]
         self.wd_max = wind_params["wd_max"]
 
-        self.act_pen = config.get('act_pen')
-        self.power_def = config.get('power_def')
-        self.mes_level = config.get('mes_level')
-        self.ws_mes = config.get('ws_mes')
-        self.wd_mes = config.get('wd_mes')
-        self.yaw_mes = config.get('yaw_mes')
-        self.power_mes = config.get('power_mes')
+        self.act_pen = config.get("act_pen")
+        self.power_def = config.get("power_def")
+        self.mes_level = config.get("mes_level")
+        self.ws_mes = config.get("ws_mes")
+        self.wd_mes = config.get("wd_mes")
+        self.yaw_mes = config.get("yaw_mes")
+        self.power_mes = config.get("power_mes")
 
         # unpack some more, because we use these later.
         self.action_penalty = self.act_pen["action_penalty"]
@@ -288,36 +303,61 @@ class WindFarmEnv(WindEnv):
         # Initializing the measurements class with the specified values.
         # TODO if history_length is 1, then we dont need to save the history, and we can just use the current values.
         # TODO is history_N is 1 or larger, then it is kinda implied that the rolling_mean is true.. Therefore we can change the if self.rolling_mean: check in the Mes() class, to be a if self.history_N >= 1 check... or something like that
-        self.farm_measurements = farm_mes(self.n_turb, self.noise,
-                                          self.mes_level["turb_ws"], self.mes_level["turb_wd"], self.mes_level[
-                                              "turb_TI"], self.mes_level["turb_power"],
-                                          self.mes_level["farm_ws"], self.mes_level["farm_wd"], self.mes_level[
-                                              "farm_TI"], self.mes_level["farm_power"],
-                                          self.ws_mes["ws_current"], self.ws_mes["ws_rolling_mean"], self.ws_mes[
-                                              "ws_history_N"], self.ws_mes["ws_history_length"], self.ws_mes["ws_window_length"],
-                                          self.wd_mes["wd_current"], self.wd_mes["wd_rolling_mean"], self.wd_mes[
-                                              "wd_history_N"], self.wd_mes["wd_history_length"], self.wd_mes["wd_window_length"],
-                                          self.yaw_mes["yaw_current"], self.yaw_mes["yaw_rolling_mean"], self.yaw_mes[
-                                              "yaw_history_N"], self.yaw_mes["yaw_history_length"], self.yaw_mes["yaw_window_length"],
-                                          self.power_mes["power_current"], self.power_mes["power_rolling_mean"], self.power_mes[
-                                              "power_history_N"], self.power_mes["power_history_length"], self.power_mes["power_window_length"],
-                                          2.0, 25.0,  # Max and min values for wind speed measuremenats
-                                          # Max and min values for wind direction measurements   NOTE i have added 5 for some slack in the measurements. so the scaling is better.
-                                          self.wd_min-5, self.wd_max+5,
-                                          self.yaw_min, self.yaw_max,  # Max and min values for yaw measurements
-                                          # Max and min values for the turbulence intensity measurements
-                                          self.TI_min_mes, self.TI_max_mes,
-                                          power_max=self.maxturbpower)
+        self.farm_measurements = farm_mes(
+            self.n_turb,
+            self.noise,
+            self.mes_level["turb_ws"],
+            self.mes_level["turb_wd"],
+            self.mes_level["turb_TI"],
+            self.mes_level["turb_power"],
+            self.mes_level["farm_ws"],
+            self.mes_level["farm_wd"],
+            self.mes_level["farm_TI"],
+            self.mes_level["farm_power"],
+            self.ws_mes["ws_current"],
+            self.ws_mes["ws_rolling_mean"],
+            self.ws_mes["ws_history_N"],
+            self.ws_mes["ws_history_length"],
+            self.ws_mes["ws_window_length"],
+            self.wd_mes["wd_current"],
+            self.wd_mes["wd_rolling_mean"],
+            self.wd_mes["wd_history_N"],
+            self.wd_mes["wd_history_length"],
+            self.wd_mes["wd_window_length"],
+            self.yaw_mes["yaw_current"],
+            self.yaw_mes["yaw_rolling_mean"],
+            self.yaw_mes["yaw_history_N"],
+            self.yaw_mes["yaw_history_length"],
+            self.yaw_mes["yaw_window_length"],
+            self.power_mes["power_current"],
+            self.power_mes["power_rolling_mean"],
+            self.power_mes["power_history_N"],
+            self.power_mes["power_history_length"],
+            self.power_mes["power_window_length"],
+            2.0,
+            25.0,  # Max and min values for wind speed measuremenats
+            # Max and min values for wind direction measurements   NOTE i have added 5 for some slack in the measurements. so the scaling is better.
+            self.wd_min - 5,
+            self.wd_max + 5,
+            self.yaw_min,
+            self.yaw_max,  # Max and min values for yaw measurements
+            # Max and min values for the turbulence intensity measurements
+            self.TI_min_mes,
+            self.TI_max_mes,
+            power_max=self.maxturbpower,
+        )
 
     def _init_spaces(self):
         """
-        This function initializes the observation and action spaces. 
+        This function initializes the observation and action spaces.
         This is done in a seperate function, so we can replace it in the multi agent version of the environment
         """
-        self.observation_space = gym.spaces.Box(low=-1.0, high=1.0,
-                                                shape=((self.obs_var), ), dtype=np.float32)
-        self.action_space = gym.spaces.Box(low=-1, high=1,
-                                           shape=((self.n_turb * self.act_var), ), dtype=np.float32)
+        self.observation_space = gym.spaces.Box(
+            low=-1.0, high=1.0, shape=((self.obs_var),), dtype=np.float32
+        )
+        self.action_space = gym.spaces.Box(
+            low=-1, high=1, shape=((self.n_turb * self.act_var),), dtype=np.float32
+        )
 
     def init_render(self):
         plt.ion()
@@ -328,8 +368,9 @@ class WindFarmEnv(WindEnv):
         self.a = np.linspace(-200 + min(x_turb), 1000 + max(x_turb), 250)
         self.b = np.linspace(-200 + min(y_turb), 200 + max(y_turb), 250)
 
-        self.view = XYView(z=self.turbine.hub_height(),
-                           x=self.a, y=self.b, ax=self.ax, adaptive=False)
+        self.view = XYView(
+            z=self.turbine.hub_height(), x=self.a, y=self.b, ax=self.ax, adaptive=False
+        )
 
         plt.close()
 
@@ -340,16 +381,15 @@ class WindFarmEnv(WindEnv):
 
         # Get the observation of the environment
         self.current_ws = np.linalg.norm(
-            self.fs.windTurbines.rotor_avg_windspeed(include_wakes=True), axis=0)
+            self.fs.windTurbines.rotor_avg_windspeed(include_wakes=True), axis=0
+        )
         # TODO make sure the implementation is correct
         # self.current_ws = np.linalg.norm(self.fs.windTurbines.rotor_avg_windspeed, axis=1)
         # The current ws is the norm of the three components
         # The current wd is the invtan of the u/v components of the wind speed. Remember to add the "global" wind direction to this measurement, as we are rotating the farm
-        u_speed = self.fs.windTurbines.rotor_avg_windspeed(include_wakes=True)[
-            1]
+        u_speed = self.fs.windTurbines.rotor_avg_windspeed(include_wakes=True)[1]
         # u_speed = self.fs.windTurbines.rotor_avg_windspeed[:,1]
-        v_speed = self.fs.windTurbines.rotor_avg_windspeed(include_wakes=True)[
-            0]
+        v_speed = self.fs.windTurbines.rotor_avg_windspeed(include_wakes=True)[0]
         # v_speed = self.fs.windTurbines.rotor_avg_windspeed[:,0]
         self.current_wd = np.rad2deg(np.arctan(u_speed / v_speed)) + self.wd
 
@@ -357,7 +397,8 @@ class WindFarmEnv(WindEnv):
         powers = self.fs.windTurbines.power()  # The Power pr turbine
 
         self.farm_measurements.add_measurements(
-            self.current_ws, self.current_wd, self.current_yaw, powers)
+            self.current_ws, self.current_wd, self.current_yaw, powers
+        )
 
     def _get_obs(self):
         """
@@ -370,7 +411,7 @@ class WindFarmEnv(WindEnv):
 
     def _get_info(self):
         """
-        Return info dictionary. 
+        Return info dictionary.
         If we have a baseline comparison, then we also return the baseline values.
         """
         return_dict = {
@@ -394,11 +435,15 @@ class WindFarmEnv(WindEnv):
         if self.Baseline_comp:
             return_dict["yaw angles base"] = self.fs_baseline.windTurbines.yaw
             return_dict["Power baseline"] = self.fs_baseline.windTurbines.power().sum()
-            return_dict["Power pr turbine baseline"] = self.fs_baseline.windTurbines.power(
+            return_dict["Power pr turbine baseline"] = (
+                self.fs_baseline.windTurbines.power()
             )
             # return_dict["Wind speed at turbines baseline"] = self.fs_baseline.windTurbines.rotor_avg_windspeed[:,0] #Just the largest component
-            return_dict["Wind speed at turbines baseline"] = self.fs_baseline.windTurbines.rotor_avg_windspeed(
-                include_wakes=True)[0, :]  # Just the largest component
+            return_dict["Wind speed at turbines baseline"] = (
+                self.fs_baseline.windTurbines.rotor_avg_windspeed(
+                    include_wakes=True
+                )[0, :]
+            )  # Just the largest component
         return return_dict
 
     def _set_windconditions(self):
@@ -427,7 +472,6 @@ class WindFarmEnv(WindEnv):
         """
 
         if self.turbtype == "MannLoad":
-
             # Load the turbbox from predefined folder somewhere
             # selects one at random
             tf_file = self.np_random.choice(self.TF_files)
@@ -437,52 +481,54 @@ class WindFarmEnv(WindEnv):
             tf_agent.scale_TI(ti=self.ti, U=self.ws)
 
         elif self.turbtype == "MannGenerate":
-
             # Create the turbbox with a random seed.
             # TODO this can be improved in the future.
             TF_seed = self.np_random.integers(0, 100000)
             # print("Generating Mann turbulence box with seed: ", TF_seed)
-            tf_agent = MannTurbulenceField.generate(alphaepsilon=.1,  # use correct alphaepsilon or scale later
-                                                    L=33.6,  # length scale
-                                                    Gamma=3.9,  # anisotropy parameter
-                                                    # numbers should be even and should be large enough to cover whole farm in all dimensions and time, see above
-                                                    Nxyz=(8192, 512, 64),
-                                                    # should be small enough to capture variations needed for the wind the turbine model
-                                                    dxyz=(3.0, 3.0, 3.0),
-                                                    seed=TF_seed,  # seed for random generator
-                                                    # HighFreqComp=0, # the high frequency compensation is questionable and it is recommened to switch it off
-                                                    # double_xyz=(False, False, False), # turbulence periodicity is not expected to be an issue in a wind farm
-                                                    )
+            tf_agent = MannTurbulenceField.generate(
+                alphaepsilon=0.1,  # use correct alphaepsilon or scale later
+                L=33.6,  # length scale
+                Gamma=3.9,  # anisotropy parameter
+                # numbers should be even and should be large enough to cover whole farm in all dimensions and time, see above
+                Nxyz=(8192, 512, 64),
+                # should be small enough to capture variations needed for the wind the turbine model
+                dxyz=(3.0, 3.0, 3.0),
+                seed=TF_seed,  # seed for random generator
+                # HighFreqComp=0, # the high frequency compensation is questionable and it is recommened to switch it off
+                # double_xyz=(False, False, False), # turbulence periodicity is not expected to be an issue in a wind farm
+            )
             tf_agent.scale_TI(ti=self.ti, U=self.ws)
 
         elif self.turbtype == "Random":
             # Specifies the 'box' as random turbulence
             raise NotImplementedError(
-                "This turbulence type doenst work with the current dynamiks version")
+                "This turbulence type doenst work with the current dynamiks version"
+            )
             TF_seed = self.np_random.integers(0, 100000)
             # print("Using Random turbulence with seed:", TF_seed)
-            tf_agent = RandomTurbulence(
-                ti=self.ti, ws=self.ws, seed=TF_seed)
+            tf_agent = RandomTurbulence(ti=self.ti, ws=self.ws, seed=TF_seed)
 
         elif self.turbtype == "MannFixed":
             # print("Using fixed Mann turbulence box")
             # Generates a fixed mann box
             TF_seed = 1234  # Hardcoded for now
-            tf_agent = MannTurbulenceField.generate(alphaepsilon=.1,  # use correct alphaepsilon or scale later
-                                                    L=33.6,  # length scale
-                                                    Gamma=3.9,  # anisotropy parameter
-                                                    # numbers should be even and should be large enough to cover whole farm in all dimensions and time, see above
-                                                    Nxyz=(8192, 512, 64),
-                                                    # should be small enough to capture variations needed for the wind the turbine model
-                                                    dxyz=(3.0, 3.0, 3.0),
-                                                    seed=TF_seed,  # seed for random generator
-                                                    )
+            tf_agent = MannTurbulenceField.generate(
+                alphaepsilon=0.1,  # use correct alphaepsilon or scale later
+                L=33.6,  # length scale
+                Gamma=3.9,  # anisotropy parameter
+                # numbers should be even and should be large enough to cover whole farm in all dimensions and time, see above
+                Nxyz=(8192, 512, 64),
+                # should be small enough to capture variations needed for the wind the turbine model
+                dxyz=(3.0, 3.0, 3.0),
+                seed=TF_seed,  # seed for random generator
+            )
             tf_agent.scale_TI(ti=self.ti, U=self.ws)
 
         elif self.turbtype == "None":
             # Zero turbulence site.
             raise NotImplementedError(
-                "This turbulence type doenst work with the current dynamiks version")
+                "This turbulence type doenst work with the current dynamiks version"
+            )
             tf_agent = RandomTurbulence(ti=0, ws=self.ws)
         else:
             # Throw and error:
@@ -492,8 +538,7 @@ class WindFarmEnv(WindEnv):
 
         if self.Baseline_comp:  # I am pretty sure we need to have 2 sites, as the flow simulation is run on the site, and the measurements are taken from the site.
             tf_base = copy.deepcopy(tf_agent)
-            self.site_base = TurbulenceFieldSite(
-                ws=self.ws, turbulenceField=tf_base)
+            self.site_base = TurbulenceFieldSite(ws=self.ws, turbulenceField=tf_base)
             del tf_base
         tf_agent = None
         del tf_agent
@@ -519,17 +564,24 @@ class WindFarmEnv(WindEnv):
         # This is the rated poweroutput of the turbine at the given ws. Used for reward scaling.
         self.rated_power = self.turbine.power(self.ws)
 
-        self.fs = DWMFlowSimulation(site=self.site, windTurbines=self.wts,
-                                    wind_direction=self.wd,
-                                    particleDeficitGenerator=jDWMAinslieGenerator(),
-                                    dt=self.dt,
-                                    d_particle=self.d_particle,
-                                    particleMotionModel=HillVortexParticleMotion())  # NOTE, we need this particlemotion to capture the yaw
+        self.fs = DWMFlowSimulation(
+            site=self.site,
+            windTurbines=self.wts,
+            wind_direction=self.wd,
+            particleDeficitGenerator=jDWMAinslieGenerator(),
+            dt=self.dt,
+            d_particle=self.d_particle,
+            particleMotionModel=HillVortexParticleMotion(),
+        )  # NOTE, we need this particlemotion to capture the yaw
 
         # Set the yaw angles of the farm
         # NOTE that I use yaw_start and not yaw_min/yaw_max. This is to make sure that the yaw angles are not too large at the start, but still not zero
         self.fs.windTurbines.yaw = self._yaw_init(
-            min_val=-self.yaw_start, max_val=self.yaw_start, n=self.n_turb, yaws=self.yaw_initial)
+            min_val=-self.yaw_start,
+            max_val=self.yaw_start,
+            n=self.n_turb,
+            yaws=self.yaw_initial,
+        )
 
         # Calulate the time it takes for the flow to develop.
         turb_xpos = self.fs.windTurbines.rotor_positions_xyz[0, :]
@@ -556,21 +608,22 @@ class WindFarmEnv(WindEnv):
 
         # Do the same for the baseline farm
         if self.Baseline_comp:
-            self.fs_baseline = DWMFlowSimulation(site=self.site_base,
-                                                 windTurbines=self.wts_baseline,
-                                                 wind_direction=self.wd,
-                                                 particleDeficitGenerator=jDWMAinslieGenerator(),
-                                                 dt=self.dt,
-                                                 d_particle=self.d_particle,
-                                                 particleMotionModel=HillVortexParticleMotion())
+            self.fs_baseline = DWMFlowSimulation(
+                site=self.site_base,
+                windTurbines=self.wts_baseline,
+                wind_direction=self.wd,
+                particleDeficitGenerator=jDWMAinslieGenerator(),
+                dt=self.dt,
+                d_particle=self.d_particle,
+                particleMotionModel=HillVortexParticleMotion(),
+            )
 
             self.fs_baseline.windTurbines.yaw = self.fs.windTurbines.yaw
             self.fs_baseline.run(t_developed)
 
             for _ in range(int(max(self.hist_max, self.power_len))):
                 self.fs_baseline.step()  # Take a step in the baseline flow simulation
-                self.base_pow_deq.append(
-                    self.fs_baseline.windTurbines.power().sum())
+                self.base_pow_deq.append(self.fs_baseline.windTurbines.power().sum())
 
         # Now we can start
 
@@ -583,7 +636,9 @@ class WindFarmEnv(WindEnv):
         """
         This function calculates a penalty for the actions. This is used to penalize the agent for taking actions, and try and make it more stable
         """
-        if self.action_penalty < 0.001:  # If the penalty is very small, then we dont need to calculate it
+        if (
+            self.action_penalty < 0.001
+        ):  # If the penalty is very small, then we dont need to calculate it
             return 0
 
         elif self.action_penalty_type == "Change":
@@ -608,13 +663,15 @@ class WindFarmEnv(WindEnv):
             self.fs.windTurbines.yaw += action * self.yaw_step
             # clip the yaw angles to be between -30 and 30
             self.fs.windTurbines.yaw = np.clip(
-                self.fs.windTurbines.yaw, self.yaw_min, self.yaw_max)
+                self.fs.windTurbines.yaw, self.yaw_min, self.yaw_max
+            )
 
         elif self.ActionMethod == "wind":
             # The new yaw angles are the action, scaled to be between the min and max yaw angles
             # 0 action means to move to 0 yaw angle, and 1 action means to move to the max yaw angle
-            new_yaws = (action + 1.0) / 2.0 * \
-                (self.yaw_max - self.yaw_min) + self.yaw_min
+            new_yaws = (action + 1.0) / 2.0 * (
+                self.yaw_max - self.yaw_min
+            ) + self.yaw_min
 
             # The bounds for the yaw angles are:
             yaw_max = self.fs.windTurbines.yaw + self.yaw_step
@@ -624,8 +681,7 @@ class WindFarmEnv(WindEnv):
             self.fs.windTurbines.yaw = np.clip(new_yaws, yaw_min, yaw_max)
 
         elif self.ActionMethod == "absolute":
-            raise NotImplementedError(
-                "The absolute method is not implemented yet")
+            raise NotImplementedError("The absolute method is not implemented yet")
 
         else:
             raise ValueError("The ActionMethod must be yaw, wind or absolute")
@@ -645,17 +701,17 @@ class WindFarmEnv(WindEnv):
             print("The agent power is: ", power_agent)
             print("self.farm_pow_deq: ", self.farm_pow_deq)
             print("self.base_pow_deq: ", self.base_pow_deq)
-            0/0  # This will raise an error, and stop the simulation
+            0 / 0  # This will raise an error, and stop the simulation
             reward = 0
         else:
-            reward = (power_agent / power_baseline - 1)
+            reward = power_agent / power_baseline - 1
         return reward
 
     def power_rew_avg(self):
         """
         Calculate the power reward based on the average power output
         The reward is: power_agent / n_turbines / rated_power
-        NOTE I have found the reward to be somewhat sensitive to the number of values in the deque. Larger deque gives lower reward, but it might make it more stable? 
+        NOTE I have found the reward to be somewhat sensitive to the number of values in the deque. Larger deque gives lower reward, but it might make it more stable?
         """
 
         power_agent = np.mean(self.farm_pow_deq)
@@ -674,17 +730,25 @@ class WindFarmEnv(WindEnv):
     def power_rew_diff(self):
         """
         This reward is based on the current power putput, compared to the average power output over the last Power_avg steps
-        NOTE if using this: a good starting point for Power_scaling is 0.0001. Atleast that lookes to be somewhat decent. 
+        NOTE if using this: a good starting point for Power_scaling is 0.0001. Atleast that lookes to be somewhat decent.
         More experimentation is needed
         """
 
         # Latest power measurements:
-        power_latest = np.mean(list(itertools.islice(
-            self.farm_pow_deq, self.power_len-self._power_wSize, self.power_len)))
+        power_latest = np.mean(
+            list(
+                itertools.islice(
+                    self.farm_pow_deq,
+                    self.power_len - self._power_wSize,
+                    self.power_len,
+                )
+            )
+        )
 
         # Oldest power measurements:
-        power_oldest = np.mean(list(itertools.islice(
-            self.farm_pow_deq, 0, self._power_wSize)))
+        power_oldest = np.mean(
+            list(itertools.islice(self.farm_pow_deq, 0, self._power_wSize))
+        )
 
         return (power_latest - power_oldest) / self.n_turb
 
@@ -698,11 +762,11 @@ class WindFarmEnv(WindEnv):
         """
         The reward is the negative difference between the power output and the power setpoint squared
         The reward is: - (power_agent - power_setpoint)^2
-        The further we are from the desired power output, the larger the penalty 
+        The further we are from the desired power output, the larger the penalty
         """
         #
         power_agent = np.mean(self.farm_pow_deq)
-        return - (power_agent - self.power_setpoint)**2
+        return -((power_agent - self.power_setpoint) ** 2)
 
     def step(self, action):
         """
@@ -730,12 +794,12 @@ class WindFarmEnv(WindEnv):
             # If we have the baseline farm, then we do mostly the same as above, but for the baseline farm
             # Run the base controller step also.
             new_baseline_yaws = self._base_controller(
-                fs=self.fs_baseline, yaw_step=self.yaw_step)
+                fs=self.fs_baseline, yaw_step=self.yaw_step
+            )
             self.fs_baseline.windTurbines.yaw = new_baseline_yaws
             self.fs_baseline.step()  # Take a step in the baseline flow simulation
             # Save the power output of the baseline farm
-            self.base_pow_deq.append(
-                self.fs_baseline.windTurbines.power().sum())
+            self.base_pow_deq.append(self.fs_baseline.windTurbines.power().sum())
 
         # Calculate the reward
         # The power production reward with the scaling
@@ -806,9 +870,17 @@ class WindFarmEnv(WindEnv):
         # [0] is the u component of the wind speed
         plt.pcolormesh(uvw.x.values, uvw.y.values, uvw[0].T, shading="nearest")
         # plt.colorbar().set_label('Wind speed, u [m/s]')
-        WindTurbinesPW.plot_xy(self.fs.windTurbines, x_turb, y_turb, types=self.fs.windTurbines.types,
-                               wd=self.fs.wind_direction, ax=ax1, yaw=yaw, tilt=tilt)
-        ax1.set_title('Flow field at {} s'.format(self.fs.time))
+        WindTurbinesPW.plot_xy(
+            self.fs.windTurbines,
+            x_turb,
+            y_turb,
+            types=self.fs.windTurbines.types,
+            wd=self.fs.wind_direction,
+            ax=ax1,
+            yaw=yaw,
+            tilt=tilt,
+        )
+        ax1.set_title("Flow field at {} s".format(self.fs.time))
         display.display(plt.gcf())
         display.clear_output(wait=True)
 

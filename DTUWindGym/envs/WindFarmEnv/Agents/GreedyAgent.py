@@ -1,9 +1,9 @@
-import numpy as np
-
-import matplotlib.pyplot as plt
-
-from DTUWindGym.envs.WindFarmEnv.BasicControllers import local_yaw_controller, global_yaw_controller
+from DTUWindGym.envs.WindFarmEnv.BasicControllers import (
+    local_yaw_controller,
+    global_yaw_controller,
+)
 from .BaseAgent import BaseAgent
+
 """
 This is the basic agent class. It is used to create a simple agent that can be used in the AgentEval class.
 The agent will always try and get to zero yaw offset
@@ -11,7 +11,7 @@ The agent will always try and get to zero yaw offset
 
 
 class GreedyAgent(BaseAgent):
-    def __init__(self, type='local', yaw_max=45, yaw_min=-45, yaw_step=1, env=None):
+    def __init__(self, type="local", yaw_max=45, yaw_min=-45, yaw_step=1, env=None):
         # This is used in a hasattr in the AgentEval class/function.
         self.UseEnv = True
         self.env = env
@@ -22,9 +22,9 @@ class GreedyAgent(BaseAgent):
         # This should be 1, as the action is scaled to be between -1 and 1.
         self.yaw_step = yaw_step
 
-        if type == 'local':
+        if type == "local":
             self.controller = local_yaw_controller
-        elif type == 'global':
+        elif type == "global":
             self.controller = global_yaw_controller
 
     def predict(self, *args, **kwargs):

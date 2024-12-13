@@ -3,13 +3,14 @@ from py_wake.examples.data.hornsrev1 import V80
 
 import floris.flow_visualization as flowviz
 import floris.layout_visualization as layoutviz
-from floris import FlorisModel, TimeSeries
+from floris import FlorisModel
 from floris.optimization.yaw_optimization.yaw_optimizer_sr import YawOptimizationSR
 from floris.turbine_library import build_cosine_loss_turbine_dict
 
 import matplotlib.pyplot as plt
 from .BaseAgent import BaseAgent
 import os
+
 """
 The FlorisAgent is a class that is used to optimize the yaw angles of a wind farm using the PyWake library.
 It interfaces with the AgentEval class in the dtu_wind_gym library.
@@ -18,10 +19,17 @@ Based on the global wind conditons it can optimize the yaw angles and then use t
 
 
 class FlorisAgent(BaseAgent):
-    def __init__(self, x_pos, y_pos,
-                 wind_speed=8, wind_dir=270, TI=0.07, yaw_max=45,
-                 yaw_min=-45,
-                 turbine=V80()):
+    def __init__(
+        self,
+        x_pos,
+        y_pos,
+        wind_speed=8,
+        wind_dir=270,
+        TI=0.07,
+        yaw_max=45,
+        yaw_min=-45,
+        turbine=V80(),
+    ):
         # This is used in a hasattr in the AgentEval class.
         self.florisagent = True
         self.optimized = False  # Is false before we have optimized the farm.
@@ -47,8 +55,9 @@ class FlorisAgent(BaseAgent):
 
         # Generate an example turbine power and thrust curve for use in the FLORIS model
         pywake_power = turbine.power(wind_speeds)
-        power_coeffs = pywake_power[1:] / (0.5 * turbine.diameter()
-                                           ** 2 * np.pi / 4 * 1.225 * wind_speeds[1:] ** 3)
+        power_coeffs = pywake_power[1:] / (
+            0.5 * turbine.diameter() ** 2 * np.pi / 4 * 1.225 * wind_speeds[1:] ** 3
+        )
         turbine_data_dict = {
             "wind_speed": list(wind_speeds),
             "power_coefficient": [0] + list(power_coeffs),
@@ -77,7 +86,7 @@ class FlorisAgent(BaseAgent):
             wind_speeds=np.array([self.wsp]),
             turbulence_intensities=np.array([self.TI]),
             turbine_type=[turbine_dict],
-            reference_wind_height=self.fmodel.reference_wind_height
+            reference_wind_height=self.fmodel.reference_wind_height,
         )
 
         # initial condition of yaw angles
@@ -95,7 +104,7 @@ class FlorisAgent(BaseAgent):
 
     def reset(self):
         """
-        Reset the wind things for the objective. 
+        Reset the wind things for the objective.
         """
         self.optimized = False
 
@@ -113,7 +122,8 @@ class FlorisAgent(BaseAgent):
         """
         # Initialize optimizer object and run optimization using the Serial-Refine method
         yaw_opt = YawOptimizationSR(
-            self.fmodel, maximum_yaw_angle=self.yaw_max, minimum_yaw_angle=self.yaw_min)
+            self.fmodel, maximum_yaw_angle=self.yaw_max, minimum_yaw_angle=self.yaw_min
+        )
 
         df_opt = yaw_opt.optimize(print_progress=False)
 
@@ -127,7 +137,7 @@ class FlorisAgent(BaseAgent):
         Note that we dont use the obs or the deterministic arguments.
         """
 
-        if self.optimized == False:
+        if self.optimized is False:
             self.optimize()
             self.action = self.scale_yaw(self.optimized_yaws)
 
@@ -137,14 +147,16 @@ class FlorisAgent(BaseAgent):
         """
         Plot the flowfield of the wind farm.
         """
-        if self.optimized == False:
+        if self.optimized is False:
             self.optimize()
 
         fig, ax = plt.subplots()
         horizontal_plane = self.fmodel.calculate_horizontal_plane(
-            height=self.fmodel.core.farm.hub_heights[0])
+            height=self.fmodel.core.farm.hub_heights[0]
+        )
         flowviz.visualize_cut_plane(horizontal_plane, ax=ax)
         layoutviz.plot_turbine_rotors(
-            self.fmodel, ax=ax, yaw_angles=self.optimized_yaws)
+            self.fmodel, ax=ax, yaw_angles=self.optimized_yaws
+        )
         ax.set_title("Optimized yaw angles")
         plt.show()

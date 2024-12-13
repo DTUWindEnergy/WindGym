@@ -1,5 +1,7 @@
 # DTUWindGym
 
+[![coverage report](https://gitlab.windenergy.dtu.dk/manils/dtu_wind_gym/badges/main/coverage.svg)](https://gitlab.windenergy.dtu.dk/manils/dtu_wind_gym/-/commits/main)
+
 ## Description
 
 The goal of this is to collect the different RL environments from DTU at one place. 
@@ -33,4 +35,5 @@ follow these steps:
 - Set up pre-commit via `pre-commit install`
 
 
-Also hej :D 
+Also hej :D
+
