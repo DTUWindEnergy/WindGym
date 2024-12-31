@@ -57,6 +57,10 @@ class WindFarmEnv(WindEnv):
         yaw_init=None,
         render_mode=None,
         seed=None,
+        dt_sim=1,  # Simulation timestep in seconds
+        dt_env=1,  # Environment timestep in seconds
+        yaw_step=1,
+        power_avg=1,
     ):
         """
         This is a steadystate environment. The environment only ever changes wind conditions at reset. Then the windconditions are constatnt for the rest of the episode
@@ -76,16 +80,23 @@ class WindFarmEnv(WindEnv):
 
         # Predefined values
         # The power setpoint for the farm. This is used if the Track_power is True. (Not used yet)
+        self.power_avg = power_avg
         self.power_setpoint = 0.0
         self.act_var = (
             1  # number of actions pr. turbine. For now it is just the yaw angles
         )
-        self.dt = 1  # time step for the flow simulation.
+        self.dt = dt_sim  # DWM simulation timestep
+        self.dt_sim = dt_sim
+        self.dt_env = dt_env  # Environment timestep
+        self.sim_steps_per_env_step = int(self.dt_env / self.dt_sim)
+        if self.dt_env % self.dt_sim != 0:
+            raise ValueError("dt_env must be a multiple of dt_sim")
+
         self.yaw_start = 15.0  # This is the limit for the initialization of the yaw angles. This is used to make sure that the yaw angles are not too large at the start, but still not zero
         # Max power pr turbine. Used in the measurement class
         self.maxturbpower = max(turbine.power(np.arange(10, 25, 1)))
         # The step size for the yaw angles. How manny degress the yaw angles can change pr. step
-        self.yaw_step = 1
+        self.yaw_step = yaw_step
         # The distance between the particles. This is used in the flow simulation.
         self.d_particle = 0.1
 
@@ -169,15 +180,18 @@ class WindFarmEnv(WindEnv):
 
         # Read in the turb boxes
         if turbtype == "MannLoad":
-            try:
-                for f in os.listdir(TurbBox):
-                    if f.split("_")[0] == "TF":
-                        self.TF_files.append(os.path.join(TurbBox, f))
-            except FileNotFoundError:
-                print(
-                    "Coudnt find the turbulence box file(s), so we switch to generated turbulence"
-                )
-                self.turbtype = "MannGenerate"
+            if isinstance(TurbBox, str):
+                self.TF_files.append(TurbBox)
+            else:
+                try:
+                    for f in os.listdir(TurbBox):
+                        if f.split("_")[0] == "TF":
+                            self.TF_files.append(os.path.join(TurbBox, f))
+                except FileNotFoundError:
+                    print(
+                        "Coudnt find the turbulence box file(s), so we switch to generated turbulence"
+                    )
+                    self.turbtype = "MannGenerate"
 
         # If we need to have a "baseline" farm, then we need to set up the baseline controller
         # This could be moved to the Power_reward check, but I have a feeling this will be expanded in the future, when we include damage.
@@ -292,7 +306,7 @@ class WindFarmEnv(WindEnv):
         self.action_penalty = self.act_pen["action_penalty"]
         self.action_penalty_type = self.act_pen["action_penalty_type"]
         self.Power_scaling = self.power_def["Power_scaling"]
-        self.power_avg = self.power_def["Power_avg"]
+        # self.power_avg = self.power_def["Power_avg"]
         self.power_reward = self.power_def["Power_reward"]
 
     def _init_farm_mes(self):
@@ -592,19 +606,18 @@ class WindFarmEnv(WindEnv):
         # Time it takes for the flow to travel from one side of the farm to the other
         t_inflow = dist / self.ws
         # The time it takes for the flow to develop. Also a bit extra.
-        t_developed = int(t_inflow * 1.1)
+        t_developed = int(t_inflow * 3)
 
         # Max allowed timesteps
         self.time_max = int(t_inflow * self.n_passthrough)
         # first we run the simulation the time it takes the flow to develop
         self.fs.run(t_developed)
 
-        # After the flow is fully developed, we fill up the measurements
-        for _ in range(int(max(self.hist_max, self.power_len))):
-            self.fs.step()  # Take a step in the flow simulation
-            # Save the power output of the farm
-            self.farm_pow_deq.append(self.fs.windTurbines.power().sum())
-            self._update_measurements()
+        # Just take one step
+        self.fs.step()  # Take a step in the flow simulation
+        # Save the power output of the farm
+        self.farm_pow_deq.append(self.fs.windTurbines.power().sum())
+        self._update_measurements()
 
         # Do the same for the baseline farm
         if self.Baseline_comp:
@@ -621,9 +634,8 @@ class WindFarmEnv(WindEnv):
             self.fs_baseline.windTurbines.yaw = self.fs.windTurbines.yaw
             self.fs_baseline.run(t_developed)
 
-            for _ in range(int(max(self.hist_max, self.power_len))):
-                self.fs_baseline.step()  # Take a step in the baseline flow simulation
-                self.base_pow_deq.append(self.fs_baseline.windTurbines.power().sum())
+            self.fs_baseline.step()  # Take a step in the baseline flow simulation
+            self.base_pow_deq.append(self.fs_baseline.windTurbines.power().sum())
 
         # Now we can start
 
@@ -686,55 +698,52 @@ class WindFarmEnv(WindEnv):
         else:
             raise ValueError("The ActionMethod must be yaw, wind or absolute")
 
-    def power_rew_baseline(self):
-        """
-        Calculate the power reward based on the baseline farm
-        The reward is: (power_agent / power_baseline - 1)
-        """
+    def track_rew_none(self):
+        """If we are not using power tracking, then just return 0"""
+        return 0.0
 
+    def track_rew_avg(self):
+        """
+        The reward is the negative difference between the power output and the power setpoint squared
+        The reward is: - (power_agent - power_setpoint)^2
+        """
         power_agent = np.mean(self.farm_pow_deq)
-        power_baseline = np.mean(self.base_pow_deq)
+        return -((power_agent - self.power_setpoint) ** 2)
 
-        # There was issued with the baseline power being zero. This is a quick fix for that.
-        if power_baseline == 0:
+    def power_rew_baseline(self):
+        """Calculate reward based on baseline farm comparison using available history"""
+        power_agent = self.fs.windTurbines.power().sum()
+        power_baseline = self.fs_baseline.windTurbines.power().sum()
+
+        # Add to histories
+        self.farm_pow_deq.append(power_agent)
+        self.base_pow_deq.append(power_baseline)
+
+        # Use whatever history we have so far for averaging
+        power_agent_avg = np.mean(self.farm_pow_deq)
+        power_baseline_avg = np.mean(self.base_pow_deq)
+
+        if power_baseline_avg == 0:
             print("The baseline power is zero. This is probably not good")
-            print("The agent power is: ", power_agent)
             print("self.farm_pow_deq: ", self.farm_pow_deq)
             print("self.base_pow_deq: ", self.base_pow_deq)
-            0 / 0  # This will raise an error, and stop the simulation
-            reward = 0
-        else:
-            reward = power_agent / power_baseline - 1
+            0 / 0  # This will raise an error
+
+        reward = power_agent_avg / power_baseline_avg - 1
         return reward
 
     def power_rew_avg(self):
-        """
-        Calculate the power reward based on the average power output
-        The reward is: power_agent / n_turbines / rated_power
-        NOTE I have found the reward to be somewhat sensitive to the number of values in the deque. Larger deque gives lower reward, but it might make it more stable?
-        """
-
+        """Calculate power reward based on available history"""
         power_agent = np.mean(self.farm_pow_deq)
         reward = power_agent / self.n_turb / self.rated_power
-
         return reward
 
     def power_rew_none(self):
-        """
-        Return zero for the power reward
-        This is used if we dont care about the power output directly. E.g. if we do power tracking or something like that
-        """
-
+        """Return zero for the power reward"""
         return 0.0
 
     def power_rew_diff(self):
-        """
-        This reward is based on the current power putput, compared to the average power output over the last Power_avg steps
-        NOTE if using this: a good starting point for Power_scaling is 0.0001. Atleast that lookes to be somewhat decent.
-        More experimentation is needed
-        """
-
-        # Latest power measurements:
+        """Calculate reward based on power difference over time"""
         power_latest = np.mean(
             list(
                 itertools.islice(
@@ -744,29 +753,10 @@ class WindFarmEnv(WindEnv):
                 )
             )
         )
-
-        # Oldest power measurements:
         power_oldest = np.mean(
             list(itertools.islice(self.farm_pow_deq, 0, self._power_wSize))
         )
-
         return (power_latest - power_oldest) / self.n_turb
-
-    def track_rew_none(self):
-        """
-        If we are not using power tracking, then just return 0
-        """
-        return 0.0
-
-    def track_rew_avg(self):
-        """
-        The reward is the negative difference between the power output and the power setpoint squared
-        The reward is: - (power_agent - power_setpoint)^2
-        The further we are from the desired power output, the larger the penalty
-        """
-        #
-        power_agent = np.mean(self.farm_pow_deq)
-        return -((power_agent - self.power_setpoint) ** 2)
 
     def step(self, action):
         """
@@ -783,23 +773,31 @@ class WindFarmEnv(WindEnv):
         self.old_yaws = copy.copy(self.fs.windTurbines.yaw)
 
         self._adjust_yaws(action)  # Adjust the yaw angles of the agent farm
-        self.fs.step()  # Take a step in the flow simulation
-        self._update_measurements()  # Update the measurements
+        # Run multiple simulation steps for each environment step
+        for _ in range(self.sim_steps_per_env_step):
+            # Step the flow simulation
+            self.fs.step()
+
+            # If we have baseline comparison, step it too
+            if self.Baseline_comp:
+                new_baseline_yaws = self._base_controller(
+                    fs=self.fs_baseline, yaw_step=self.yaw_step
+                )
+                self.fs_baseline.windTurbines.yaw = new_baseline_yaws
+                self.fs_baseline.step()
+
+        # Update measurements and farm power after each simulation step
+        self._update_measurements()
+        self.farm_pow_deq.append(self.fs.windTurbines.power().sum())
+        if self.Baseline_comp:
+            self.base_pow_deq.append(self.fs_baseline.windTurbines.power().sum())
+        if np.any(np.isnan(self.farm_pow_deq)):
+            raise Exception("NaN Power")
+
         observation = self._get_obs()
         info = self._get_info()
         # Save the power output of the farm
-        self.farm_pow_deq.append(self.fs.windTurbines.power().sum())
-
-        if self.Baseline_comp:
-            # If we have the baseline farm, then we do mostly the same as above, but for the baseline farm
-            # Run the base controller step also.
-            new_baseline_yaws = self._base_controller(
-                fs=self.fs_baseline, yaw_step=self.yaw_step
-            )
-            self.fs_baseline.windTurbines.yaw = new_baseline_yaws
-            self.fs_baseline.step()  # Take a step in the baseline flow simulation
-            # Save the power output of the baseline farm
-            self.base_pow_deq.append(self.fs_baseline.windTurbines.power().sum())
+        # self.farm_pow_deq.append(self.fs.windTurbines.power().sum())
 
         # Calculate the reward
         # The power production reward with the scaling
