@@ -570,6 +570,8 @@ class AgentEval:
             ws_a[i] = np.linalg.norm(
                 self.env.fs.windTurbines.rotor_avg_windspeed(include_wakes=True), axis=0
             )
+            if np.any(np.isnan(powerF_a)) or np.any(np.isnan(powerT_b)):
+                raise Exception("NaN Power")
             ws_b[i] = np.linalg.norm(
                 self.env.fs_baseline.windTurbines.rotor_avg_windspeed(
                     include_wakes=True

@@ -62,56 +62,63 @@ class Mes:
         self.measurements.append(measurement)
 
     def add_measurement(self, measurement):
-        """
-        Append the measurement to the deque via the add_measurement function. This is just the append
-        """
+        """Append the measurement to the deque"""
         self.measurements.append(measurement)
 
     def get_measurements(self):
         """
-        Get the desired measurements
-        This can return an empty array if no measurements are desired. This is inteded behaviour
+        Get the desired measurements with graceful handling of startup period
         """
-
         return_vals = []
+        if len(self.measurements) == 0:
+            return np.array(return_vals, dtype=np.float32)
+
         if self.current:
             # Return the current measurement
-            result = self.measurements[-1]
-            return_vals.append(np.mean(result))
+            return_vals.append(np.mean(self.measurements[-1]))
 
         if self.rolling_mean:
-            # Return the rolling mean of measurements
+            available_length = len(self.measurements)
+
             for i in range(self.history_N):
                 if i == 0:
-                    # Gets the lates values
+                    # Latest window
+                    start = max(0, available_length - self.window_length)
                     result = list(
-                        itertools.islice(
-                            self.measurements,
-                            self.history_length - self.window_length,
-                            self.history_length,
-                        )
+                        itertools.islice(self.measurements, start, available_length)
                     )
 
-                elif i == self.history_N - 1:
-                    # Gets the oldest values
+                elif i == self.history_N - 1 and available_length >= self.window_length:
+                    # Oldest window (only if we have enough data)
                     result = list(
                         itertools.islice(self.measurements, 0, self.window_length)
                     )
 
                 else:
-                    # Gets middle values
-                    mes_place = (
-                        self.history_length // (self.history_N - 1) * i
-                    )  # Calculates where the window be middled
-                    result = list(
-                        itertools.islice(
-                            self.measurements,
-                            int((mes_place - self.window_length / 2)),
-                            int(mes_place + self.window_length / 2),
+                    # Middle windows - space them out based on available data
+                    if available_length < self.window_length:
+                        # If we don't have enough data, use all available data
+                        result = list(self.measurements)
+                    else:
+                        # Calculate position for this window
+                        spacing = max(
+                            1,
+                            (available_length - self.window_length)
+                            // (self.history_N - 1),
                         )
-                    )
+                        pos = min(i * spacing, available_length - self.window_length)
+                        result = list(
+                            itertools.islice(
+                                self.measurements, pos, pos + self.window_length
+                            )
+                        )
 
+                # Always calculate mean of whatever data we have
+                # if result:
                 return_vals.append(np.mean(result))
+                # else:
+                #    # If somehow we got no data, use the latest value
+                #    return_vals.append(np.mean(self.measurements[-1]))
 
         return np.array(return_vals, dtype=np.float32)
 

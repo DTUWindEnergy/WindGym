@@ -4,7 +4,7 @@
 yaw_init: "Zeros"       # How the yaw angles are initialized at the beginning of an episode. "Zeros" or "Random"
 noise: "Normal"         # The Noise type to include. Can be "None", "Normal". Not really used at the moment
 BaseController: "Local" # If we have a baseline farm to comapre to, how are they controlled. Can be "Local" or "Global" 
-ActionMethod: "yaw"     #Can be: "yaw", "wind", "absolute"
+ActionMethod: "wind"     #Can be: "yaw", "wind", "absolute"
 Track_power: False      #If the farm should produce a specified power output
 
 #Farm parameters. Specify the number of turbines and the layout of the farm
@@ -19,11 +19,11 @@ farm:
 #Wind conditions. This is the limits for the wind conditions that are sampled at the beginning of an episode.
 wind:
   ws_min: 6
-  ws_max: 15
+  ws_max: 10
   TI_min: 0.03
   TI_max: 0.15
-  wd_min: 270
-  wd_max: 360
+  wd_min: 260
+  wd_max: 280
   
 #Penalty parameters
 act_pen:
@@ -54,23 +54,23 @@ mes_level:
 ws_mes:
  ws_current: False      #Do we retunr the lates wind speed measurement
  ws_rolling_mean: True  #Do we  retun the rolling mean of the wind speed
- ws_history_N: 1        #How many rolling mean wind speed(s) measurements do we return
+ ws_history_N: 5        #How many rolling mean wind speed(s) measurements do we return
  ws_history_length: 10  #How many measurements are saved in in the sensor history
- ws_window_length: 10   #How many measurements are used to calculate the rolling mean
+ ws_window_length: 1  #How many measurements are used to calculate the rolling mean
 #For WD
 wd_mes:
   wd_current: False
-  wd_rolling_mean: False
+  wd_rolling_mean: True
   wd_history_N: 1 
   wd_history_length: 10
   wd_window_length: 10
 #For YAW
 yaw_mes:
   yaw_current: False
-  yaw_rolling_mean: False
-  yaw_history_N: 1
+  yaw_rolling_mean: True
+  yaw_history_N: 5
   yaw_history_length: 10
-  yaw_window_length: 10
+  yaw_window_length: 1
 #For Power
 power_mes:
   power_current: False

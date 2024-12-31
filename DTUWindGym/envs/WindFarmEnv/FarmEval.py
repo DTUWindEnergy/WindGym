@@ -22,11 +22,17 @@ class FarmEval(WindFarmEnv):
         Baseline_comp=False,
         render_mode=None,
         seed=None,
+        dt_sim=1,  # Simulation timestep in seconds
+        dt_env=10,  # Environment timestep in seconds
+        yaw_step=1,  # Environment timestep in seconds
+        power_avg=1,  # Environment timestep in seconds
+        n_passthrough=5,
     ):
         # TODO There must be a better way to set all these valuesm **kwargs???
         # Run the Env with these values, to make sure that the oberservartion space is the same.
         super().__init__(
             turbine=turbine,
+            n_passthrough=n_passthrough,
             TI_min_mes=TI_min_mes,
             TI_max_mes=TI_max_mes,
             yaml_path=yaml_path,
@@ -34,6 +40,10 @@ class FarmEval(WindFarmEnv):
             TurbBox=TurbBox,
             Baseline_comp=Baseline_comp,  # UPDATE: Changed so that we dont need the baseline farm anymore. Before it was always true! #We always want to compare to the baseline, so this is true
             seed=seed,
+            dt_sim=dt_sim,  # Simulation timestep in seconds
+            dt_env=dt_env,  # Environment timestep in seconds
+            power_avg=power_avg,
+            yaw_step=yaw_step,
         )
 
     def reset(self, seed=None, options=None):
