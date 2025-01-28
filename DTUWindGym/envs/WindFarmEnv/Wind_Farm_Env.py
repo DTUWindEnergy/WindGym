@@ -59,7 +59,7 @@ class WindFarmEnv(WindEnv):
         seed=None,
         dt_sim=1,  # Simulation timestep in seconds
         dt_env=1,  # Environment timestep in seconds
-        yaw_step=1,
+        yaw_step=1,# How many degrees the yaw angles can change pr. step
         power_avg=1,
     ):
         """
@@ -76,6 +76,9 @@ class WindFarmEnv(WindEnv):
             yaw_init: str: The method for initializing the yaw angles of the turbines. If 'Random', then the yaw angles will be random. Else they will be zeros.
             render_mode: str: The render mode of the environment. If None, then nothing will be rendered. If human, then the environment will be rendered in a window. If rgb_array, then the environment will be rendered as an array.
             seed: int: The seed for the environment. If None, then the seed will be random.
+            dt_sim: float: The simulation timestep in seconds. Can be used to speed up the simulation, if the DWM solver can take larger steps
+            dt_env: float: The environment timestep in seconds. This is the timestep that the agent sees. The environment will run the simulation for dt_sim/dt_env steps pr. timestep.
+            yaw_step: float: The step size for the yaw angles. How manny degress the yaw angles can change pr. step
         """
 
         # Predefined values
@@ -694,7 +697,9 @@ class WindFarmEnv(WindEnv):
             yaw_min = self.fs.windTurbines.yaw - self.yaw_step
 
             # The new yaw angles are the new yaw angles, but clipped to be between the yaw_max and yaw_min
-            self.fs.windTurbines.yaw = np.clip(new_yaws, yaw_min, yaw_max)
+            self.fs.windTurbines.yaw = np.clip(
+                np.clip(new_yaws, yaw_min, yaw_max), self.yaw_min, self.yaw_max
+            )
 
         elif self.ActionMethod == "absolute":
             raise NotImplementedError("The absolute method is not implemented yet")
