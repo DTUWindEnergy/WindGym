@@ -59,7 +59,7 @@ class WindFarmEnv(WindEnv):
         seed=None,
         dt_sim=1,  # Simulation timestep in seconds
         dt_env=1,  # Environment timestep in seconds
-        yaw_step=1,# How many degrees the yaw angles can change pr. step
+        yaw_step=1,  # How many degrees the yaw angles can change pr. step
         power_avg=1,
     ):
         """
