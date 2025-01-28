@@ -180,14 +180,18 @@ class WindFarmEnv(WindEnv):
 
         # Read in the turb boxes
         if turbtype == "MannLoad":
-            if isinstance(TurbBox, str):
+            if os.path.exists(TurbBox) and os.path.isfile(TurbBox):
+                # The TurbBox is a file, so we just add this to the list of files
                 self.TF_files.append(TurbBox)
             else:
+                # If the path exist, but is not a file, then we must be a directory
+                # Therefore add all the files in the dir, to the list.
                 try:
                     for f in os.listdir(TurbBox):
                         if f.split("_")[0] == "TF":
                             self.TF_files.append(os.path.join(TurbBox, f))
                 except FileNotFoundError:
+                    # If not then we change to generated turbulence
                     print(
                         "Coudnt find the turbulence box file(s), so we switch to generated turbulence"
                     )
