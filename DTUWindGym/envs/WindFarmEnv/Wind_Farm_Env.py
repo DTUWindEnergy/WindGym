@@ -783,6 +783,10 @@ class WindFarmEnv(WindEnv):
 
         self._adjust_yaws(action)  # Adjust the yaw angles of the agent farm
         # Run multiple simulation steps for each environment step
+
+        # Initialize list to store observations
+        observations = []
+        powers = []
         for _ in range(self.sim_steps_per_env_step):
             # Step the flow simulation
             self.fs.step()
@@ -795,15 +799,18 @@ class WindFarmEnv(WindEnv):
                 self.fs_baseline.windTurbines.yaw = new_baseline_yaws
                 self.fs_baseline.step()
 
-        # Update measurements and farm power after each simulation step
-        self._update_measurements()
-        self.farm_pow_deq.append(self.fs.windTurbines.power().sum())
+            self._update_measurements()
+            observations.append(self._get_obs())
+            powers.append(self.fs.windTurbines.power().sum())
+
         if self.Baseline_comp:
             self.base_pow_deq.append(self.fs_baseline.windTurbines.power().sum())
         if np.any(np.isnan(self.farm_pow_deq)):
             raise Exception("NaN Power")
 
-        observation = self._get_obs()
+        # Average observations and power over simulation steps
+        observation = np.mean(observations, axis=0)
+        self.farm_pow_deq.append(np.mean(powers))
         info = self._get_info()
         # Save the power output of the farm
         # self.farm_pow_deq.append(self.fs.windTurbines.power().sum())
