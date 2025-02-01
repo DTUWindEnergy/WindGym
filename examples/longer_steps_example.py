@@ -49,16 +49,7 @@ class WindFarmMonitor(BaseCallback):
         self.current_rewards += rewards
 
         # Process each environment
-        print("Going through envs ")
         for env_idx, (info, done) in enumerate(zip(infos, dones)):
-            # Log power metrics if available in info
-            print(
-                "in ",
-                env_idx,
-                " powerF is in: ",
-                "powerF_a" in info and "powerF_b" in info,
-            )
-            print(info["yaw angles agent"].shape)
             agent_power = info["Power agent"]
             base_power = info["Power baseline"]
 
@@ -209,7 +200,7 @@ if __name__ == "__main__":
             dt_sim=1,
             dt_env=args.dt_env,
             yaw_step=yaw_step,
-            power_avg=args.power_avg,
+            observation_window_size=args.power_avg,
             n_passthrough=5,
         ),
         n_envs=args.n_env,
