@@ -338,15 +338,6 @@ class WindFarmEnv(WindEnv):
         self.power_reward = self.power_def["Power_reward"]
 
 
-    def set_yaw_vals(self, yaw_vals):
-        """Set initial yaw angles for turbines"""
-        if len(yaw_vals) == self.n_turb:
-            self.yaw_initial = yaw_vals
-        elif len(yaw_vals) == 1:
-            self.yaw_initial = np.ones(self.n_turb) * yaw_vals[0]
-        else:
-            raise ValueError("Yaw values length must match number of turbines or be 1")
-
     def _init_farm_mes(self):
         """
         This function initializes the farm measurements class.
@@ -455,19 +446,17 @@ class WindFarmEnv(WindEnv):
             self.current_ws, self.current_wd, self.current_yaw, powers
         )
 
-        """Collect all measurements using existing farm_measurements logic"""
         # Get normalized measurements for current timestep (-1 to 1)
         current_obs = self.farm_measurements.get_measurements(scaled=True)
         
         # Store in sliding window buffer
         self.raw_obs_buffer.append(current_obs)
 
-    def _get_num_raw_features(self):
-        """Dynamically get number of features from measurement system"""
-        return self.farm_measurements.observed_variables()
-    
     def _get_obs(self):
-        """Build temporal observation from buffer"""
+        """
+        Gets the sensordata from the farm_measurements class, and scales it to be between -1 and 1
+        Build temporal observation from buffer
+        """
         # Fill buffer with zeros if needed
         obs = np.concatenate(self.raw_obs_buffer).astype(np.float32)
         # Add numerical stability checks
@@ -478,6 +467,10 @@ class WindFarmEnv(WindEnv):
             self.raw_obs_buffer.appendleft(np.zeros(self._get_num_raw_features()))
         
         return np.concatenate(self.raw_obs_buffer).astype(np.float32)
+    
+    def _get_num_raw_features(self):
+        """Dynamically get number of features from measurement system"""
+        return self.farm_measurements.observed_variables()
     
     def _get_info(self):
         """
@@ -696,7 +689,6 @@ class WindFarmEnv(WindEnv):
 
         # Now we can start
 
-        self.current_yaw = self.fs.windTurbines.yaw.copy()
         observation = self._get_obs()
         info = self._get_info()
 
@@ -833,7 +825,9 @@ class WindFarmEnv(WindEnv):
         self.old_yaws = copy.copy(self.fs.windTurbines.yaw)
 
         self._adjust_yaws(action)  # Adjust the yaw angles of the agent farm
-        self.current_yaw = self.fs.windTurbines.yaw.copy()
+
+        observations = []
+        powers = []
         # Run multiple simulation steps for each environment step
         for _ in range(self.sim_steps_per_env_step):
             # Step the flow simulation
@@ -847,15 +841,19 @@ class WindFarmEnv(WindEnv):
         #        self.fs_baseline.windTurbines.yaw = new_baseline_yaws
                 self.fs_baseline.step()
 
+            self._update_measurements()
+            observations.append(self._get_obs())
+            powers.append(self.fs.windTurbines.power().sum())
+
         # Update measurements and farm power after each simulation step
         self._update_measurements()
-        self.farm_pow_deq.append(self.fs.windTurbines.power().sum())
+        observation = np.mean(observations, axis=0)
+        self.farm_pow_deq.append(np.mean(powers))
         if self.Baseline_comp:
             self.base_pow_deq.append(self.fs_baseline.windTurbines.power().sum())
         if np.any(np.isnan(self.farm_pow_deq)):
             raise Exception("NaN Power")
 
-        observation = self._get_obs()
         info = self._get_info()
         # Save the power output of the farm
         # self.farm_pow_deq.append(self.fs.windTurbines.power().sum())
