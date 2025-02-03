@@ -130,12 +130,13 @@ class WindFarmFeatureExtractor(nn.Module):
         return torch.cat(features, dim=1)
 
 
+
 class WindFarmMLPExtractor(nn.Module):
     def __init__(self, n_features, window_size):
         super().__init__()
         self.feature_extractor = WindFarmFeatureExtractor(n_features, window_size)
         
-        # Calculate feature dimension based on window size
+        # Calculate feature dimension
         if window_size >= 3:
             feature_dim = 32 + n_features * 4
         elif window_size > 1:
@@ -143,63 +144,151 @@ class WindFarmMLPExtractor(nn.Module):
         else:
             feature_dim = n_features
             
-        self.policy_net = nn.Sequential(
-            nn.Linear(feature_dim, 256),
-            nn.ReLU(),
-            nn.Linear(256, 32),
-            nn.ReLU(),
-            nn.Linear(32, 16),
-            nn.ReLU()
+        # Projection layers to get to attention dimension
+        self.policy_proj = nn.Linear(feature_dim, 256)
+        self.value_proj = nn.Linear(feature_dim, 256)
+            
+        # Policy network with skip connections
+        self.policy_layers = nn.ModuleList([
+            nn.Linear(256, 256),
+            nn.Linear(256, 128),
+            nn.Linear(128 + 256, 64),  # Skip connection from first layer
+            nn.Linear(64 + 128, 32),   # Skip connection from second layer
+            nn.Linear(32, 16)
+        ])
+        
+        # Value network with skip connections
+        self.value_layers = nn.ModuleList([
+            nn.Linear(256, 256),
+            nn.Linear(256, 128),
+            nn.Linear(128 + 256, 64),  # Skip connection from first layer
+            nn.Linear(64 + 128, 32),   # Skip connection from second layer
+            nn.Linear(32, 8)
+        ])
+        
+        self.policy_attention = nn.MultiheadAttention(
+            embed_dim=256, num_heads=4, batch_first=True
+        )
+        self.value_attention = nn.MultiheadAttention(
+            embed_dim=256, num_heads=4, batch_first=True
         )
         
-        self.value_net = nn.Sequential(
-            nn.Linear(feature_dim, 256),
-            nn.ReLU(),
-            nn.Linear(256, 32),
-            nn.ReLU(),
-            nn.Linear(32, 8),
-            nn.ReLU()
-        )
+        self.policy_layer_norm = nn.LayerNorm(256)
+        self.value_layer_norm = nn.LayerNorm(256)
         
-        # Initialize policy network
-        for layer in self.policy_net.modules():
+        self.activation = nn.ReLU()
+        
+        # Initialize networks
+        self._init_weights()
+        
+        self.latent_dim_pi = 16
+        self.latent_dim_vf = 8
+
+    def _init_weights(self):
+        # Initialize all linear layers
+        for layer in [self.policy_proj, self.value_proj] + \
+                    list(self.policy_layers) + list(self.value_layers):
             if isinstance(layer, nn.Linear):
                 nn.init.orthogonal_(layer.weight, gain=np.sqrt(2))
                 if layer.bias is not None:
                     nn.init.zeros_(layer.bias)
-                    
-        # Initialize value network with slightly different gain
-        for layer in self.value_net.modules():
-            if isinstance(layer, nn.Linear):
-                nn.init.orthogonal_(layer.weight, gain=1)
-                if layer.bias is not None:
-                    nn.init.zeros_(layer.bias)
+
+    def _forward_with_skip(self, x, layers):
+        # Store intermediate activations for skip connections
+        activations = []
+        out = x
         
-        self.latent_dim_pi = 16
-        self.latent_dim_vf = 8
+        for i, layer in enumerate(layers):
+            if i == 0:
+                out = self.activation(layer(out))
+                activations.append(out)
+            elif i == 1:
+                out = self.activation(layer(out))
+                activations.append(out)
+            elif i == 2:
+                # Concatenate with first layer output
+                skip_connection = torch.cat([out, activations[0]], dim=1)
+                out = self.activation(layer(skip_connection))
+            elif i == 3:
+                # Concatenate with second layer output
+                skip_connection = torch.cat([out, activations[1]], dim=1)
+                out = self.activation(layer(skip_connection))
+            else:
+                out = layer(out)
+        
+        return out
 
     def forward(self, obs):
         features = self.feature_extractor(obs)
         if torch.isnan(features).any() or torch.isinf(features).any():
             raise ValueError("Invalid feature values detected")
-        return self.policy_net(features), self.value_net(features)
+        
+        batch_size = features.shape[0]
+        
+        # Project to attention dimension first
+        policy_features = self.policy_proj(features)
+        value_features = self.value_proj(features)
+        
+        # Reshape for attention (batch, 1, dim)
+        policy_features = policy_features.unsqueeze(1)
+        value_features = value_features.unsqueeze(1)
+        
+        # Apply layer norm
+        policy_features = self.policy_layer_norm(policy_features)
+        value_features = self.value_layer_norm(value_features)
+        
+        # Self-attention
+        policy_features, _ = self.policy_attention(
+            policy_features, policy_features, policy_features
+        )
+        value_features, _ = self.value_attention(
+            value_features, value_features, value_features
+        )
+        
+        # Squeeze back to (batch, dim)
+        policy_features = policy_features.squeeze(1)
+        value_features = value_features.squeeze(1)
+        
+        # Forward through networks with skip connections
+        policy_output = self._forward_with_skip(policy_features, self.policy_layers)
+        value_output = self._forward_with_skip(value_features, self.value_layers)
+
+        return policy_output, value_output
 
     def forward_actor(self, features):
         """Extract actor features"""
-        return self.policy_net(features)
+        if isinstance(features, tuple):
+            features = features[0]
+        features = self.feature_extractor(features)
+        
+        # Project and prepare for attention
+        features = self.policy_proj(features).unsqueeze(1)
+        features = self.policy_layer_norm(features)
+        
+        # Apply attention
+        features, _ = self.policy_attention(features, features, features)
+        
+        # Process through policy network
+        features = features.squeeze(1)
+        return self._forward_with_skip(features, self.policy_layers)
         
     def forward_critic(self, features):
         """Extract critic features"""
         if isinstance(features, tuple):
             features = features[0]
-        # Always process raw observations through the feature extractor
         features = self.feature_extractor(features)
-        return self.value_net(features)
-#        if isinstance(features, tuple):
-#            features = features[0]
-#        if not isinstance(features, torch.Tensor):
-#            features = self.feature_extractor(features)
-#        return self.value_net(features)
+        
+        # Project and prepare for attention
+        features = self.value_proj(features).unsqueeze(1)
+        features = self.value_layer_norm(features)
+        
+        # Apply attention
+        features, _ = self.value_attention(features, features, features)
+        
+        # Process through value network
+        features = features.squeeze(1)
+        return self._forward_with_skip(features, self.value_layers)
+
 
 
 class WindFarmPolicy(ActorCriticPolicy):
@@ -288,7 +377,7 @@ def parse_args():
     parser.add_argument("--turbbox_path", type=str, default="Hipersim_mann_l5.0_ae1.0000_g0.0_h0_128x128x128_3.000x3.00x3.00_s0001.nc")
     parser.add_argument("--learning_rate", type=float, default=1e-6)
     parser.add_argument("--n_steps", type=int, default=2048)
-    parser.add_argument("--ent_coef", type=float, default=0.01)
+    parser.add_argument("--ent_coef", type=float, default=0.02)
     return parser.parse_args()
 
 if __name__ == '__main__':
@@ -340,7 +429,7 @@ if __name__ == '__main__':
 
     model = PPO(WindFarmPolicy, env, 
                 n_steps=256,         # Frequent updates
-                batch_size=64,       # Smaller updates per batch
+                batch_size=256,       # Smaller updates per batch
                 n_epochs=4,         # Reuse data more
                 ent_coef=args.ent_coef, 
                 learning_rate=args.learning_rate, 
@@ -349,6 +438,7 @@ if __name__ == '__main__':
                     "window_size": args.lookback_window
                     },
                 verbose=1, 
+                gamma=0.99, gae_lambda=0.95,
                 device=device)
 
     callbacks = CallbackList([
