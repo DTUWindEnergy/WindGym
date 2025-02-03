@@ -241,7 +241,7 @@ class CurriculumWrapper(gym.Wrapper):
         yaw_diff = np.abs(np.array(ppo_yaws) - np.array(pywake_yaws)).mean()
         similarity_reward = -np.log(yaw_diff)
         
-        total_reward = (1 - self.env_reward_weight) * similarity_reward + self.env_reward_weight * reward * 100
+        total_reward = (1 - self.env_reward_weight) * similarity_reward + self.env_reward_weight * reward 
         
         info["curriculum_weight"] = self.env_reward_weight
         info["yaw_diff"] = yaw_diff
