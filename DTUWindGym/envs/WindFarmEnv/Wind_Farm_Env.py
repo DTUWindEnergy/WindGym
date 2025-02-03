@@ -14,6 +14,7 @@ from dynamiks.sites import TurbulenceFieldSite
 from dynamiks.sites.turbulence_fields import MannTurbulenceField, RandomTurbulence
 from dynamiks.wind_turbines import PyWakeWindTurbines
 from dynamiks.views import XYView
+from dynamiks.dwm.added_turbulence_models import SynchronizedAutoScalingIsotropicMannTurbulence, AutoScalingIsotropicMannTurbulence
 
 from IPython import display
 
@@ -265,7 +266,6 @@ class WindFarmEnv(WindEnv):
         self.render_mode = render_mode
 
         if self.render_mode == "human":
-            self.reset()
             self.init_render()
 
     def load_config(self, config_path):
@@ -500,6 +500,7 @@ class WindFarmEnv(WindEnv):
 
             tf_agent = MannTurbulenceField.from_netcdf(filename=tf_file)
             tf_agent.scale_TI(ti=self.ti, U=self.ws)
+            self.addedTurbulenceModel = SynchronizedAutoScalingIsotropicMannTurbulence()
 
         elif self.turbtype == "MannGenerate":
             # Create the turbbox with a random seed.
@@ -519,15 +520,14 @@ class WindFarmEnv(WindEnv):
                 # double_xyz=(False, False, False), # turbulence periodicity is not expected to be an issue in a wind farm
             )
             tf_agent.scale_TI(ti=self.ti, U=self.ws)
+            self.addedTurbulenceModel = SynchronizedAutoScalingIsotropicMannTurbulence()
 
         elif self.turbtype == "Random":
             # Specifies the 'box' as random turbulence
-            raise NotImplementedError(
-                "This turbulence type doenst work with the current dynamiks version"
-            )
             TF_seed = self.np_random.integers(0, 100000)
             # print("Using Random turbulence with seed:", TF_seed)
             tf_agent = RandomTurbulence(ti=self.ti, ws=self.ws, seed=TF_seed)
+            self.addedTurbulenceModel = AutoScalingIsotropicMannTurbulence()
 
         elif self.turbtype == "MannFixed":
             # print("Using fixed Mann turbulence box")
@@ -544,13 +544,13 @@ class WindFarmEnv(WindEnv):
                 seed=TF_seed,  # seed for random generator
             )
             tf_agent.scale_TI(ti=self.ti, U=self.ws)
+            self.addedTurbulenceModel = SynchronizedAutoScalingIsotropicMannTurbulence()
 
         elif self.turbtype == "None":
             # Zero turbulence site.
-            raise NotImplementedError(
-                "This turbulence type doenst work with the current dynamiks version"
-            )
+
             tf_agent = RandomTurbulence(ti=0, ws=self.ws)
+            self.addedTurbulenceModel = AutoScalingIsotropicMannTurbulence()
         else:
             # Throw and error:
             raise ValueError("Invalid turbulence type specified")
@@ -593,6 +593,7 @@ class WindFarmEnv(WindEnv):
             dt=self.dt,
             d_particle=self.d_particle,
             particleMotionModel=HillVortexParticleMotion(),
+            addedTurbulenceModel=self.addedTurbulenceModel,
         )  # NOTE, we need this particlemotion to capture the yaw
 
         # Set the yaw angles of the farm
@@ -636,6 +637,7 @@ class WindFarmEnv(WindEnv):
                 dt=self.dt,
                 d_particle=self.d_particle,
                 particleMotionModel=HillVortexParticleMotion(),
+                addedTurbulenceModel=self.addedTurbulenceModel,
             )
 
             self.fs_baseline.windTurbines.yaw = self.fs.windTurbines.yaw
