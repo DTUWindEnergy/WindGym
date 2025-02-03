@@ -14,7 +14,10 @@ from dynamiks.sites import TurbulenceFieldSite
 from dynamiks.sites.turbulence_fields import MannTurbulenceField, RandomTurbulence
 from dynamiks.wind_turbines import PyWakeWindTurbines
 from dynamiks.views import XYView
-from dynamiks.dwm.added_turbulence_models import SynchronizedAutoScalingIsotropicMannTurbulence, AutoScalingIsotropicMannTurbulence
+from dynamiks.dwm.added_turbulence_models import (
+    SynchronizedAutoScalingIsotropicMannTurbulence,
+    AutoScalingIsotropicMannTurbulence,
+)
 
 from IPython import display
 
