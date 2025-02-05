@@ -65,6 +65,7 @@ class WindFarmEnv(WindEnv):
         dt_env=1,  # Environment timestep in seconds
         yaw_step=1,  # How many degrees the yaw angles can change pr. step
         power_avg=1,
+        fill_window=True,
     ):
         """
         This is a steadystate environment. The environment only ever changes wind conditions at reset. Then the windconditions are constatnt for the rest of the episode
@@ -83,6 +84,7 @@ class WindFarmEnv(WindEnv):
             dt_sim: float: The simulation timestep in seconds. Can be used to speed up the simulation, if the DWM solver can take larger steps
             dt_env: float: The environment timestep in seconds. This is the timestep that the agent sees. The environment will run the simulation for dt_sim/dt_env steps pr. timestep.
             yaw_step: float: The step size for the yaw angles. How manny degress the yaw angles can change pr. step
+            fill_window: bool: If True, then the measurements will be filled up at reset.
         """
 
         # Predefined values
@@ -92,6 +94,7 @@ class WindFarmEnv(WindEnv):
         self.act_var = (
             1  # number of actions pr. turbine. For now it is just the yaw angles
         )
+        self.fill_window = fill_window
         self.dt = dt_sim  # DWM simulation timestep
         self.dt_sim = dt_sim
         self.dt_env = dt_env  # Environment timestep
@@ -216,6 +219,20 @@ class WindFarmEnv(WindEnv):
 
         # The maximum history length of the measurements
         self.hist_max = self.farm_measurements.max_hist()
+
+        # Figure out the ammount of steps to do at the reset
+        if self.fill_window is True:
+            self.steps_on_reset = self.hist_max
+        elif isinstance(self.fill_window, int) and self.fill_window >= 1:
+            if self.fill_window > self.hist_max:
+                self.fill_window = (
+                    self.hist_max
+                )  # fill_window cannot be larger then the max history length
+            self.steps_on_reset = self.fill_window
+        elif self.fill_window is False:
+            self.steps_on_reset = 1
+        else:
+            raise ValueError("fill_window must be True or a non-negative integer")
 
         # Setting up the turbines:
 
@@ -398,11 +415,10 @@ class WindFarmEnv(WindEnv):
 
         plt.close()
 
-    def _update_measurements(self):
+    def _take_measurements(self):
         """
-        This function adds the current observations to the farm_measurements class
+        Does the measurement and saves it to the self.
         """
-
         # Get the observation of the environment
         self.current_ws = np.linalg.norm(
             self.fs.windTurbines.rotor_avg_windspeed(include_wakes=True), axis=0
@@ -418,10 +434,22 @@ class WindFarmEnv(WindEnv):
         self.current_wd = np.rad2deg(np.arctan(u_speed / v_speed)) + self.wd
 
         self.current_yaw = self.fs.windTurbines.yaw
-        powers = self.fs.windTurbines.power()  # The Power pr turbine
+        self.current_powers = self.fs.windTurbines.power()  # The Power pr turbine
+
+    def _update_measurements(self):
+        """
+        This function adds the current observations to the farm_measurements class
+        """
+
+        # Add a deprecation warning to this:
+        raise DeprecationWarning(
+            "This function is deprecated. Use _take_measurements instead, and then put them into the mes class yourself"
+        )
+
+        self._take_measurements()
 
         self.farm_measurements.add_measurements(
-            self.current_ws, self.current_wd, self.current_yaw, powers
+            self.current_ws, self.current_wd, self.current_yaw, self.powers
         )
 
     def _get_obs(self):
@@ -553,7 +581,7 @@ class WindFarmEnv(WindEnv):
             # Zero turbulence site.
 
             tf_agent = RandomTurbulence(ti=0, ws=self.ws)
-            self.addedTurbulenceModel = AutoScalingIsotropicMannTurbulence()
+            self.addedTurbulenceModel = None  # AutoScalingIsotropicMannTurbulence()
         else:
             # Throw and error:
             raise ValueError("Invalid turbulence type specified")
@@ -611,24 +639,48 @@ class WindFarmEnv(WindEnv):
         # Calulate the time it takes for the flow to develop.
         turb_xpos = self.fs.windTurbines.rotor_positions_xyz[0, :]
         dist = turb_xpos.max() - turb_xpos.min()
-        # turb_place = np.linalg.norm(self.fs.windTurbines.positions_xyz, axis=0)
-        # dist = turb_place.max() - turb_place.min()
 
         # Time it takes for the flow to travel from one side of the farm to the other
         t_inflow = dist / self.ws
         # The time it takes for the flow to develop. Also a bit extra.
-        t_developed = int(t_inflow * 3)
+        t_developed = int(t_inflow * 2)
 
         # Max allowed timesteps
         self.time_max = int(t_inflow * self.n_passthrough)
         # first we run the simulation the time it takes the flow to develop
         self.fs.run(t_developed)
 
-        # Just take one step
-        self.fs.step()  # Take a step in the flow simulation
-        # Save the power output of the farm
-        self.farm_pow_deq.append(self.fs.windTurbines.power().sum())
-        self._update_measurements()
+        # Fill up our measurement queue first, with the ammount of steps we need to fill up
+        for __ in range(self.steps_on_reset):
+            windspeeds = []
+            winddirs = []
+            yaws = []
+            powers = []
+
+            for _ in range(self.sim_steps_per_env_step):
+                # Step the flow simulation
+                self.fs.step()
+
+                # Make the measurements from the sensor
+                self._take_measurements()
+
+                # Put them into the lists
+                windspeeds.append(self.current_ws)
+                winddirs.append(self.current_wd)
+                yaws.append(self.current_yaw)
+                powers.append(self.current_powers)
+
+            mean_windspeed = np.mean(windspeeds, axis=0)
+            mean_winddir = np.mean(winddirs, axis=0)
+            mean_yaw = np.mean(yaws, axis=0)
+            mean_power = np.mean(powers, axis=0)
+
+            # Put them into the mes class, such that the _get_obs() call works as intendet.
+            self.farm_measurements.add_measurements(
+                mean_windspeed, mean_winddir, mean_yaw, mean_power
+            )
+
+            self.farm_pow_deq.append(mean_power)
 
         # Do the same for the baseline farm
         if self.Baseline_comp:
@@ -646,10 +698,18 @@ class WindFarmEnv(WindEnv):
             self.fs_baseline.windTurbines.yaw = self.fs.windTurbines.yaw
             self.fs_baseline.run(t_developed)
 
-            self.fs_baseline.step()  # Take a step in the baseline flow simulation
-            self.base_pow_deq.append(self.fs_baseline.windTurbines.power().sum())
+            for __ in range(self.hist_max):
+                baseline_powers = []
+                for _ in range(self.sim_steps_per_env_step):
+                    # Step the flow simulation
+                    new_baseline_yaws = self._base_controller(
+                        fs=self.fs_baseline, yaw_step=self.yaw_step
+                    )
+                    self.fs_baseline.windTurbines.yaw = new_baseline_yaws
+                    self.fs_baseline.step()
+                    baseline_powers.append(self.fs_baseline.windTurbines.power().sum())
 
-        # Now we can start
+                self.base_pow_deq.append(np.mean(baseline_powers, axis=0))
 
         observation = self._get_obs()
         info = self._get_info()
@@ -788,6 +848,13 @@ class WindFarmEnv(WindEnv):
 
         self._adjust_yaws(action)  # Adjust the yaw angles of the agent farm
         # Run multiple simulation steps for each environment step
+
+        # Initialize list to store observations
+        windspeeds = []
+        winddirs = []
+        yaws = []
+        powers = []
+        baseline_powers = []
         for _ in range(self.sim_steps_per_env_step):
             # Step the flow simulation
             self.fs.step()
@@ -799,12 +866,39 @@ class WindFarmEnv(WindEnv):
                 )
                 self.fs_baseline.windTurbines.yaw = new_baseline_yaws
                 self.fs_baseline.step()
+                baseline_powers.append(self.fs_baseline.windTurbines.power().sum())
 
-        # Update measurements and farm power after each simulation step
-        self._update_measurements()
-        self.farm_pow_deq.append(self.fs.windTurbines.power().sum())
+            # Make the measurements from the sensor
+            self._take_measurements()
+
+            # Put them into the lists
+            windspeeds.append(self.current_ws)
+            winddirs.append(self.current_wd)
+            yaws.append(self.current_yaw)
+            powers.append(self.current_powers)
+
+        print("windspeeds: ", windspeeds)
+        print("winddirs: ", winddirs)
+        print("yaws: ", yaws)
+        print("powers: ", powers)
+        mean_windspeed = np.mean(windspeeds, axis=0)
+        mean_winddir = np.mean(winddirs, axis=0)
+        mean_yaw = np.mean(yaws, axis=0)
+        mean_power = np.mean(powers, axis=0)
+
+        print("mean_windspeed: ", mean_windspeed)
+        print("mean_winddir: ", mean_winddir)
+        print("mean_yaw: ", mean_yaw)
+        print("mean_power: ", mean_power)
+
+        # Put them into the mes class.
+        self.farm_measurements.add_measurements(
+            mean_windspeed, mean_winddir, mean_yaw, mean_power
+        )
+
+        self.farm_pow_deq.append(mean_power)
         if self.Baseline_comp:
-            self.base_pow_deq.append(self.fs_baseline.windTurbines.power().sum())
+            self.base_pow_deq.append(np.mean(baseline_powers, axis=0))
         if np.any(np.isnan(self.farm_pow_deq)):
             raise Exception("NaN Power")
 
@@ -917,3 +1011,10 @@ class WindFarmEnv(WindEnv):
         del self.site
         del self.farm_measurements
         gc.collect()
+
+    def plot_frame(self):
+        """
+        Plots a single frame of the flow field and the wind turbines
+        """
+        self.init_render()
+        self._render_frame()
