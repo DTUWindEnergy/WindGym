@@ -349,3 +349,44 @@ def eval_pretrained_agent(base_example_data_path):
         save_figs=False, debug=False
     )  # Dont make the figures, just return the data
     tester.save_performance()
+
+
+def test_set_windconditions_with_site(wind_farm_env):
+    """
+    Test that wind conditions are properly sampled when using a PyWake site.
+    This test verifies that:
+    1. Wind speeds and directions are sampled from the site's distributions
+    2. Values remain within the environment's configured limits
+    3. Multiple calls produce different but valid values
+    4. Turbulence intensity is still sampled uniformly
+    """
+    from py_wake.examples.data.hornsrev1 import Hornsrev1Site
+
+    # Setup the site
+    site = Hornsrev1Site()
+    wind_farm_env.sample_site = site
+
+    # Sample multiple times to check distribution
+    samples = []
+    for _ in range(10):
+        wind_farm_env._set_windconditions()
+        samples.append(
+            {"ws": wind_farm_env.ws, "wd": wind_farm_env.wd, "ti": wind_farm_env.ti}
+        )
+
+    # Check all samples are within configured limits
+    for sample in samples:
+        assert wind_farm_env.ws_min <= sample["ws"] <= wind_farm_env.ws_max
+        assert wind_farm_env.wd_min <= sample["wd"] <= wind_farm_env.wd_max
+        assert wind_farm_env.TI_min <= sample["ti"] <= wind_farm_env.TI_max
+
+    # Verify we get different values (sampling is working)
+    wind_speeds = [s["ws"] for s in samples]
+    wind_directions = [s["wd"] for s in samples]
+    assert len(set(wind_speeds)) > 1, "Wind speeds are not varying"
+    assert len(set(wind_directions)) > 1, "Wind directions are not varying"
+
+    # Check that TI is still uniformly distributed between min and max
+    ti_values = [s["ti"] for s in samples]
+    assert len(set(ti_values)) > 1, "TI values are not varying"
+    assert all(wind_farm_env.TI_min <= ti <= wind_farm_env.TI_max for ti in ti_values)

@@ -66,6 +66,7 @@ class WindFarmEnv(WindEnv):
         yaw_step=1,  # How many degrees the yaw angles can change pr. step
         power_avg=1,
         fill_window=True,
+        sample_site=None,
     ):
         """
         This is a steadystate environment. The environment only ever changes wind conditions at reset. Then the windconditions are constatnt for the rest of the episode
@@ -85,6 +86,7 @@ class WindFarmEnv(WindEnv):
             dt_env: float: The environment timestep in seconds. This is the timestep that the agent sees. The environment will run the simulation for dt_sim/dt_env steps pr. timestep.
             yaw_step: float: The step size for the yaw angles. How manny degress the yaw angles can change pr. step
             fill_window: bool: If True, then the measurements will be filled up at reset.
+            sample_site: pywake site that includes information about the wind conditions. If None we sample uniformly from within the limits.
         """
 
         # Predefined values
@@ -102,6 +104,7 @@ class WindFarmEnv(WindEnv):
         if self.dt_env % self.dt_sim != 0:
             raise ValueError("dt_env must be a multiple of dt_sim")
 
+        self.sample_site = sample_site
         self.yaw_start = 15.0  # This is the limit for the initialization of the yaw angles. This is used to make sure that the yaw angles are not too large at the start, but still not zero
         # Max power pr turbine. Used in the measurement class
         self.maxturbpower = max(turbine.power(np.arange(10, 25, 1)))
@@ -503,12 +506,41 @@ class WindFarmEnv(WindEnv):
         Sets the global windconditions for the environment
         """
 
-        # The wind speed is a random number between ws_min and ws_max
-        self.ws = self._random_uniform(self.ws_min, self.ws_max)
-        # The turbulence intensity is a random number between TI_min and TI_max
-        self.ti = self._random_uniform(self.TI_min, self.TI_max)
-        # The wind direction is a random number between wd_min and wd_max
-        self.wd = self._random_uniform(self.wd_min, self.wd_max)
+        if self.sample_site is None:
+            # The wind speed is a random number between ws_min and ws_max
+            self.ws = self._random_uniform(self.ws_min, self.ws_max)
+            # The turbulence intensity is a random number between TI_min and TI_max
+            self.ti = self._random_uniform(self.TI_min, self.TI_max)
+            # The wind direction is a random number between wd_min and wd_max
+            self.wd = self._random_uniform(self.wd_min, self.wd_max)
+        else:
+            # wind resource
+            dirs = np.arange(0, 360, 1)  # wind directions
+            ws = np.arange(3, 25, 1)  # wind speeds
+            local_wind = self.sample_site.local_wind(x=0, y=0, wd=dirs, ws=ws)
+            freqs = local_wind.Sector_frequency_ilk[0, :, 0]
+            As = local_wind.Weibull_A_ilk[0, :, 0]  # weibull A
+            ks = local_wind.Weibull_k_ilk[0, :, 0]  # weibull k
+
+            self.wd, self.ws = self._sample_site(dirs, As, ks, freqs)
+
+            self.wd = np.clip(self.wd, self.wd_min, self.wd_max)
+            self.ws = np.clip(self.ws, self.ws_min, self.ws_max)
+
+            self.ti = self._random_uniform(
+                self.TI_min, self.TI_max
+            )  # The TI is still uniformly distributed.
+
+    def _sample_site(self, dirs, As, ks, freqs):
+        """
+        sample wind direction and wind speed from the site
+        """
+        idx = np.random.choice(np.arange(dirs.size), 1, p=freqs)
+        wd = dirs[idx]
+        A = As[idx]
+        k = ks[idx]
+        ws = A * np.random.weibull(k)
+        return wd.item(), ws.item()
 
     def _def_site(self):
         """
