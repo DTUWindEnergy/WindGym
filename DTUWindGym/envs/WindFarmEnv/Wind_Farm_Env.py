@@ -1018,3 +1018,28 @@ class WindFarmEnv(WindEnv):
         """
         self.init_render()
         self._render_frame()
+
+    def _get_num_raw_features(self):
+        """Calculate based on YAML config - no hardcoding!"""
+        features = 0
+        # Turbine-level sensors
+        if self.mes_level["turb_ws"]:
+            features += self.n_turb
+        if self.mes_level["turb_wd"]:
+            features += self.n_turb
+        if self.mes_level["turb_TI"]:
+            features += self.n_turb
+        if self.mes_level["turb_power"]:
+            features += self.n_turb
+
+        # Farm-level sensors
+        if self.mes_level["farm_ws"]:
+            features += 1
+        if self.mes_level["farm_wd"]:
+            features += 1
+        if self.mes_level["farm_TI"]:
+            features += 1
+        if self.mes_level["farm_power"]:
+            features += 1
+
+        return features
