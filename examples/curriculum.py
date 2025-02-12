@@ -3,12 +3,13 @@ import numpy as np
 import torch
 import torch.nn as nn
 from stable_baselines3 import PPO
-from stable_baselines3.common.vec_env import DummyVecEnv
+from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 from stable_baselines3.common.callbacks import CallbackList, BaseCallback
 from stable_baselines3.common.policies import ActorCriticPolicy
 import wandb
 from wandb.integration.sb3 import WandbCallback
 from DTUWindGym.envs import WindFarmEnv
+from stable_baselines3.common.env_util import make_vec_env
 
 # from DTUWindGym.envs.WindFarmEnv.Simple_Wind_Farm_Env import WindFarmEnv
 from DTUWindGym.envs.WindFarmEnv.Agents import PyWakeAgent
@@ -112,6 +113,9 @@ class WindFarmFeatureExtractor(nn.Module):
         self.window_size = window_size
         self.n_features = n_features
 
+        # Add LayerNorm for input normalization
+        self.input_norm = nn.LayerNorm(n_features)
+
         # LSTM for temporal processing
         self.lstm = nn.LSTM(
             input_size=n_features,
@@ -124,13 +128,20 @@ class WindFarmFeatureExtractor(nn.Module):
         # Keep the statistical features as they're valuable
         self.gap = nn.AdaptiveAvgPool1d(1)
 
+        # Normalize LSTM output
+        self.lstm_norm = nn.LayerNorm(32)
+
     def forward(self, x):
         batch_size = x.shape[0]
         x = x.view(batch_size, self.window_size, self.n_features)
 
+        # Normalize input features
+        x = self.input_norm(x)
+
         # LSTM processing
         lstm_out, _ = self.lstm(x)
         lstm_features = lstm_out[:, -1, :]  # Take last hidden state
+        lstm_features = self.lstm_norm(lstm_features)
 
         # Statistical features (these are still valuable)
         x_trans = x.transpose(1, 2)  # [batch, features, window]
@@ -345,7 +356,7 @@ class CurriculumWrapper(gym.Wrapper):
         self.env_reward_weight = 0.0
         self.previous_yaws = None
         self.yaw_change_history = []
-        self.reward_momentum = 0.9
+        self.reward_momentum = args.momentum
         self.last_reward = 0
 
     def reset(self, **kwargs):
@@ -391,9 +402,11 @@ class CurriculumWrapper(gym.Wrapper):
                 movement_penalties += cumulative_penalty
 
         self.previous_yaws = np.array(ppo_yaws)
+        print('movement penalty ', movement_penalties / args.penalty_mult)
+        print('reward ', similarity_reward)
 
         current_reward = (1 - self.env_reward_weight) * (
-            similarity_reward - movement_penalties / 600
+            similarity_reward - movement_penalties / args.penalty_mult
         ) + self.env_reward_weight * reward
         smoothed_reward = (
             self.reward_momentum * self.last_reward
@@ -446,7 +459,7 @@ def make_env(
             seed=seed,
             dt_env=dt_env,
             # observation_window_size=args.lookback_window,
-            n_passthrough=50,
+            n_passthrough=args.n_passthrough,
         )
         return CurriculumWrapper(env, curriculum_steps, pure_similarity_steps)
 
@@ -459,9 +472,11 @@ def parse_args():
     parser.add_argument("--power_avg", type=int, required=True)
     parser.add_argument("--lookback_window", type=int, required=True)
     parser.add_argument("--seed", type=int, required=True)
-    parser.add_argument("--n_env", type=int, default=2)
+    parser.add_argument("--n_env", type=int, default=8)
     parser.add_argument("--train_steps", type=int, default=100000)
     parser.add_argument("--yaml_path", type=str, required=True)
+    parser.add_argument("--momentum", required=False, type=float, help="reward momentum", default=0.9)
+    parser.add_argument("--penalty_mult", required=False, type=float, help="multiplier for yaw movement penalty", default=1/500)
     parser.add_argument(
         "--turbbox_path",
         type=str,
@@ -470,18 +485,22 @@ def parse_args():
     parser.add_argument("--learning_rate", type=float, default=1e-6)
     parser.add_argument("--n_steps", type=int, default=2048)
     parser.add_argument("--ent_coef", type=float, default=0.02)
+    parser.add_argument("--curriculum_start_frac", type=float, default=1./2)
+    parser.add_argument("--curriculum_end_frac", type=float, default=2./3)
+    parser.add_argument("--n_passthrough", type=float, default=4)
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
-    # curriculum_steps = 200
-    curriculum_steps = args.train_steps // 2
-    pure_similarity_steps = args.train_steps // 100
+
+    curriculum_steps = args.train_steps * args.curriculum_start_frac
+    pure_similarity_steps = args.train_steps * args.curriculum_end_frac
 
     wandb.init(
         project="WindFarm_Curriculum",
-        name=f"curriculum_dt{args.dt_env}_pow{args.power_avg}_seed{args.seed}",
+        name='_'.join(f'{k}.{v}' for k, v in vars(args).items()),
+        #name=f"curriculum_dt{args.dt_env}_pow{args.power_avg}_seed{args.seed}",
         config=vars(args),
     )
 
@@ -526,20 +545,21 @@ if __name__ == "__main__":
     n_features = temp_env._get_num_raw_features()
 
     # real env
-    env = DummyVecEnv(
-        [
-            make_env(
-                args.seed,
-                args.yaml_path,
-                args.turbbox_path,
-                args.dt_env,
-                args.power_avg,
-                curriculum_steps,
-                pure_similarity_steps,
-            )
-            for _ in range(args.n_env)
-        ]
-    )
+    env = make_vec_env(
+        make_env(
+            args.seed,
+            args.yaml_path,
+            args.turbbox_path,
+            args.dt_env,
+            args.power_avg,
+            curriculum_steps,
+            pure_similarity_steps,
+        ),
+        n_envs=args.n_env,
+        seed=args.seed,
+        vec_env_cls=SubprocVecEnv,
+        monitor_dir="./logs"
+        )
 
     model = PPO(
         WindFarmPolicy,
