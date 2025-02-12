@@ -372,7 +372,7 @@ class CurriculumWrapper(gym.Wrapper):
         ppo_yaws = info["yaw angles agent"]
         pywake_yaws = self.pywake_yaws
 
-        yaw_diff = np.abs(np.array(ppo_yaws) - np.array(pywake_yaws)).mean()
+        yaw_diff = ((np.array(ppo_yaws) - np.array(pywake_yaws)) ** 2).mean()
         similarity_reward = 1 / (1 + yaw_diff)
         # similarity_reward = -np.log(yaw_diff)
 
