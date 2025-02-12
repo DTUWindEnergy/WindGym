@@ -366,6 +366,7 @@ class CurriculumWrapper(gym.Wrapper):
         self.pywake_agent.update_wind(self.env.ws, self.env.wd, self.env.ti)
         self.pywake_agent.optimize()
         self.pywake_yaws = self.pywake_agent.optimized_yaws
+        self.yaw_change_history = []
         info["pywake_yaws"] = self.pywake_yaws
         return obs, info
 
@@ -374,8 +375,15 @@ class CurriculumWrapper(gym.Wrapper):
         ppo_yaws = info["yaw angles agent"]
         pywake_yaws = self.pywake_yaws
 
-        yaw_diff = ((np.array(ppo_yaws) - np.array(pywake_yaws)) ** 2).mean()
-        similarity_reward = 1 / (1 + yaw_diff)
+        if args.similarity_type == 'basic':
+            yaw_diff = ((np.array(ppo_yaws) - np.array(pywake_yaws)) ** 2).mean()
+            similarity_reward = 1 / (1 + yaw_diff)
+        elif args.similarity_type == 'punish':
+            THRESHOLD = 0.5  # tune this to control where punishment starts
+            yaw_diff = ((np.array(ppo_yaws) - np.array(pywake_yaws)) ** 2).mean()
+            similarity_reward = np.minimum(1, 1 - ((max(0, yaw_diff - THRESHOLD)) ** 2))
+        else:
+            raise(Exception('Bad similarity_type'))
         # similarity_reward = -np.log(yaw_diff)
 
         # Penalize large changes between steps
@@ -489,9 +497,10 @@ def parse_args():
     parser.add_argument("--learning_rate", type=float, default=1e-6)
     parser.add_argument("--n_steps", type=int, default=2048)
     parser.add_argument("--ent_coef", type=float, default=0.02)
-    parser.add_argument("--curriculum_start_frac", type=float, default=1./2)
-    parser.add_argument("--curriculum_end_frac", type=float, default=2./3)
+    parser.add_argument("--curriculum_end_frac", type=float, default=1./2)
+    parser.add_argument("--curriculum_start_frac", type=float, default=2./3)
     parser.add_argument("--n_passthrough", type=float, default=4)
+    parser.add_argument("--similarity_type", type=str, default="basic")
     return parser.parse_args()
 
 
