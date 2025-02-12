@@ -78,6 +78,8 @@ class WindFarmMonitor(BaseCallback):
                     f"states/global_wind_dir-{env_idx}": info["Wind direction Global"],
                     f"states/pywake_yaw_t1-{env_idx}": info["pywake_yaws"][0],
                     f"states/pywake_yaw_t2-{env_idx}": info["pywake_yaws"][1],
+                    f"states/movement_penalty-{env_idx}": info["movement_penalty"],
+                    f"states/similarity_reward-{env_idx}": info["similarity_reward"],
                 }
             )
 
@@ -417,6 +419,8 @@ class CurriculumWrapper(gym.Wrapper):
         info["curriculum_weight"] = self.env_reward_weight
         info["yaw_diff"] = yaw_diff
         info["pywake_yaws"] = self.pywake_yaws
+        info["movement_penalty"] = movement_penalties / args.penalty_mult
+        info["similarity_reward"] = similarity_reward
         return obs, smoothed_reward, terminated, truncated, info
 
     def update_curriculum(self, step):
@@ -566,7 +570,7 @@ if __name__ == "__main__":
         env,
         n_steps=256,  # Frequent updates
         batch_size=256,  # Smaller updates per batch
-        n_epochs=4,  # Reuse data more
+        n_epochs=10,  # Reuse data more
         ent_coef=args.ent_coef,
         learning_rate=args.learning_rate,
         policy_kwargs={
@@ -574,8 +578,8 @@ if __name__ == "__main__":
             "window_size": args.lookback_window,
         },
         verbose=1,
-        gamma=0.99,
-        gae_lambda=0.95,
+        #gamma=0.99,
+        #gae_lambda=0.95,
         device=device,
     )
     # model = PPO.load('model/model.zip', env=env)
