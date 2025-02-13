@@ -495,12 +495,15 @@ def parse_args():
         default="Hipersim_mann_l5.0_ae1.0000_g0.0_h0_128x128x128_3.000x3.00x3.00_s0001.nc",
     )
     parser.add_argument("--learning_rate", type=float, default=1e-6)
-    parser.add_argument("--n_steps", type=int, default=2048)
+    #parser.add_argument("--n_steps", type=int, default=2048)
     parser.add_argument("--ent_coef", type=float, default=0.02)
-    parser.add_argument("--curriculum_end_frac", type=float, default=1./2)
-    parser.add_argument("--curriculum_start_frac", type=float, default=2./3)
+    parser.add_argument("--curriculum_end_frac", type=float, default=2./3)
+    parser.add_argument("--curriculum_start_frac", type=float, default=3./4)
+    parser.add_argument("--epochs_per_update", type=int, default=10)
     parser.add_argument("--n_passthrough", type=float, default=4)
     parser.add_argument("--similarity_type", type=str, default="basic")
+    parser.add_argument("--n_steps", type=int, default=256)
+    parser.add_argument("--batch_size", type=int, default=256)
     return parser.parse_args()
 
 
@@ -577,9 +580,9 @@ if __name__ == "__main__":
     model = PPO(
         WindFarmPolicy,
         env,
-        n_steps=256,  # Frequent updates
-        batch_size=256,  # Smaller updates per batch
-        n_epochs=10,  # Reuse data more
+        n_steps=args.n_steps,  # Frequent updates
+        batch_size=args.batch_size,  # Smaller updates per batch
+        n_epochs=args.epochs_per_update,  # Reuse data more
         ent_coef=args.ent_coef,
         learning_rate=args.learning_rate,
         policy_kwargs={
@@ -587,8 +590,8 @@ if __name__ == "__main__":
             "window_size": args.lookback_window,
         },
         verbose=1,
-        #gamma=0.99,
-        #gae_lambda=0.95,
+        gamma=0.99,
+        gae_lambda=0.95,
         device=device,
     )
     # model = PPO.load('model/model.zip', env=env)
