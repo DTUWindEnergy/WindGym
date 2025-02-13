@@ -20,8 +20,8 @@ farm:
 wind:
   ws_min: 6
   ws_max: 10
-  TI_min: 0.03
-  TI_max: 0.15
+  TI_min: 0.0
+  TI_max: 0.0
   wd_min: 260
   wd_max: 280
   
