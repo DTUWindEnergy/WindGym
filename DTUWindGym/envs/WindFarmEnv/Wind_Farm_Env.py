@@ -913,7 +913,7 @@ class WindFarmEnv(WindEnv):
         mean_winddir = np.mean(winddirs, axis=0)
         mean_yaw = np.mean(yaws, axis=0)
         mean_power = np.mean(powers, axis=0)
-        
+
         # Put them into the mes class.
         self.farm_measurements.add_measurements(
             mean_windspeed, mean_winddir, mean_yaw, mean_power
