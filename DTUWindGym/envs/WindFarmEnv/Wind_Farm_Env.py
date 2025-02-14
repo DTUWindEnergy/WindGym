@@ -909,20 +909,11 @@ class WindFarmEnv(WindEnv):
             yaws.append(self.current_yaw)
             powers.append(self.current_powers)
 
-        print("windspeeds: ", windspeeds)
-        print("winddirs: ", winddirs)
-        print("yaws: ", yaws)
-        print("powers: ", powers)
         mean_windspeed = np.mean(windspeeds, axis=0)
         mean_winddir = np.mean(winddirs, axis=0)
         mean_yaw = np.mean(yaws, axis=0)
         mean_power = np.mean(powers, axis=0)
-
-        print("mean_windspeed: ", mean_windspeed)
-        print("mean_winddir: ", mean_winddir)
-        print("mean_yaw: ", mean_yaw)
-        print("mean_power: ", mean_power)
-
+        
         # Put them into the mes class.
         self.farm_measurements.add_measurements(
             mean_windspeed, mean_winddir, mean_yaw, mean_power
