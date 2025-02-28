@@ -36,5 +36,5 @@ python longer_steps_example.py \
     --seed $((42 + $SLURM_ARRAY_TASK_ID)) \
     --n_env 8 \
     --train_steps 500000 \
-    --yaml_path "../DTUWindGym/envs/WindFarmEnv/Examples/EnvConfigs/2turb.yaml" \
+    --yaml_path "../WindGym/Examples/EnvConfigs/2turb.yaml" \
     --turbbox_path "Hipersim_mann_l5.0_ae1.0000_g0.0_h0_128x128x128_3.000x3.00x3.00_s0001.nc"

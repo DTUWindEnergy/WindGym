@@ -8,7 +8,7 @@ from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.callbacks import CallbackList, BaseCallback
 
-from DTUWindGym.envs import WindFarmEnv
+from WindGym import WindFarmEnv
 from py_wake.examples.data.hornsrev1 import V80 as wind_turbine
 
 import wandb

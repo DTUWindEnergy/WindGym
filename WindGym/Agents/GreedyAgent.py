@@ -1,4 +1,4 @@
-from DTUWindGym.envs.WindFarmEnv.BasicControllers import (
+from WindGym.BasicControllers import (
     local_yaw_controller,
     global_yaw_controller,
 )

@@ -8,10 +8,10 @@ from stable_baselines3.common.callbacks import CallbackList, BaseCallback
 from stable_baselines3.common.policies import ActorCriticPolicy
 import wandb
 from wandb.integration.sb3 import WandbCallback
-from DTUWindGym.envs import WindFarmEnv
+from WindGym import WindFarmEnv
 
-# from DTUWindGym.envs.WindFarmEnv.Simple_Wind_Farm_Env import WindFarmEnv
-from DTUWindGym.envs.WindFarmEnv.Agents import PyWakeAgent
+# from WindGym.Simple_Wind_Farm_Env import WindFarmEnv
+from WindGym.Agents import PyWakeAgent
 from py_wake.examples.data.hornsrev1 import V80 as wind_turbine
 import argparse
 

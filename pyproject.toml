@@ -1,5 +1,5 @@
 [project]
-name = "DTUWindGym"
+name = "WindGym"
 version = "0.0.1"
 requires-python = ">=3.7, <3.11"
 dependencies = [
@@ -22,7 +22,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.pytest.ini_options]
 testpaths = "tests"
-addopts = "--cov-report term-missing:skip-covered --cov=DTUWindGym"
+addopts = "--cov-report term-missing:skip-covered --cov=WindGym"
 
 [tool.coverage.run]
 omit = ["tests/*"]
@@ -32,7 +32,7 @@ channels = ["conda-forge"]
 platforms = ["osx-arm64", "linux-64"]
 
 [tool.pixi.pypi-dependencies]
-DTUWindGym = { path = ".", editable = true }
+WindGym = { path = ".", editable = true }
 
 [tool.pixi.dependencies]
 hdf5 = "*"
