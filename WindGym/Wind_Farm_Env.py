@@ -709,7 +709,7 @@ class WindFarmEnv(WindEnv):
                 mean_windspeed, mean_winddir, mean_yaw, mean_power
             )
 
-            self.farm_pow_deq.append(mean_power)
+            self.farm_pow_deq.append(mean_power.sum())
 
         # Do the same for the baseline farm
         if self.Baseline_comp:
