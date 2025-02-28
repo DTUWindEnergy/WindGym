@@ -1,6 +1,6 @@
 from setuptools import setup
 
 setup(
-    name="DTUWindGym",
+    name="WindGym",
     version="0.0.1",
 )

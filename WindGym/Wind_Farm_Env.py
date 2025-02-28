@@ -21,7 +21,7 @@ from dynamiks.dwm.added_turbulence_models import (
 
 from IPython import display
 
-# DTUWindGym imports
+# WindGym imports
 from .WindEnv import WindEnv
 from .MesClass import farm_mes
 from .BasicControllers import local_yaw_controller, global_yaw_controller

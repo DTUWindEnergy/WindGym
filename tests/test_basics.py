@@ -3,8 +3,8 @@ import numpy as np
 from pathlib import Path
 from py_wake.examples.data.hornsrev1 import V80
 from stable_baselines3 import PPO
-from DTUWindGym.envs import WindFarmEnv
-from DTUWindGym.envs.WindFarmEnv import FarmEval, AgentEval, PyWakeAgent
+from WindGym import WindFarmEnv
+from WindGym import FarmEval, AgentEval, PyWakeAgent
 from dynamiks.sites.turbulence_fields import MannTurbulenceField
 
 
@@ -17,7 +17,7 @@ def turbine():
 @pytest.fixture
 def base_example_data_path():
     """Provides path to the example configuration directory"""
-    return Path("DTUWindGym/envs/WindFarmEnv/Examples/EnvConfigs")
+    return Path("WindGym/Examples/EnvConfigs")
 
 
 @pytest.fixture(params=["2turb.yaml", "Env1.yaml"])
@@ -62,7 +62,7 @@ def wind_farm_env(turbine, mann_turbulence_field, monkeypatch):
     env = WindFarmEnv(
         turbine=turbine,
         n_passthrough=2,
-        yaml_path=Path("DTUWindGym/envs/WindFarmEnv/Examples/EnvConfigs/2turb.yaml"),
+        yaml_path=Path("WindGym/Examples/EnvConfigs/2turb.yaml"),
         turbtype="MannFixed",  # Using fixed turbulence type
     )
 
@@ -89,7 +89,7 @@ def trained_agent():
     This agent should be stored in a consistent location in the repo.
     """
     # Load from a saved checkpoint in the repo
-    model_path = Path("DTUWindGym/envs/WindFarmEnv/Examples/PPO_2975000.zip")
+    model_path = Path("WindGym/Examples/PPO_2975000.zip")
     model = PPO.load(model_path)
     return model
 

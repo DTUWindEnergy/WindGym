@@ -1,4 +1,4 @@
-# DTUWindGym
+# WindGym
 
 [![coverage report](https://gitlab.windenergy.dtu.dk/manils/dtu_wind_gym/badges/main/coverage.svg)](https://gitlab.windenergy.dtu.dk/manils/dtu_wind_gym/-/commits/main)
 
@@ -14,15 +14,14 @@ To install your new environment, run the following commands:
 
 ```{shell}
 git clone https://gitlab.windenergy.dtu.dk/manils/dtu_wind_gym.git
-cd DTUWindGym
+cd WindGym
 pip install -e .
 ```
 
 ## List of avaliable environments
 
 A current list of environments are:
-- [WindFarmEnv](DTUWindGym/envs/WindFarmEnv/)
-- [BladeErosionEnv](DTUWindGym/envs/BladeErosion/) This is a work in progress! 
+- [WindFarmEnv](WindGym/)
 
 
 ### Contributing

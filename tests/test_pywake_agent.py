@@ -1,4 +1,4 @@
-from DTUWindGym.envs.WindFarmEnv.Agents import PyWakeAgent
+from WindGym.Agents import PyWakeAgent
 import numpy as np
 from py_wake.examples.data.lillgrund import LillgrundSite
 from py_wake.deflection_models.jimenez import JimenezWakeDeflection
