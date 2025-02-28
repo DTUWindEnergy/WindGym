@@ -26,8 +26,3 @@ An example animation of the turbines in the flow.
 
 
 ![Animation of flowfield](examples/images/Flowfield_animation.mp4)
-
-
-
-### Contributing
-If you would like to contribute you can message me at manils@dtu.dk 
