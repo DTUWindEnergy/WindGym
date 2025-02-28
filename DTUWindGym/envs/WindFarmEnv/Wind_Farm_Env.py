@@ -111,7 +111,7 @@ class WindFarmEnv(WindEnv):
         # The step size for the yaw angles. How manny degress the yaw angles can change pr. step
         self.yaw_step = yaw_step
         # The distance between the particles. This is used in the flow simulation.
-        self.d_particle = 0.1
+        self.d_particle = 0.2
 
         self.turbtype = turbtype
 
@@ -271,7 +271,7 @@ class WindFarmEnv(WindEnv):
             self.wts_baseline = PyWakeWindTurbines(
                 x=self.x_pos,
                 y=self.y_pos,  # x and y position of two wind turbines
-                windTurbine=self.turbine,
+                windTurbine=copy.deepcopy(self.turbine),
             )
 
         # Define the observation and action space
@@ -559,7 +559,6 @@ class WindFarmEnv(WindEnv):
             # Load the turbbox from predefined folder somewhere
             # selects one at random
             tf_file = self.np_random.choice(self.TF_files)
-            # print("Loading Mann turbulence box: ", tf_file)
 
             tf_agent = MannTurbulenceField.from_netcdf(filename=tf_file)
             tf_agent.scale_TI(ti=self.ti, U=self.ws)
@@ -569,7 +568,6 @@ class WindFarmEnv(WindEnv):
             # Create the turbbox with a random seed.
             # TODO this can be improved in the future.
             TF_seed = self.np_random.integers(0, 100000)
-            # print("Generating Mann turbulence box with seed: ", TF_seed)
             tf_agent = MannTurbulenceField.generate(
                 alphaepsilon=0.1,  # use correct alphaepsilon or scale later
                 L=33.6,  # length scale
@@ -588,7 +586,6 @@ class WindFarmEnv(WindEnv):
         elif self.turbtype == "Random":
             # Specifies the 'box' as random turbulence
             TF_seed = self.np_random.integers(0, 100000)
-            # print("Using Random turbulence with seed:", TF_seed)
             tf_agent = RandomTurbulence(ti=self.ti, ws=self.ws, seed=TF_seed)
             self.addedTurbulenceModel = AutoScalingIsotropicMannTurbulence()
 
@@ -601,7 +598,7 @@ class WindFarmEnv(WindEnv):
                 L=33.6,  # length scale
                 Gamma=3.9,  # anisotropy parameter
                 # numbers should be even and should be large enough to cover whole farm in all dimensions and time, see above
-                Nxyz=(8192, 512, 64),
+                Nxyz=(2048, 512, 64),
                 # should be small enough to capture variations needed for the wind the turbine model
                 dxyz=(3.0, 3.0, 3.0),
                 seed=TF_seed,  # seed for random generator
@@ -745,6 +742,7 @@ class WindFarmEnv(WindEnv):
 
         observation = self._get_obs()
         info = self._get_info()
+        self.fs_time = self.fs.time
 
         return observation, info
 
@@ -818,12 +816,6 @@ class WindFarmEnv(WindEnv):
 
     def power_rew_baseline(self):
         """Calculate reward based on baseline farm comparison using available history"""
-        power_agent = self.fs.windTurbines.power().sum()
-        power_baseline = self.fs_baseline.windTurbines.power().sum()
-
-        # Add to histories
-        self.farm_pow_deq.append(power_agent)
-        self.base_pow_deq.append(power_baseline)
 
         # Use whatever history we have so far for averaging
         power_agent_avg = np.mean(self.farm_pow_deq)
@@ -912,14 +904,16 @@ class WindFarmEnv(WindEnv):
         mean_windspeed = np.mean(windspeeds, axis=0)
         mean_winddir = np.mean(winddirs, axis=0)
         mean_yaw = np.mean(yaws, axis=0)
-        mean_power = np.mean(powers, axis=0)
+
+        mean_power = np.mean(powers, axis=0)  # This is pr turbine
 
         # Put them into the mes class.
         self.farm_measurements.add_measurements(
             mean_windspeed, mean_winddir, mean_yaw, mean_power
         )
-
-        self.farm_pow_deq.append(mean_power)
+        self.farm_pow_deq.append(
+            mean_power.sum()
+        )  # Do the sum, because we want for the whole farm.
         if self.Baseline_comp:
             self.base_pow_deq.append(np.mean(baseline_powers, axis=0))
         if np.any(np.isnan(self.farm_pow_deq)):
@@ -927,6 +921,7 @@ class WindFarmEnv(WindEnv):
 
         observation = self._get_obs()
         info = self._get_info()
+        self.fs_time = self.fs.time  # Save the flow simulation timestep.
         # Save the power output of the farm
         # self.farm_pow_deq.append(self.fs.windTurbines.power().sum())
 
