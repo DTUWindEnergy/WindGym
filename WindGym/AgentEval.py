@@ -35,7 +35,7 @@ Wind turbine has a lambda function, so we must use the pathos library to paralle
 def eval_single_fast(
     env,
     model,
-    model_step,
+    model_step=1,
     ws=10.0,
     ti=0.05,
     wd=270,

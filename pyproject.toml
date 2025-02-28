@@ -1,7 +1,7 @@
 [project]
 name = "WindGym"
 version = "0.0.1"
-requires-python = ">=3.7, <3.11"
+requires-python = ">=3.7, <3.12"
 dependencies = [
   "gymnasium",
   "stable_baselines3",
@@ -42,5 +42,8 @@ numpy = "<2"
 pre-commit = ">=4.0.1,<5"
 pytest = ">=8.3.4,<9"
 pytest-cov = ">=6.0.0,<7"
+gymnasium-all = ">=1.0.0,<2"
 
 [tool.pixi.tasks]
+install = { cmd = "pip install -e ." }
+test = { depends-on = ["install"], cmd = "pytest" }
