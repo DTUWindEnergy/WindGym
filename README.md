@@ -1,27 +1,32 @@
 # WindGym
 
-[![coverage report](https://gitlab.windenergy.dtu.dk/manils/dtu_wind_gym/badges/main/coverage.svg)](https://gitlab.windenergy.dtu.dk/manils/dtu_wind_gym/-/commits/main)
+[![coverage report](https://gitlab.windenergy.dtu.dk/manils/windgym/badges/main/coverage.svg)](https://gitlab.windenergy.dtu.dk/manils/windgym/-/commits/main)
 
 ## Description
 
-The goal of this is to collect the different RL environments from DTU at one place. 
+This is a general wind farm environment for RL research. It is built on the [DYNAMIKS](https://gitlab.windenergy.dtu.dk/DYNAMIKS/dynamiks)
 
-The hope is that this can help bring more attention to what is being worked on and foster collaboration. 
+Note that there exist both a single and multi agent environment.
 
 ## Installation
 
 To install your new environment, run the following commands:
 
 ```{shell}
-git clone https://gitlab.windenergy.dtu.dk/manils/dtu_wind_gym.git
+git clone https://gitlab.windenergy.dtu.dk/manils/WindGym.git
 cd WindGym
 pip install -e .
 ```
 
-## List of avaliable environments
+## Examples
 
-A current list of environments are:
-- [WindFarmEnv](WindGym/)
+Some examples of the uses can be seen in the Examples folder.
+
+An example animation of the turbines in the flow. 
+
+
+![Animation of flowfield](examples/images/Flowfield_animation.mp4)
+
 
 
 ### Contributing

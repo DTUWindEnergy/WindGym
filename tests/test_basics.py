@@ -17,7 +17,7 @@ def turbine():
 @pytest.fixture
 def base_example_data_path():
     """Provides path to the example configuration directory"""
-    return Path("WindGym/Examples/EnvConfigs")
+    return Path("examples/EnvConfigs")
 
 
 @pytest.fixture(params=["2turb.yaml", "Env1.yaml"])
@@ -62,7 +62,7 @@ def wind_farm_env(turbine, mann_turbulence_field, monkeypatch):
     env = WindFarmEnv(
         turbine=turbine,
         n_passthrough=2,
-        yaml_path=Path("WindGym/Examples/EnvConfigs/2turb.yaml"),
+        yaml_path=Path("examples/EnvConfigs/2turb.yaml"),
         turbtype="MannFixed",  # Using fixed turbulence type
     )
 

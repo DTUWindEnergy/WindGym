@@ -21,9 +21,10 @@ class FarmEval(WindFarmEnv):
         yaml_path=None,
         Baseline_comp=False,
         render_mode=None,
+        turbtype="MannLoad",
         seed=None,
         dt_sim=1,  # Simulation timestep in seconds
-        dt_env=10,  # Environment timestep in seconds
+        dt_env=1,  # Environment timestep in seconds
         yaw_step=1,  # Environment timestep in seconds
         power_avg=1,  # Environment timestep in seconds
         n_passthrough=5,
@@ -38,6 +39,7 @@ class FarmEval(WindFarmEnv):
             yaml_path=yaml_path,
             yaw_init=yaw_init,
             TurbBox=TurbBox,
+            turbtype=turbtype,
             Baseline_comp=Baseline_comp,  # UPDATE: Changed so that we dont need the baseline farm anymore. Before it was always true! #We always want to compare to the baseline, so this is true
             seed=seed,
             dt_sim=dt_sim,  # Simulation timestep in seconds

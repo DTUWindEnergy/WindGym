@@ -35,14 +35,11 @@ import yaml
 This is the base for the wind farm environment. This is where the magic happens.
 For now it only supports the PyWakeWindTurbines, but it should be easy to expand to other types of turbines.
 """
-# TODO So some sources says that the rewards should be in the order of 10. Therefore we could try and do that.
-# TODO Assert that the turbine is a subclass of the PyWakeWindTurbines
+
+
 # TODO make it so that the turbines can be other then a square grid
-# TODO user defined observed variables
 # TODO thrust coefficient control
 # TODO for now I have just hardcoded this scaling value (1 and 25 for the wind_speed min and max). This is beacuse the wind speed is chosen from the normal distribution, but becasue of the wakes and the turbulence, we canhave cases where we go above or below these values.
-# TODO IMPORTANT: We need to make sure that the turbines are consistent with the returning of variables. So that independent of the self.wd
-# TODO maybe we should take larger steps in the flow simulation. Or multiple. This coulde be done with fs.run() instead.
 
 
 class WindFarmEnv(WindEnv):
@@ -77,7 +74,7 @@ class WindFarmEnv(WindEnv):
             TI_max_mes: float: The maximum value for the turbulence intensity measurements. Used for internal scaling
             TurbBox: str: The path to the turbulence box files. If Default, then it will use the default turbulence box files.
             turbtype: str: The type of turbulence box that is used. Can be one of the following: MannLoad, MannGenerate, MannFixed, Random, None
-            yaml_path: str: The path to the yaml file that contains the configuration of the environment. TODO make a default value for this?
+            yaml_path: str: The path to the yaml file that contains the configuration of the environment. TODO make a default value for this
             Baseline_comp: bool: If true, then the environment will compare the performance of the agent with a baseline farm. This is only used in the EnvEval class.
             yaw_init: str: The method for initializing the yaw angles of the turbines. If 'Random', then the yaw angles will be random. Else they will be zeros.
             render_mode: str: The render mode of the environment. If None, then nothing will be rendered. If human, then the environment will be rendered in a window. If rgb_array, then the environment will be rendered as an array.
@@ -426,14 +423,10 @@ class WindFarmEnv(WindEnv):
         self.current_ws = np.linalg.norm(
             self.fs.windTurbines.rotor_avg_windspeed(include_wakes=True), axis=0
         )
-        # TODO make sure the implementation is correct
-        # self.current_ws = np.linalg.norm(self.fs.windTurbines.rotor_avg_windspeed, axis=1)
-        # The current ws is the norm of the three components
-        # The current wd is the invtan of the u/v components of the wind speed. Remember to add the "global" wind direction to this measurement, as we are rotating the farm
+
         u_speed = self.fs.windTurbines.rotor_avg_windspeed(include_wakes=True)[1]
-        # u_speed = self.fs.windTurbines.rotor_avg_windspeed[:,1]
         v_speed = self.fs.windTurbines.rotor_avg_windspeed(include_wakes=True)[0]
-        # v_speed = self.fs.windTurbines.rotor_avg_windspeed[:,0]
+
         self.current_wd = np.rad2deg(np.arctan(u_speed / v_speed)) + self.wd
 
         self.current_yaw = self.fs.windTurbines.yaw

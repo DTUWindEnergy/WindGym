@@ -152,23 +152,23 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
         """
 
         # The reward is a combination of the turbine powers, plus the farm power.
-        rewards = {
-            a: np.mean(
-                self.farm_measurements.turb_mes[
-                    self.agent_name_mapping[a]
-                ].power.measurements
-            )
-            / self.rated_power
-            + np.mean(self.farm_measurements.farm_mes.power.measurements)
-            / self.rated_power
-            for a in self.agents
-        }
+        # rewards = {
+        #     a: np.mean(
+        #         self.farm_measurements.turb_mes[
+        #             self.agent_name_mapping[a]
+        #         ].power.measurements
+        #     )
+        #     / self.rated_power
+        #     + np.mean(self.farm_measurements.farm_mes.power.measurements)
+        #     / self.rated_power
+        #     for a in self.agents
+        # }
 
         # This reward is simply the turbine power
-        # rewards = {a: self.fs.windTurbines.power()[self.agent_name_mapping[a]] for a in self.agents}
-
-        # This reward is the farm power
-        # rewards = {a: np.mean(self.farm_measurements.farm_mes.power.measurements) / self.rated_power for a in self.agents}
+        rewards = {
+            a: self.fs.windTurbines.power().sum() / self.rated_power / self.n_turb
+            for a in self.agents
+        }
 
         return rewards
 
