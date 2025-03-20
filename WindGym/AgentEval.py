@@ -114,9 +114,7 @@ def eval_single_fast(
     powerT_a[0] = env.fs.windTurbines.power()
 
     yaw_a[0] = info["yaw angles agent"]
-    ws_a[0] = np.linalg.norm(
-        env.fs.windTurbines.rotor_avg_windspeed(include_wakes=True), axis=0
-    )
+    ws_a[0] = np.linalg.norm(env.fs.windTurbines.rotor_avg_windspeed, axis=0)
     time_plot[0] = env.fs.time
     # There is no reward at the first time step, so we just set it to zero.
     rew_plot[0] = 0.0
@@ -158,9 +156,7 @@ def eval_single_fast(
         powerT_a[i] = env.fs.windTurbines.power()
         yaw_a[i] = info["yaw angles agent"]
 
-        ws_a[i] = np.linalg.norm(
-            env.fs.windTurbines.rotor_avg_windspeed(include_wakes=True), axis=0
-        )
+        ws_a[i] = np.linalg.norm(env.fs.windTurbines.rotor_avg_windspeed, axis=0)
         time_plot[i] = env.fs.time
         rew_plot[i] = reward  #
         if save_figs:

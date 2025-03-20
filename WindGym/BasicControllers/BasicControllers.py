@@ -22,8 +22,8 @@ def local_yaw_controller(fs, yaw_step=1):
     # Then by taking the inverse tan of the wind speed components, we get the LOCAL wind direction
     wind_dir_baseline = np.rad2deg(
         np.arctan(
-            fs.windTurbines.rotor_avg_windspeed(include_wakes=True)[1]
-            / fs.windTurbines.rotor_avg_windspeed(include_wakes=True)[0]
+            fs.windTurbines.rotor_avg_windspeed[:, 1]
+            / fs.windTurbines.rotor_avg_windspeed[:, 0]
         )
     )
 
