@@ -39,8 +39,10 @@ class Mes:
         history_length=100,
         window_length=5,
     ):
-        self.current = current  # Do you want the current wind speed to be included in the measurements
-        self.rolling_mean = rolling_mean  # Do you want the rolling mean of the wind speed to be included in the measurements
+        # Do you want the current wind speed to be included in the measurements
+        self.current = current
+        # Do you want the rolling mean of the wind speed to be included in the measurements
+        self.rolling_mean = rolling_mean
         self.history_N = (
             history_N  # Number of rolling windows to use for the rolling mean
         )
@@ -225,7 +227,8 @@ class turb_mes:
         )  # First we get the wind speed measurements and turn them into an array
         U = u.mean()  # Then we calculate the mean wind speed
 
-        TI = np.array([np.std(u - U) / U], dtype=np.float32)  # Then we calculate the TI
+        # Then we calculate the TI
+        TI = np.array([np.std(u - U) / U], dtype=np.float32)
 
         if scaled:
             # Scale the measurements
@@ -405,8 +408,10 @@ class farm_mes(WindEnv):
             turb_power  # do we want measurements from the turbines individually
         )
 
-        self.farm_ws = farm_ws  # do we want measurements from the farm, i.e. the average of the turbines
-        self.farm_wd = farm_wd  # do we want measurements from the farm, i.e. the average of the turbines
+        # do we want measurements from the farm, i.e. the average of the turbines
+        self.farm_ws = farm_ws
+        # do we want measurements from the farm, i.e. the average of the turbines
+        self.farm_wd = farm_wd
         self.farm_TI = farm_TI
         self.farm_power = farm_power
 
@@ -691,7 +696,6 @@ class farm_mes(WindEnv):
         if self.farm_power:
             power_farm = self.get_power_farm(scaled=scaled)
             farm_measurements = np.append(farm_measurements, power_farm)
-
         turb_measurements = np.array(
             [turb.get_measurements(scaled=scaled) for turb in self.turb_mes]
         ).flatten()

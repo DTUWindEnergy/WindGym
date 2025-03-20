@@ -6,6 +6,7 @@ from stable_baselines3 import PPO
 from WindGym import WindFarmEnv
 from WindGym import FarmEval, AgentEval, PyWakeAgent
 from dynamiks.sites.turbulence_fields import MannTurbulenceField
+from gymnasium.utils.env_checker import check_env
 
 
 @pytest.fixture
@@ -390,3 +391,8 @@ def test_set_windconditions_with_site(wind_farm_env):
     ti_values = [s["ti"] for s in samples]
     assert len(set(ti_values)) > 1, "TI values are not varying"
     assert all(wind_farm_env.TI_min <= ti <= wind_farm_env.TI_max for ti in ti_values)
+
+
+def test_check_env(wind_farm_env):
+    """Test that the environment passes the gymnasium check"""
+    check_env(wind_farm_env)

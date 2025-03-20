@@ -419,18 +419,24 @@ class WindFarmEnv(WindEnv):
         """
         Does the measurement and saves it to the self.
         """
+        # print("Running _take_measurements")
         # Get the observation of the environment
         self.current_ws = np.linalg.norm(
-            self.fs.windTurbines.rotor_avg_windspeed(include_wakes=True), axis=0
+            self.fs.windTurbines.rotor_avg_windspeed, axis=1
         )
 
-        u_speed = self.fs.windTurbines.rotor_avg_windspeed(include_wakes=True)[1]
-        v_speed = self.fs.windTurbines.rotor_avg_windspeed(include_wakes=True)[0]
+        u_speed = self.fs.windTurbines.rotor_avg_windspeed[:, 1]
+        v_speed = self.fs.windTurbines.rotor_avg_windspeed[:, 0]
 
         self.current_wd = np.rad2deg(np.arctan(u_speed / v_speed)) + self.wd
 
         self.current_yaw = self.fs.windTurbines.yaw
         self.current_powers = self.fs.windTurbines.power()  # The Power pr turbine
+
+        # print("Self.current_ws: ", self.current_ws)
+        # print("Self.current_wd: ", self.current_wd)
+        # print("Self.current_yaw: ", self.current_yaw)
+        # print("Self.current_powers: ", self.current_powers)
 
     def _update_measurements(self):
         """
@@ -488,9 +494,7 @@ class WindFarmEnv(WindEnv):
             )
             # return_dict["Wind speed at turbines baseline"] = self.fs_baseline.windTurbines.rotor_avg_windspeed[:,0] #Just the largest component
             return_dict["Wind speed at turbines baseline"] = (
-                self.fs_baseline.windTurbines.rotor_avg_windspeed(
-                    include_wakes=True
-                )[0, :]
+                self.fs_baseline.windTurbines.rotor_avg_windspeed[:, 0]
             )  # Just the largest component
         return return_dict
 
@@ -554,7 +558,7 @@ class WindFarmEnv(WindEnv):
             tf_file = self.np_random.choice(self.TF_files)
 
             tf_agent = MannTurbulenceField.from_netcdf(filename=tf_file)
-            tf_agent.scale_TI(ti=self.ti, U=self.ws)
+            tf_agent.scale_TI(TI=self.ti, U=self.ws)
             self.addedTurbulenceModel = SynchronizedAutoScalingIsotropicMannTurbulence()
 
         elif self.turbtype == "MannGenerate":
@@ -573,7 +577,7 @@ class WindFarmEnv(WindEnv):
                 # HighFreqComp=0, # the high frequency compensation is questionable and it is recommened to switch it off
                 # double_xyz=(False, False, False), # turbulence periodicity is not expected to be an issue in a wind farm
             )
-            tf_agent.scale_TI(ti=self.ti, U=self.ws)
+            tf_agent.scale_TI(TI=self.ti, U=self.ws)
             self.addedTurbulenceModel = SynchronizedAutoScalingIsotropicMannTurbulence()
 
         elif self.turbtype == "Random":
@@ -596,7 +600,7 @@ class WindFarmEnv(WindEnv):
                 dxyz=(3.0, 3.0, 3.0),
                 seed=TF_seed,  # seed for random generator
             )
-            tf_agent.scale_TI(ti=self.ti, U=self.ws)
+            tf_agent.scale_TI(TI=self.ti, U=self.ws)
             self.addedTurbulenceModel = SynchronizedAutoScalingIsotropicMannTurbulence()
 
         elif self.turbtype == "None":
