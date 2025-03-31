@@ -61,7 +61,6 @@ class WindFarmEnv(WindEnv):
         dt_sim=1,  # Simulation timestep in seconds
         dt_env=1,  # Environment timestep in seconds
         yaw_step=1,  # How many degrees the yaw angles can change pr. step
-        power_avg=1,
         fill_window=True,
         sample_site=None,
     ):
@@ -88,7 +87,6 @@ class WindFarmEnv(WindEnv):
 
         # Predefined values
         # The power setpoint for the farm. This is used if the Track_power is True. (Not used yet)
-        self.power_avg = power_avg
         self.power_setpoint = 0.0
         self.act_var = (
             1  # number of actions pr. turbine. For now it is just the yaw angles
@@ -321,6 +319,10 @@ class WindFarmEnv(WindEnv):
         self.wd_min = wind_params["wd_min"]
         self.wd_max = wind_params["wd_max"]
 
+        # These are also saved to this variable, as the eval_env overwrites the other values for the sampling
+        self.wd_min_mes = wind_params["wd_min"]
+        self.wd_max_mes = wind_params["wd_max"]
+
         self.act_pen = config.get("act_pen")
         self.power_def = config.get("power_def")
         self.mes_level = config.get("mes_level")
@@ -333,7 +335,7 @@ class WindFarmEnv(WindEnv):
         self.action_penalty = self.act_pen["action_penalty"]
         self.action_penalty_type = self.act_pen["action_penalty_type"]
         self.Power_scaling = self.power_def["Power_scaling"]
-        # self.power_avg = self.power_def["Power_avg"]
+        self.power_avg = self.power_def["Power_avg"]
         self.power_reward = self.power_def["Power_reward"]
 
     def _init_farm_mes(self):
@@ -378,8 +380,8 @@ class WindFarmEnv(WindEnv):
             2.0,
             25.0,  # Max and min values for wind speed measuremenats
             # Max and min values for wind direction measurements   NOTE i have added 5 for some slack in the measurements. so the scaling is better.
-            self.wd_min - 5,
-            self.wd_max + 5,
+            self.wd_min_mes - 5,
+            self.wd_max_mes + 5,
             self.yaw_min,
             self.yaw_max,  # Max and min values for yaw measurements
             # Max and min values for the turbulence intensity measurements
@@ -425,18 +427,13 @@ class WindFarmEnv(WindEnv):
             self.fs.windTurbines.rotor_avg_windspeed, axis=1
         )
 
-        u_speed = self.fs.windTurbines.rotor_avg_windspeed[:, 1]
-        v_speed = self.fs.windTurbines.rotor_avg_windspeed[:, 0]
+        u_speed = self.fs.windTurbines.rotor_avg_windspeed[:, 0]
+        v_speed = self.fs.windTurbines.rotor_avg_windspeed[:, 1]
 
-        self.current_wd = np.rad2deg(np.arctan(u_speed / v_speed)) + self.wd
+        self.current_wd = np.rad2deg(np.arctan(v_speed / u_speed)) + self.wd
 
         self.current_yaw = self.fs.windTurbines.yaw
         self.current_powers = self.fs.windTurbines.power()  # The Power pr turbine
-
-        # print("Self.current_ws: ", self.current_ws)
-        # print("Self.current_wd: ", self.current_wd)
-        # print("Self.current_yaw: ", self.current_yaw)
-        # print("Self.current_powers: ", self.current_powers)
 
     def _update_measurements(self):
         """
@@ -727,11 +724,12 @@ class WindFarmEnv(WindEnv):
             for __ in range(self.hist_max):
                 baseline_powers = []
                 for _ in range(self.sim_steps_per_env_step):
+                    # Outcommented to ensure they start at the same yaw angles
                     # Step the flow simulation
-                    new_baseline_yaws = self._base_controller(
-                        fs=self.fs_baseline, yaw_step=self.yaw_step
-                    )
-                    self.fs_baseline.windTurbines.yaw = new_baseline_yaws
+                    # new_baseline_yaws = self._base_controller(
+                    #     fs=self.fs_baseline, yaw_step=self.yaw_step
+                    # )
+                    # self.fs_baseline.windTurbines.yaw = new_baseline_yaws
                     self.fs_baseline.step()
                     baseline_powers.append(self.fs_baseline.windTurbines.power().sum())
 
@@ -971,7 +969,7 @@ class WindFarmEnv(WindEnv):
         if self.render_mode == "rgb_array":
             return self._render_frame()
 
-    def _render_frame(self):
+    def _render_frame(self, baseline=False):
         """
         This is the rendering function.
         It renders the flow field and the wind turbines
@@ -981,27 +979,32 @@ class WindFarmEnv(WindEnv):
         plt.ion()
         ax1 = plt.gca()
 
-        # uvw = self.fs.get_windspeed(self.view, include_wakes=True, xarray=False)
-        uvw = self.fs.get_windspeed(self.view, include_wakes=True, xarray=True)
+        if baseline:
+            fs_use = self.fs_baseline
+        else:
+            fs_use = self.fs
 
-        wt = self.fs.windTurbines
-        x_turb, y_turb = self.fs.windTurbines.positions_xyz[:2]
+        # uvw = self.fs.get_windspeed(self.view, include_wakes=True, xarray=False)
+        uvw = fs_use.get_windspeed(self.view, include_wakes=True, xarray=True)
+
+        wt = fs_use.windTurbines
+        x_turb, y_turb = fs_use.windTurbines.positions_xyz[:2]
         yaw, tilt = wt.yaw_tilt()
 
         # [0] is the u component of the wind speed
         plt.pcolormesh(uvw.x.values, uvw.y.values, uvw[0].T, shading="nearest")
         # plt.colorbar().set_label('Wind speed, u [m/s]')
         WindTurbinesPW.plot_xy(
-            self.fs.windTurbines,
+            fs_use.windTurbines,
             x_turb,
             y_turb,
-            types=self.fs.windTurbines.types,
-            wd=self.fs.wind_direction,
+            types=fs_use.windTurbines.types,
+            wd=fs_use.wind_direction,
             ax=ax1,
             yaw=yaw,
             tilt=tilt,
         )
-        ax1.set_title("Flow field at {} s".format(self.fs.time))
+        ax1.set_title("Flow field at {} s".format(fs_use.time))
         display.display(plt.gcf())
         display.clear_output(wait=True)
 
@@ -1027,12 +1030,12 @@ class WindFarmEnv(WindEnv):
         del self.farm_measurements
         gc.collect()
 
-    def plot_frame(self):
+    def plot_frame(self, baseline=False):
         """
         Plots a single frame of the flow field and the wind turbines
         """
         self.init_render()
-        self._render_frame()
+        self._render_frame(baseline=baseline)
 
     def _get_num_raw_features(self):
         """Calculate based on YAML config - no hardcoding!"""
