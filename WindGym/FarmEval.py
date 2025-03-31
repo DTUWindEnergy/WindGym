@@ -26,7 +26,6 @@ class FarmEval(WindFarmEnv):
         dt_sim=1,  # Simulation timestep in seconds
         dt_env=1,  # Environment timestep in seconds
         yaw_step=1,  # Environment timestep in seconds
-        power_avg=1,  # Environment timestep in seconds
         n_passthrough=5,
     ):
         # TODO There must be a better way to set all these valuesm **kwargs???
@@ -36,22 +35,22 @@ class FarmEval(WindFarmEnv):
             n_passthrough=n_passthrough,
             TI_min_mes=TI_min_mes,
             TI_max_mes=TI_max_mes,
-            yaml_path=yaml_path,
-            yaw_init=yaw_init,
             TurbBox=TurbBox,
             turbtype=turbtype,
+            yaml_path=yaml_path,
             Baseline_comp=Baseline_comp,  # UPDATE: Changed so that we dont need the baseline farm anymore. Before it was always true! #We always want to compare to the baseline, so this is true
+            yaw_init=yaw_init,
+            render_mode=render_mode,
             seed=seed,
             dt_sim=dt_sim,  # Simulation timestep in seconds
             dt_env=dt_env,  # Environment timestep in seconds
-            power_avg=power_avg,
             yaw_step=yaw_step,
         )
 
     def reset(self, seed=None, options=None):
         # Overwrite the reset function so that we never terminates.
-        observation, info = WindFarmEnv.reset(self, seed, options)
-
+        # observation, info = WindFarmEnv.reset(self, seed, options)
+        observation, info = super().reset(seed=seed, options=options)
         # Just set to a very high number, so that we never terminate.
         self.time_max = 9999999
 
@@ -67,8 +66,8 @@ class FarmEval(WindFarmEnv):
             self.ws_max = ws
         if ti is not None:
             self.ti = ti
-            self.ti_min = ti
-            self.ti_max = ti
+            self.TI_min = ti
+            self.TI_max = ti
         if wd is not None:
             self.wd = wd
             self.wd_min = wd

@@ -11,6 +11,10 @@ import matplotlib.pyplot as plt
 from collections import deque
 from py_wake.wind_turbines import WindTurbines as WindTurbinesPW
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
 # from pathos.pools import ProcessPool
 
 """
@@ -68,7 +72,15 @@ def eval_single_fast(
 
     """
 
+    device = torch.device("cpu")
+
+    if hasattr(env.unwrapped, "parent_pipes"):
+        raise AssertionError(
+            "The eval_single_fast function is not compatible with vectorized versions of the environment. Please use unvectorized envs instead."
+        )
+
     env.set_wind_vals(ws=ws, ti=ti, wd=wd)
+    baseline_comp = env.Baseline_comp
 
     if not isinstance(scale_obs, list):  # if not a list, make it one
         scaling = [scale_obs]
@@ -96,12 +108,19 @@ def eval_single_fast(
     time_plot = np.zeros((time))
     rew_plot = np.zeros((time))
 
+    if baseline_comp:
+        powerF_b = np.zeros((time))
+        powerT_b = np.zeros((time, n_turb))
+        yaw_b = np.zeros((time, n_turb))
+        ws_b = np.zeros((time, n_turb))
+        pct_inc = np.zeros((time))
+
     # Initialize the environment
     obs, info = env.reset()
 
     # This checks if we are using a pywakeagent. If we are, then we do this:
     if hasattr(model, "pywakeagent") or hasattr(model, "florisagent"):
-        model.update_wind(env.ws, env.wd, env.ti)
+        model.update_wind(ws, wd, ti)
         model.predict(obs, deterministic=deterministic)[0]
     # This checks if we are using an agent that needs the environment. If we are, then we do this
     if hasattr(model, "UseEnv"):
@@ -109,15 +128,25 @@ def eval_single_fast(
         model.yaw_min = env.yaw_min
         model.env = env
 
-        # Put the initial values in the arrays
+    # Put the initial values in the arrays
     powerF_a[0] = env.fs.windTurbines.power().sum()
     powerT_a[0] = env.fs.windTurbines.power()
-
-    yaw_a[0] = info["yaw angles agent"]
-    ws_a[0] = np.linalg.norm(env.fs.windTurbines.rotor_avg_windspeed, axis=0)
+    yaw_a[0] = env.fs.windTurbines.yaw
+    ws_a[0] = np.linalg.norm(env.fs.windTurbines.rotor_avg_windspeed, axis=1)
     time_plot[0] = env.fs.time
     # There is no reward at the first time step, so we just set it to zero.
     rew_plot[0] = 0.0
+
+    if baseline_comp:
+        powerF_b[0] = env.fs_baseline.windTurbines.power().sum()
+        powerT_b[0] = env.fs_baseline.windTurbines.power()
+        yaw_b[0] = env.fs_baseline.windTurbines.yaw
+        ws_b[0] = np.linalg.norm(
+            env.fs_baseline.windTurbines.rotor_avg_windspeed, axis=1
+        )
+        pct_inc[0] = (
+            ((powerF_a[0] - powerF_b[0]) / powerF_b[0]) * 100
+        )  # Percentage increase in power output. This should be zero (or close to zero) at the first time step.
 
     # If save_figs is True, initalize some parameters here.
     if save_figs:
@@ -148,17 +177,37 @@ def eval_single_fast(
 
     # Run the simulation
     for i in range(1, time):
-        action = model.predict(obs, deterministic=deterministic)[0]
+        if hasattr(model, "model_type"):
+            if model.model_type == "CleanRL":
+                obs = np.expand_dims(obs, 0)
+                action, _, _ = model.get_action(
+                    torch.Tensor(obs).to(device), deterministic=deterministic
+                )
+                action = action.detach().cpu().numpy()
+        else:  # I assume this will always be SB3 models.
+            action = model.predict(obs, deterministic=deterministic)[0]
+
         obs, reward, terminated, truncated, info = env.step(action)
 
         # Put the values in the arrays
         powerF_a[i] = env.fs.windTurbines.power().sum()
         powerT_a[i] = env.fs.windTurbines.power()
-        yaw_a[i] = info["yaw angles agent"]
-
-        ws_a[i] = np.linalg.norm(env.fs.windTurbines.rotor_avg_windspeed, axis=0)
+        yaw_a[i] = env.fs.windTurbines.yaw
+        ws_a[i] = np.linalg.norm(env.fs.windTurbines.rotor_avg_windspeed, axis=1)
         time_plot[i] = env.fs.time
         rew_plot[i] = reward  #
+
+        if baseline_comp:
+            powerF_b[i] = env.fs_baseline.windTurbines.power().sum()
+            powerT_b[i] = env.fs_baseline.windTurbines.power()
+            yaw_b[i] = env.fs_baseline.windTurbines.yaw
+            ws_b[i] = np.linalg.norm(
+                env.fs_baseline.windTurbines.rotor_avg_windspeed, axis=1
+            )
+            pct_inc[i] = (
+                ((powerF_a[i] - powerF_b[i]) / powerF_b[i]) * 100
+            )  # Percentage increase in power output. This should be zero (or close to zero) at the first time step.
+
         if save_figs:
             time_deq.append(time_plot[i])
             pow_deq.append(powerF_a[i])
@@ -313,38 +362,114 @@ def eval_single_fast(
     ws_a = ws_a.reshape(time, n_turb, n_ws, n_wd, n_TI, n_turbbox, 1)
     rew_plot = rew_plot.reshape(time, n_ws, n_wd, n_TI, n_turbbox, 1)
 
+    if baseline_comp:
+        powerF_b = powerF_b.reshape(time, n_ws, n_wd, n_TI, n_turbbox, 1)
+        powerT_b = powerT_b.reshape(time, n_turb, n_ws, n_wd, n_TI, n_turbbox, 1)
+        yaw_b = yaw_b.reshape(time, n_turb, n_ws, n_wd, n_TI, n_turbbox, 1)
+        ws_b = ws_b.reshape(time, n_turb, n_ws, n_wd, n_TI, n_turbbox, 1)
+        pct_inc = pct_inc.reshape(time, n_ws, n_wd, n_TI, n_turbbox, 1)
+
     # Then create a xarray dataset with the results
-    ds = xr.Dataset(
-        data_vars={
-            # For agent:
-            # Power for the farm: [time, turbine, ws, wd, TI, turbbox]
-            "powerF_a": (("time", "ws", "wd", "TI", "turbbox", "model_step"), powerF_a),
-            # Power pr turbine [time, ws, wd, TI, turbbox]
-            "powerT_a": (
-                ("time", "turb", "ws", "wd", "TI", "turbbox", "model_step"),
-                powerT_a,
-            ),
-            # yaw is array of: [time, turbine, ws, wd, TI, turbbox]
-            "yaw_a": (
-                ("time", "turb", "ws", "wd", "TI", "turbbox", "model_step"),
-                yaw_a,
-            ),
-            # Ws at each turbine: [time, turbine, ws, wd, TI, turbbox]
-            "ws_a": (("time", "turb", "ws", "wd", "TI", "turbbox", "model_step"), ws_a),
-            # For environment
-            # Reward
-            "reward": (("time", "ws", "wd", "TI", "turbbox", "model_step"), rew_plot),
-        },
-        coords={
-            "ws": np.array([ws]),
-            "wd": np.array([wd]),
-            "turb": np.arange(env.n_turb),
-            "time": time_plot,
-            "TI": np.array([ti]),
-            "turbbox": [turbbox],
-            "model_step": np.array([model_step]),
-        },
-    )
+    if not baseline_comp:
+        ds = xr.Dataset(
+            data_vars={
+                # For agent:
+                # Power for the farm: [time, turbine, ws, wd, TI, turbbox]
+                "powerF_a": (
+                    ("time", "ws", "wd", "TI", "turbbox", "model_step"),
+                    powerF_a,
+                ),
+                # Power pr turbine [time, ws, wd, TI, turbbox]
+                "powerT_a": (
+                    ("time", "turb", "ws", "wd", "TI", "turbbox", "model_step"),
+                    powerT_a,
+                ),
+                # yaw is array of: [time, turbine, ws, wd, TI, turbbox]
+                "yaw_a": (
+                    ("time", "turb", "ws", "wd", "TI", "turbbox", "model_step"),
+                    yaw_a,
+                ),
+                # Ws at each turbine: [time, turbine, ws, wd, TI, turbbox]
+                "ws_a": (
+                    ("time", "turb", "ws", "wd", "TI", "turbbox", "model_step"),
+                    ws_a,
+                ),
+                # For environment
+                # Reward
+                "reward": (
+                    ("time", "ws", "wd", "TI", "turbbox", "model_step"),
+                    rew_plot,
+                ),
+            },
+            coords={
+                "ws": np.array([ws]),
+                "wd": np.array([wd]),
+                "turb": np.arange(env.n_turb),
+                "time": time_plot,
+                "TI": np.array([ti]),
+                "turbbox": [turbbox],
+                "model_step": np.array([model_step]),
+            },
+        )
+
+    else:
+        ds = xr.Dataset(
+            data_vars={
+                # For agent:
+                "powerF_a": (
+                    ("time", "ws", "wd", "TI", "turbbox", "model_step"),
+                    powerF_a,
+                ),  # Power for the farm: [time, turbine, ws, wd, TI, turbbox]
+                "powerT_a": (
+                    ("time", "turb", "ws", "wd", "TI", "turbbox", "model_step"),
+                    powerT_a,
+                ),  # Power pr turbine [time, ws, wd, TI, turbbox]
+                "yaw_a": (
+                    ("time", "turb", "ws", "wd", "TI", "turbbox", "model_step"),
+                    yaw_a,
+                ),  # yaw is array of: [time, turbine, ws, wd, TI, turbbox]
+                "ws_a": (
+                    ("time", "turb", "ws", "wd", "TI", "turbbox", "model_step"),
+                    ws_a,
+                ),  # Ws at each turbine: [time, turbine, ws, wd, TI, turbbox]
+                # #For baseline
+                "powerF_b": (
+                    ("time", "ws", "wd", "TI", "turbbox", "model_step"),
+                    powerF_b,
+                ),  # Power for the farm: [time, turbine, ws, wd, TI, turbbox]
+                "powerT_b": (
+                    ("time", "turb", "ws", "wd", "TI", "turbbox", "model_step"),
+                    powerT_b,
+                ),  # Power pr turbine [time, ws, wd, TI, turbbox]
+                "yaw_b": (
+                    ("time", "turb", "ws", "wd", "TI", "turbbox", "model_step"),
+                    yaw_b,
+                ),  # yaw is array of: [time, turbine, ws, wd, TI, turbbox]
+                "ws_b": (
+                    ("time", "turb", "ws", "wd", "TI", "turbbox", "model_step"),
+                    ws_b,
+                ),  # Ws at each turbine: [time, turbine, ws, wd, TI, turbbox]
+                # For environment
+                "reward": (
+                    ("time", "ws", "wd", "TI", "turbbox", "model_step"),
+                    rew_plot,
+                ),  # Reward
+                "pct_inc": (
+                    ("time", "ws", "wd", "TI", "turbbox", "model_step"),
+                    pct_inc,
+                ),  # Percentage increase in power output
+            },
+            coords={
+                "ws": np.array([ws]),
+                "wd": np.array([wd]),
+                "turb": np.arange(n_turb),
+                "time": time_plot,
+                "TI": np.array([ti]),
+                "turbbox": [turbbox],
+                "model_step": np.array([model_step]),
+            },
+        )
+
     return ds
 
 

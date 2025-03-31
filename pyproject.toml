@@ -1,7 +1,23 @@
+[build-system]
+requires = [
+    "setuptools>=60",
+    "setuptools-scm>=8.0"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "WindGym"
-version = "0.0.1"
+authors = [
+  { name="Marcus Nilsen", email="manils@dtu.dk" },
+]
+description = "Wind farm reinforcement learning environment"
+readme = "README.md"
+version = "0.0.2"
 requires-python = ">=3.7, <3.12"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "License :: OSI Approved :: MIT License",
+]
 dependencies = [
   "gymnasium",
   "stable_baselines3",
@@ -16,9 +32,16 @@ dependencies = [
   #"h2lib",
 ]
 
-[build-system]
-requires = ["setuptools", "wheel"]
-build-backend = "setuptools.build_meta"
+[project.urls]
+"Homepage" = "https://gitlab.windenergy.dtu.dk/manils/WindGym"
+"Bug Tracker" = "https://gitlab.windenergy.dtu.dk/manils/WindGym/-/issues"
+
+[tool.setuptools]
+packages = ["WindGym"]
+
+[tool.setuptools_scm]
+version_file = "WindGym/version.py"
+version_scheme = "no-guess-dev"
 
 [tool.pytest.ini_options]
 testpaths = "tests"
