@@ -8,3 +8,4 @@ from .FlorisAgent import FlorisAgent
 from .PyWakeAgent import PyWakeAgent
 from .BaseAgent import BaseAgent
 from .RandomAgent import RandomAgent
+from .ConstantAgent import ConstantAgent
