@@ -7,6 +7,8 @@ from WindGym import WindFarmEnv
 from WindGym import FarmEval, AgentEval, PyWakeAgent
 from dynamiks.sites.turbulence_fields import MannTurbulenceField
 from gymnasium.utils.env_checker import check_env
+from WindGym import AgentEvalFast
+from WindGym.Agents import RandomAgent, ConstantAgent
 
 
 @pytest.fixture
@@ -177,6 +179,18 @@ def test_random_actions(wind_farm_env):
         assert not np.isnan(reward)
         assert isinstance(info["Power agent"], (int, float))
         assert info["Power agent"] >= 0
+
+        # Check that the action penalty is applied correctly
+        wind_farm_env.action_penalty = 1.0
+        wind_farm_env.action_penalty_type = "Change"
+        pen_1 = wind_farm_env._action_penalty()
+
+        wind_farm_env.action_penalty_type = "Total"
+        pen_2 = wind_farm_env._action_penalty()
+
+        # Assert that both should be above 0
+        assert pen_1 >= 0, "The penalty should be above 0"
+        assert pen_2 >= 0, "The penalty should be above 0"
 
 
 def test_yaw_angle_limits(wind_farm_env):
@@ -396,3 +410,108 @@ def test_set_windconditions_with_site(wind_farm_env):
 def test_check_env(wind_farm_env):
     """Test that the environment passes the gymnasium check"""
     check_env(wind_farm_env)
+
+
+def test_fast_eval():
+    """
+    Test the fast evaluation of the environment using a pre-trained agent.
+    This ensures that the environment can be evaluated quickly and efficiently.
+    """
+    SEED = 1
+
+    env = FarmEval(
+        turbine=V80(),
+        yaml_path="examples/EnvConfigs/Env1.yaml",
+        turbtype="None",
+        yaw_init="Zeros",  # always start at zero yaw offset ,
+        seed=SEED,
+    )
+    n_turb = env.n_turb  # The Env1.yams file has 4 turbines
+    WS_SIM = 10  # Wind speed in m/s
+    WD_SIM = 270  # Wind direction in degrees
+    TI_SIM = 0.07  # Turbulence intensity
+
+    yaw_goal = np.zeros((n_turb))  # yaw angles in radians
+    yaw_goal[0] = -10
+    yaw_goal[1] = 20
+    model = ConstantAgent(yaw_angles=yaw_goal)  # yaw angles in degrees
+
+    ds = AgentEvalFast(
+        env,
+        model,
+        1,
+        ws=WS_SIM,
+        ti=TI_SIM,
+        wd=WD_SIM,
+        turbbox="Default",  # BARE EN STRING
+        t_sim=50,
+        deterministic=True,
+        # debug=True,
+    )  # Default values
+
+    assert ds is not None, "Fast evaluation failed to return a dataset"
+    assert len(ds) > 0, "Fast evaluation dataset is empty"
+    assert np.allclose(
+        ds.yaw_a[0].values.flatten(), np.zeros(n_turb)
+    ), "Yaw angles did not initialize as expected"
+    assert np.allclose(
+        ds.yaw_a[-1].values.flatten(), yaw_goal
+    ), "Yaw angles did not reach their goal"
+    assert np.allclose(
+        ds.ws[0].values.flatten(), WS_SIM
+    ), "Wind speed did not initialize as expected"
+    assert np.allclose(
+        ds.TI[0].values.flatten(), TI_SIM
+    ), "Turbulence intensity did not initialize as expected"
+    assert np.allclose(
+        ds.wd[0].values.flatten(), WD_SIM
+    ), "Wind direction did not initialize as expected"
+    assert np.allclose(
+        ds.turb.values.size, n_turb
+    ), "The number of turbines is not as expected"
+
+
+def test_fast_eval_debug():
+    """
+    Test the fast evaluation of the environment using a pre-trained agent.
+    This ensures that the environment can be evaluated quickly and efficiently.
+    """
+    SEED = 1
+
+    env = FarmEval(
+        turbine=V80(),
+        yaml_path="examples/EnvConfigs/Env1.yaml",
+        turbtype="None",
+        yaw_init="Zeros",  # always start at zero yaw offset ,
+        seed=SEED,
+    )
+
+    WS_SIM = 10  # Wind speed in m/s
+    WD_SIM = 270  # Wind direction in degrees
+    TI_SIM = 0.07  # Turbulence intensity
+
+    model = PyWakeAgent(x_pos=env.x_pos, y_pos=env.y_pos)
+
+    ds = AgentEvalFast(
+        env,
+        model,
+        1,
+        ws=WS_SIM,
+        ti=TI_SIM,
+        wd=WD_SIM,
+        turbbox="Default",  # BARE EN STRING
+        t_sim=5,
+        deterministic=True,
+        debug=True,
+        save_figs=True,
+    )
+
+
+def test_env_features(wind_farm_env):
+    """Test some small features of the env"""
+    wind_farm_env.plot_frame(baseline=False)
+    wind_farm_env.plot_frame(baseline=True)
+    assert (
+        wind_farm_env._get_num_raw_features()
+        <= wind_farm_env.farm_measurements.observed_variables()
+    ), "The number of raw features should be less than or equal to the number of features"
