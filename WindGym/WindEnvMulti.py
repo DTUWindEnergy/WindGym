@@ -7,6 +7,12 @@ import numpy as np
 from gymnasium.spaces import Box
 from .Wind_Farm_Env import WindFarmEnv
 
+"""
+This is the multi agent version of the wind farm env. It just wraps the wind farm env and makes it behave in a way that pettingzoo can understand.
+We use the parallel env from pettingzoo, as all agents act at the same time.
+The main difference between this and the single agent version is that we have to unpack the actions and observations for each agent, and we have to make sure that the actions are in the right format for the wind farm env.
+"""
+
 
 class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
     metadata = {
@@ -16,44 +22,51 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
     def __init__(
         self,
         turbine,
-        time_end=5000,
+        n_passthrough=20,
         TI_min_mes: float = 0.0,
         TI_max_mes: float = 0.50,
         TurbBox="Default",
+        turbtype="MannLoad",
         yaml_path=None,
         Baseline_comp=False,
         yaw_init=None,
         render_mode=None,
         seed=None,
+        dt_sim=1,  # Simulation timestep in seconds
+        dt_env=1,  # Environment timestep in seconds
+        yaw_step=1,  # How many degrees the yaw angles can change pr. step
+        fill_window=True,
+        sample_site=None,
     ):
         # call the init function of the parent class.
         WindFarmEnv.__init__(
             self,
             turbine=turbine,
-            time_end=time_end,
+            n_passthrough=n_passthrough,
             TI_min_mes=TI_min_mes,
             TI_max_mes=TI_max_mes,
             TurbBox=TurbBox,
+            turbtype=turbtype,
             yaml_path=yaml_path,
             Baseline_comp=Baseline_comp,
             yaw_init=yaw_init,
             render_mode=render_mode,
             seed=seed,
+            dt_sim=dt_sim,
+            dt_env=dt_env,
+            yaw_step=yaw_step,
+            fill_window=fill_window,
+            sample_site=sample_site,
         )
 
-        # I dont think the time limit wrapper works with the pettingzoo envs, so we just set the time limit here ourself.
-        # self.time_max = time_end #Maximum time of the simulation.
-
-        # Then we change some minor things.
         self.act_var = 1
         # Define the observation and action space
-        turbine_obs_var = self.farm_measurements.turb_mes[
-            0
-        ].observed_variables()  # number of observed variables for the turbine
+        # The obsevations pr turbine is:
+        turbine_obs_var = self.farm_measurements.turb_mes[0].observed_variables()
+        # The observations for the farm is:
         farm_obs_var = self.farm_measurements.farm_mes.observed_variables()
-        self.obs_var = (
-            turbine_obs_var + farm_obs_var
-        )  # number of observed variables for the agents
+        # The observations for each agents is the number of observations for the turbine + the number of observations for the farm.
+        self.obs_var = turbine_obs_var + farm_obs_var
 
         self.timestep = 0
         self.possible_agents = ["turbine_" + str(r) for r in range(self.n_turb)]
@@ -186,8 +199,11 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
 
         # Get observations rewards and infos.
         observations = self._get_obs_multi()
-        rewards = self._calc_reward()
+        # rewards = self._calc_reward()
         infos = self._get_infos()
+
+        # The rewards is "just" the reward from the parent class, but we need to unpack it.
+        rewards = {a: reward for a in self.agents}
 
         # If we are at the end of the simulation, we truncate the agents.
         # Note that this is not the same as terminating the agents.

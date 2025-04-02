@@ -1,5 +1,1 @@
-# from WindGym.wrappers.clip_reward import ClipReward
-# from WindGym.wrappers.discrete_actions import DiscreteActions
-# from WindGym.wrappers.reacher_weighted_reward import ReacherRewardWrapper
-# from WindGym.wrappers.relative_position import RelativePosition
 from .recordEpisodeVals import RecordEpisodeVals
