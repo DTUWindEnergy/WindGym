@@ -24,10 +24,9 @@ dependencies = [
   #"pygame>=2.1.3",
   "hipersim>=0.1.7",
   "dynamiks @ git+https://gitlab.windenergy.dtu.dk/DYNAMIKS/dynamiks.git@77f4f875c6401fde150e351a60143a5b522cf950",
-  "floris==4.2.1",
-  "topfarm",
   "pettingzoo",
   "wetb",
+  "IPython"
   #"h2lib[test]",
   #"h2lib",
 ]

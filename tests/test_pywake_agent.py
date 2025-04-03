@@ -2,11 +2,6 @@ from WindGym.Agents import PyWakeAgent
 import numpy as np
 from py_wake.examples.data.lillgrund import LillgrundSite
 from py_wake.deflection_models.jimenez import JimenezWakeDeflection
-
-from topfarm.cost_models.cost_model_wrappers import CostModelComponent
-from topfarm import TopFarmProblem
-from topfarm.plotting import NoPlot
-from topfarm.easy_drivers import EasyScipyOptimizeDriver
 from py_wake.examples.data.hornsrev1 import V80
 
 from py_wake.literature.gaussian_models import Blondel_Cathelain_2020

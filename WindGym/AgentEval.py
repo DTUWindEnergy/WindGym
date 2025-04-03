@@ -679,7 +679,7 @@ class AgentEval:
             grid=False,
         )
 
-    def plot_performance(self):
+    def plot_performance(self):  # pragma: no cover
         """
         Plot the performance of the agent, and the baseline farm.
         We could plot the power output, the wind speed, the wind direction, the yaw angles, the turbulence intensity, the wake losses, etc.
@@ -707,7 +707,7 @@ class AgentEval:
 
     def plot_power_farm(
         self, WSS, WDS, avg_n=10, TI=0.07, TURBBOX="Default", axs=None, save=False
-    ):
+    ):  # pragma: no cover
         """
         Plot the power output for the farm.
         """
@@ -782,7 +782,7 @@ class AgentEval:
 
     def plot_farm_inc(
         self, WSS, WDS, avg_n=10, TI=0.07, TURBBOX="Default", axs=None, save=False
-    ):
+    ):  # pragma: no cover
         """
         Plot the percentage increase in power output for the farm.
         """
@@ -851,7 +851,7 @@ class AgentEval:
 
     def plot_power_turb(
         self, ws, WDS, avg_n=10, TI=0.07, TURBBOX="Default", axs=None, save=False
-    ):
+    ):  # pragma: no cover
         """
         Plot the power output for each turbine in the farm.
         """
@@ -923,7 +923,7 @@ class AgentEval:
 
     def plot_yaw_turb(
         self, ws, WDS, avg_n=10, TI=0.07, TURBBOX="Default", axs=None, save=False
-    ):
+    ):  # pragma: no cover
         """
         Plot the yaw angle for each turbine in the farm.
         """
@@ -995,7 +995,7 @@ class AgentEval:
 
     def plot_speed_turb(
         self, ws, WDS, avg_n=10, TI=0.07, TURBBOX="Default", axs=None, save=False
-    ):
+    ):  # pragma: no cover
         """
         Plot the rotor wind speed for each turbine in the farm.
         """
@@ -1067,7 +1067,7 @@ class AgentEval:
 
     def plot_turb(
         self, ws, wd, avg_n=10, TI=0.07, TURBBOX="Default", axs=None, save=False
-    ):
+    ):  # pragma: no cover
         """
         Plot the power, yaw and rotor wind speed for each turbine in the farm.
         """
