@@ -1,6 +1,6 @@
 # WindGym
 
-[![coverage report](https://gitlab.windenergy.dtu.dk/manils/windgym/badges/main/coverage.svg)](https://gitlab.windenergy.dtu.dk/manils/windgym/-/commits/main)
+[![coverage report](https://gitlab.windenergy.dtu.dk/sys/windgym/badges/main/coverage.svg)](https://gitlab.windenergy.dtu.dk/sys/windgym/-/commits/main)
 
 ## Description
 
@@ -13,7 +13,7 @@ Note that there exist both a single and multi agent environment.
 To install your new environment, run the following commands:
 
 ```{shell}
-git clone https://gitlab.windenergy.dtu.dk/manils/WindGym.git
+git clone https://gitlab.windenergy.dtu.dk/sys/WindGym.git
 cd WindGym
 pip install -e .
 ```

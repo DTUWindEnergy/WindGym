@@ -32,8 +32,8 @@ dependencies = [
 ]
 
 [project.urls]
-"Homepage" = "https://gitlab.windenergy.dtu.dk/manils/WindGym"
-"Bug Tracker" = "https://gitlab.windenergy.dtu.dk/manils/WindGym/-/issues"
+"Homepage" = "https://gitlab.windenergy.dtu.dk/sys/windgym"
+"Bug Tracker" = "https://gitlab.windenergy.dtu.dk/sys/windgym/-/issues"
 
 [tool.setuptools]
 packages = ["WindGym"]
