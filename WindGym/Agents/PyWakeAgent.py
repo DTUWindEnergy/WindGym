@@ -27,8 +27,8 @@ class PyWakeAgent(BaseAgent):
         TI=0.07,
         yaw_max=45,
         yaw_min=-45,
-        refine_pass_n=5,
-        yaw_n=5,
+        refine_pass_n=8,
+        yaw_n=9,
         turbine=V80(),
     ):
         # This is used in a hasattr in the AgentEval class.

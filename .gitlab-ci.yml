@@ -1,5 +1,5 @@
 ##############################################
-### GitLab CI Configuration for DTUWindGym ###
+#### GitLab CI Configuration for WindGym #####
 ##############################################
 
 default:
