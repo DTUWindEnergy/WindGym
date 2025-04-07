@@ -1,0 +1,10 @@
+#1 Shaft
+r	        m	            x_cg   	y_cg   ri_x	   ri_y 	x_sh  	y_sh	E	           G	            I_x             I_y   			  I_p           k_x  	k_y	    A	  pitch    x_e     y_e
+$1	 2  shaft with hub mass on last element. flexible  	  
+0.0		1.00E+00		0		0		0.2		0.2		0		0		2.10E+11		8.08E+10		1.00E+00		1.00E+00		0.2036		0.5		0.5		10		0		0		0
+7.1		1.00E+00		0		0		0.2		0.2		0		0		2.10E+11		8.08E+10		1.00E+00		1.00E+00		0.2036		0.5		0.5		10		0		0		0
+r	        m	            x_cg   	y_cg   ri_x	   ri_y 	x_sh  	y_sh	E	           G	            I_x             I_y   			  I_p           k_x  	k_y	    A	  pitch    x_e     y_e
+$2	 2  shaft with hub mass on last element. stiff  	  
+0.0		1.00E+00		0		0		0.2		0.2		0		0		2.10E+16		8.08E+17		1.00E+00		1.00E+00		0.2036		0.5		0.5		10		0		0		0
+7.1		1.00E+00		0		0		0.2		0.2		0		0		2.10E+16		8.08E+17		1.00E+00		1.00E+00		0.2036		0.5		0.5		10		0		0		0
+
