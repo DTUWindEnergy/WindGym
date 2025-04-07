@@ -32,6 +32,7 @@ from collections import deque
 import itertools
 import yaml
 from dynamiks.wind_turbines.hawc2_windturbine import HAWC2WindTurbines
+
 """
 This is the base for the wind farm environment. This is where the magic happens.
 For now it only supports the PyWakeWindTurbines, but it should be easy to expand to other types of turbines.
@@ -277,22 +278,29 @@ class WindFarmEnv(WindEnv):
         """
         if self.HTC_path is not None:
             # If we have a high fidelity turbine model, then we need to load it in
-            self.wts = HAWC2WindTurbines(x=self.x_pos, y=self.y_pos,
-                        htc_lst=[self.HTC_path],
-                        case_name='MyYawCase_1',          #subfolder name in the htc, res and log folders
-                        suppress_output=False,          #don't show hawc2 output in console
-                       )
+            self.wts = HAWC2WindTurbines(
+                x=self.x_pos,
+                y=self.y_pos,
+                htc_lst=[self.HTC_path],
+                case_name="MyYawCase_1",  # subfolder name in the htc, res and log folders
+                suppress_output=False,  # don't show hawc2 output in console
+            )
             # Add the yaw sensor, but because the only keyword does not work with h2lib, we add another layer that then only returns the first values of them.
-            self.wts.add_sensor(name='yaw_getter', getter="constraint bearing2 yaw_rot 1 only 1;",  #
-                       expose=False, 
-                       ext_lst=['angle', 'speed'], 
-                       )
-            self.wts.add_sensor("yaw",
-                    getter=lambda wt: np.rad2deg(wt.sensors.yaw_getter[:,0]),
-                    setter=lambda wt, value: wt.h2.set_variable_sensor_value(1, np.deg2rad(value).tolist()),
-                    expose=True,
-                    )
-        else: #If we have no HTC path, use the pywake turbine
+            self.wts.add_sensor(
+                name="yaw_getter",
+                getter="constraint bearing2 yaw_rot 1 only 1;",  #
+                expose=False,
+                ext_lst=["angle", "speed"],
+            )
+            self.wts.add_sensor(
+                "yaw",
+                getter=lambda wt: np.rad2deg(wt.sensors.yaw_getter[:, 0]),
+                setter=lambda wt, value: wt.h2.set_variable_sensor_value(
+                    1, np.deg2rad(value).tolist()
+                ),
+                expose=True,
+            )
+        else:  # If we have no HTC path, use the pywake turbine
             self.wts = PyWakeWindTurbines(
                 x=self.x_pos,
                 y=self.y_pos,  # x and y position of two wind turbines
@@ -810,7 +818,9 @@ class WindFarmEnv(WindEnv):
                 self.yaw_max - self.yaw_min
             ) + self.yaw_min
 
-            if self.HTC_path is None: #This clip is only usefull for the pywake turbine model, as the hawc2 model has inertia anyways
+            if (
+                self.HTC_path is None
+            ):  # This clip is only usefull for the pywake turbine model, as the hawc2 model has inertia anyways
                 # The bounds for the yaw angles are:
                 yaw_max = self.fs.windTurbines.yaw + self.yaw_step
                 yaw_min = self.fs.windTurbines.yaw - self.yaw_step
@@ -821,9 +831,7 @@ class WindFarmEnv(WindEnv):
                 )
             else:
                 # The new yaw angles are the new yaw angles, but clipped to be between the yaw_min and yaw_max
-                self.fs.windTurbines.yaw = np.clip(
-                    new_yaws, self.yaw_min, self.yaw_max
-                )
+                self.fs.windTurbines.yaw = np.clip(new_yaws, self.yaw_min, self.yaw_max)
 
         elif self.ActionMethod == "absolute":
             raise NotImplementedError("The absolute method is not implemented yet")
