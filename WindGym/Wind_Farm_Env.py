@@ -318,7 +318,37 @@ class WindFarmEnv(WindEnv):
                     "The BaseController must be either Local or Global... For now"
                 )
             # Definde the turbines
-            self.wts_baseline = copy.deepcopy(self.wts)
+            # self.wts_baseline = copy.deepcopy(self.wts)
+            if self.HTC_path is not None:
+                # If we have a high fidelity turbine model, then we need to load it in
+                self.wts_baseline = HAWC2WindTurbines(
+                    x=self.x_pos,
+                    y=self.y_pos,
+                    htc_lst=[self.HTC_path],
+                    case_name="MyYawCase_1",  # subfolder name in the htc, res and log folders
+                    suppress_output=False,  # don't show hawc2 output in console
+                )
+                # Add the yaw sensor, but because the only keyword does not work with h2lib, we add another layer that then only returns the first values of them.
+                self.wts_baseline.add_sensor(
+                    name="yaw_getter",
+                    getter="constraint bearing2 yaw_rot 1 only 1;",  #
+                    expose=False,
+                    ext_lst=["angle", "speed"],
+                )
+                self.wts_baseline.add_sensor(
+                    "yaw",
+                    getter=lambda wt: np.rad2deg(wt.sensors.yaw_getter[:, 0]),
+                    setter=lambda wt, value: wt.h2.set_variable_sensor_value(
+                        1, np.deg2rad(value).tolist()
+                    ),
+                    expose=True,
+                )
+            else:  # If we have no HTC path, use the pywake turbine
+                self.wts_baseline = PyWakeWindTurbines(
+                    x=self.x_pos,
+                    y=self.y_pos,  # x and y position of two wind turbines
+                    windTurbine=self.turbine,
+                )
 
     def load_config(self, config_path):
         """
