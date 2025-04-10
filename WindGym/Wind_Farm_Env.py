@@ -6,6 +6,7 @@ import copy
 import os
 import gc
 
+
 # Dynamiks imports
 from dynamiks.dwm import DWMFlowSimulation
 from dynamiks.dwm.particle_deficit_profiles.ainslie import jDWMAinslieGenerator
@@ -30,6 +31,7 @@ from py_wake.wind_turbines import WindTurbines as WindTurbinesPW
 from collections import deque
 import itertools
 import yaml
+from dynamiks.wind_turbines.hawc2_windturbine import HAWC2WindTurbines
 
 """
 This is the base for the wind farm environment. This is where the magic happens.
@@ -63,11 +65,13 @@ class WindFarmEnv(WindEnv):
         yaw_step=1,  # How many degrees the yaw angles can change pr. step
         fill_window=True,
         sample_site=None,
+        HTC_path=None,
+        reset_init=True,
     ):
         """
         This is a steadystate environment. The environment only ever changes wind conditions at reset. Then the windconditions are constatnt for the rest of the episode
         Args:
-            turbine: PyWakeWindTurbines: The wind turbine that is used in the environment
+            turbine: PyWakeWindTurbine: The wind turbine that is used in the environment
             n_passthrough: int: The number of times the flow passes through the farm. This is used to calculate the maximum simulation time.
             TI_min_mes: float: The minimum value for the turbulence intensity measurements. Used for internal scaling
             TI_max_mes: float: The maximum value for the turbulence intensity measurements. Used for internal scaling
@@ -83,6 +87,8 @@ class WindFarmEnv(WindEnv):
             yaw_step: float: The step size for the yaw angles. How manny degress the yaw angles can change pr. step
             fill_window: bool: If True, then the measurements will be filled up at reset.
             sample_site: pywake site that includes information about the wind conditions. If None we sample uniformly from within the limits.
+            HTC_path: str: The path to the high fidelity turbine model. If this is Not none, then we assume you want to use that instead of pywake turbines. Note you still need a pywake version of your turbine.
+            reset_init: bool: If True, then the environment will be reset at initialization. This is used to save time for things that call the reset method anyways.
         """
 
         # Predefined values
@@ -91,6 +97,7 @@ class WindFarmEnv(WindEnv):
         self.act_var = (
             1  # number of actions pr. turbine. For now it is just the yaw angles
         )
+        self.HTC_path = HTC_path
         self.fill_window = fill_window
         self.dt = dt_sim  # DWM simulation timestep
         self.dt_sim = dt_sim
@@ -245,12 +252,60 @@ class WindFarmEnv(WindEnv):
         self.y_pos = yv.flatten()
         self.y_pos += 200  # Note we move the farm 200 units up. This is done because I think I saw some weird behaviour with y = 0 :/
 
-        self.wts = PyWakeWindTurbines(
-            x=self.x_pos,
-            y=self.y_pos,  # x and y position of two wind turbines
-            windTurbine=self.turbine,
-        )
+        # Define the observation and action space
+        self.obs_var = self.farm_measurements.observed_variables()
 
+        self._init_spaces()
+
+        if reset_init:
+            # We should have this here, to set the seeding correctly
+            self.reset(seed=seed)
+
+        # TODO the render mode is not implemented yet. I think?
+        # Asserting that the render_mode is valid.
+        # If render_mode is None, we will not render anything, if it is human, we will render the environment in a window, if it is rgb_array, we will render the environment as an array
+        assert render_mode is None or render_mode in self.metadata["render_modes"]
+        self.render_mode = render_mode
+
+        if self.render_mode == "human":
+            self.init_render()
+
+    def _init_wts(self):
+        """
+        Initialize the wind turbines.
+        If the HTC path is given, then use hawc2 turbines, else use pywake turbines.
+        Also is we have a baseline, then set that up also
+        """
+        if self.HTC_path is not None:
+            # If we have a high fidelity turbine model, then we need to load it in
+            self.wts = HAWC2WindTurbines(
+                x=self.x_pos,
+                y=self.y_pos,
+                htc_lst=[self.HTC_path],
+                case_name="MyYawCase_1",  # subfolder name in the htc, res and log folders
+                suppress_output=False,  # don't show hawc2 output in console
+            )
+            # Add the yaw sensor, but because the only keyword does not work with h2lib, we add another layer that then only returns the first values of them.
+            self.wts.add_sensor(
+                name="yaw_getter",
+                getter="constraint bearing2 yaw_rot 1 only 1;",  #
+                expose=False,
+                ext_lst=["angle", "speed"],
+            )
+            self.wts.add_sensor(
+                "yaw",
+                getter=lambda wt: np.rad2deg(wt.sensors.yaw_getter[:, 0]),
+                setter=lambda wt, value: wt.h2.set_variable_sensor_value(
+                    1, np.deg2rad(value).tolist()
+                ),
+                expose=True,
+            )
+        else:  # If we have no HTC path, use the pywake turbine
+            self.wts = PyWakeWindTurbines(
+                x=self.x_pos,
+                y=self.y_pos,  # x and y position of two wind turbines
+                windTurbine=self.turbine,
+            )
         # Setting up the baseline controller if we need it
         if self.Baseline_comp:
             # If we compare to some baseline performance, then we also need a controller for that
@@ -263,28 +318,37 @@ class WindFarmEnv(WindEnv):
                     "The BaseController must be either Local or Global... For now"
                 )
             # Definde the turbines
-            self.wts_baseline = PyWakeWindTurbines(
-                x=self.x_pos,
-                y=self.y_pos,  # x and y position of two wind turbines
-                windTurbine=copy.deepcopy(self.turbine),
-            )
-
-        # Define the observation and action space
-        self.obs_var = self.farm_measurements.observed_variables()
-
-        self._init_spaces()
-
-        # We should have this here, to set the seeding correctly
-        self.reset(seed=seed)
-
-        # TODO the render mode is not implemented yet. I think?
-        # Asserting that the render_mode is valid.
-        # If render_mode is None, we will not render anything, if it is human, we will render the environment in a window, if it is rgb_array, we will render the environment as an array
-        assert render_mode is None or render_mode in self.metadata["render_modes"]
-        self.render_mode = render_mode
-
-        if self.render_mode == "human":
-            self.init_render()
+            # self.wts_baseline = copy.deepcopy(self.wts)
+            if self.HTC_path is not None:
+                # If we have a high fidelity turbine model, then we need to load it in
+                self.wts_baseline = HAWC2WindTurbines(
+                    x=self.x_pos,
+                    y=self.y_pos,
+                    htc_lst=[self.HTC_path],
+                    case_name="MyYawCase_1",  # subfolder name in the htc, res and log folders
+                    suppress_output=False,  # don't show hawc2 output in console
+                )
+                # Add the yaw sensor, but because the only keyword does not work with h2lib, we add another layer that then only returns the first values of them.
+                self.wts_baseline.add_sensor(
+                    name="yaw_getter",
+                    getter="constraint bearing2 yaw_rot 1 only 1;",  #
+                    expose=False,
+                    ext_lst=["angle", "speed"],
+                )
+                self.wts_baseline.add_sensor(
+                    "yaw",
+                    getter=lambda wt: np.rad2deg(wt.sensors.yaw_getter[:, 0]),
+                    setter=lambda wt, value: wt.h2.set_variable_sensor_value(
+                        1, np.deg2rad(value).tolist()
+                    ),
+                    expose=True,
+                )
+            else:  # If we have no HTC path, use the pywake turbine
+                self.wts_baseline = PyWakeWindTurbines(
+                    x=self.x_pos,
+                    y=self.y_pos,  # x and y position of two wind turbines
+                    windTurbine=self.turbine,
+                )
 
     def load_config(self, config_path):
         """
@@ -630,6 +694,8 @@ class WindFarmEnv(WindEnv):
         # We need the following line to seed self.np_random
         super().reset(seed=seed)
         self.timestep = 0
+        # Setup the wind turbines
+        self._init_wts()
         # Sample global wind conditions and set the site
         self._set_windconditions()
         self._def_site()
@@ -782,14 +848,20 @@ class WindFarmEnv(WindEnv):
                 self.yaw_max - self.yaw_min
             ) + self.yaw_min
 
-            # The bounds for the yaw angles are:
-            yaw_max = self.fs.windTurbines.yaw + self.yaw_step
-            yaw_min = self.fs.windTurbines.yaw - self.yaw_step
+            if (
+                self.HTC_path is None
+            ):  # This clip is only usefull for the pywake turbine model, as the hawc2 model has inertia anyways
+                # The bounds for the yaw angles are:
+                yaw_max = self.fs.windTurbines.yaw + self.yaw_step
+                yaw_min = self.fs.windTurbines.yaw - self.yaw_step
 
-            # The new yaw angles are the new yaw angles, but clipped to be between the yaw_max and yaw_min
-            self.fs.windTurbines.yaw = np.clip(
-                np.clip(new_yaws, yaw_min, yaw_max), self.yaw_min, self.yaw_max
-            )
+                # The new yaw angles are the new yaw angles, but clipped to be between the yaw_max and yaw_min
+                self.fs.windTurbines.yaw = np.clip(
+                    np.clip(new_yaws, yaw_min, yaw_max), self.yaw_min, self.yaw_max
+                )
+            else:
+                # The new yaw angles are the new yaw angles, but clipped to be between the yaw_min and yaw_max
+                self.fs.windTurbines.yaw = np.clip(new_yaws, self.yaw_min, self.yaw_max)
 
         elif self.ActionMethod == "absolute":
             raise NotImplementedError("The absolute method is not implemented yet")
@@ -942,10 +1014,15 @@ class WindFarmEnv(WindEnv):
             truncated = True
             # Clean up the flow simulation. This is to make sure that we dont have a memory leak.
             if self.Baseline_comp:
+                if self.HTC_path is not None:
+                    self.wts_baseline.h2.close()
                 self.fs_baseline = None
                 self.site_base = None
                 del self.fs_baseline
                 del self.site_base
+
+            if self.HTC_path is not None:
+                self.wts.h2.close()
             self.fs = None
             self.site = None
             self.farm_measurements = None

@@ -1,0 +1,9 @@
+#1 Hub Changed 5.11.2012 by MHHA: Mass per unit-length should not be too low 
+r	    	m	      x_cg   	y_cg	ri_x		    ri_y	       x_sh 	y_sh	E		        G        		I_x	        	I_y     		I_p		       k_x 	   k_y  		A		pitch	  x_e	  y_e
+$1	 2  hub. flexible
+0		1.0		0		0		1.50E+00		1.50E+00		0		0		2.10E+11		8.08E+10		5.52E-00		5.52E-00		1.10E+00		0.5		0.5		2.98E-01		0		0		0
+2.8     1.0		0		0		1.50E+00		1.50E+00		0		0		2.10E+11		8.08E+10		5.52E-00		5.52E-00		1.10E+00		0.5		0.5		2.98E-01		0		0		0
+r	    	m	      x_cg   	y_cg	ri_x		    ri_y	       x_sh 	y_sh	E		        G        		I_x	        	I_y     		I_p		       k_x 	   k_y  		A		pitch	  x_e	  y_e
+$2	 2  hub. stiff
+0		1.0		0		0		1.50E+00		1.50E+00		0		0		2.10E+16		8.08E+15		5.52E-00		5.52E-00		1.10E+00		0.5		0.5		2.98E-01		0		0		0
+2.8     1.0		0		0		1.50E+00		1.50E+00		0		0		2.10E+16		8.08E+15		5.52E-00		5.52E-00		1.10E+00		0.5		0.5		2.98E-01		0		0		0

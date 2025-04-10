@@ -27,6 +27,8 @@ class FarmEval(WindFarmEnv):
         dt_env=1,  # Environment timestep in seconds
         yaw_step=1,  # Environment timestep in seconds
         n_passthrough=5,
+        HTC_path=None,
+        reset_init=True,
     ):
         # TODO There must be a better way to set all these valuesm **kwargs???
         # Run the Env with these values, to make sure that the oberservartion space is the same.
@@ -45,6 +47,8 @@ class FarmEval(WindFarmEnv):
             dt_sim=dt_sim,  # Simulation timestep in seconds
             dt_env=dt_env,  # Environment timestep in seconds
             yaw_step=yaw_step,
+            HTC_path=HTC_path,
+            reset_init=reset_init,
         )
 
     def reset(self, seed=None, options=None):
