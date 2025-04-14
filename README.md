@@ -25,4 +25,4 @@ Some examples of the uses can be seen in the Examples folder.
 An example animation of the turbines in the flow. 
 
 
-![Animation of flowfield](examples/images/Flowfield_animation.mp4)
+![Animation of flowfield](examples/images/Flowfield_gif.gif)
