@@ -628,7 +628,7 @@ class WindFarmEnv(WindEnv):
                 # numbers should be even and should be large enough to cover whole farm in all dimensions and time, see above
                 Nxyz=(8192, 512, 64),
                 # should be small enough to capture variations needed for the wind the turbine model
-                dxyz=(self.D/20, self.D/10, self.D/10), #Liew suggest /50 
+                dxyz=(self.D / 20, self.D / 10, self.D / 10),  # Liew suggest /50
                 seed=TF_seed,  # seed for random generator
                 # HighFreqComp=0, # the high frequency compensation is questionable and it is recommened to switch it off
                 # double_xyz=(False, False, False), # turbulence periodicity is not expected to be an issue in a wind farm
