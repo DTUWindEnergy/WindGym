@@ -626,7 +626,11 @@ class WindFarmEnv(WindEnv):
                 L=33.6,  # length scale
                 Gamma=3.9,  # anisotropy parameter
                 # numbers should be even and should be large enough to cover whole farm in all dimensions and time, see above
-                Nxyz=(4096, 512, 64), # Maybe 8192 would be better. This is untimately farm size specific. But for now this is good enough.
+                Nxyz=(
+                    4096,
+                    512,
+                    64,
+                ),  # Maybe 8192 would be better. This is untimately farm size specific. But for now this is good enough.
                 dxyz=(self.D / 20, self.D / 10, self.D / 10),  # Liew suggest /50
                 seed=TF_seed,  # seed for random generator
             )
@@ -644,7 +648,7 @@ class WindFarmEnv(WindEnv):
             TF_seed = 1234  # Hardcoded for now
             tf_agent = MannTurbulenceField.generate(
                 alphaepsilon=0.1,  # use correct alphaepsilon or scale later
-                L=33.6,     # length scale
+                L=33.6,  # length scale
                 Gamma=3.9,  # anisotropy parameter
                 # numbers should be even and should be large enough to cover whole farm in all dimensions and time, see above
                 Nxyz=(2048, 512, 64),
