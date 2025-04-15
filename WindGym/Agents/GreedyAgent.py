@@ -1,4 +1,4 @@
-from WindGym.BasicControllers import (
+from ..BasicControllers import (
     local_yaw_controller,
     global_yaw_controller,
 )

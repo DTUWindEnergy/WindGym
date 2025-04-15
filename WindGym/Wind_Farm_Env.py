@@ -241,16 +241,15 @@ class WindFarmEnv(WindEnv):
 
         # Setting up the turbines:
 
-        D = turbine.diameter()
+        self.D = turbine.diameter()
 
-        x = np.linspace(0, D * self.xDist * self.nx, self.nx)
-        y = np.linspace(0, D * self.yDist * self.ny, self.ny)
+        x = np.linspace(0, self.D * self.xDist * self.nx, self.nx)
+        y = np.linspace(0, self.D * self.yDist * self.ny, self.ny)
 
         xv, yv = np.meshgrid(x, y, indexing="xy")
 
         self.x_pos = xv.flatten()
         self.y_pos = yv.flatten()
-        self.y_pos += 200  # Note we move the farm 200 units up. This is done because I think I saw some weird behaviour with y = 0 :/
 
         # Define the observation and action space
         self.obs_var = self.farm_measurements.observed_variables()
@@ -261,9 +260,7 @@ class WindFarmEnv(WindEnv):
             # We should have this here, to set the seeding correctly
             self.reset(seed=seed)
 
-        # TODO the render mode is not implemented yet. I think?
         # Asserting that the render_mode is valid.
-        # If render_mode is None, we will not render anything, if it is human, we will render the environment in a window, if it is rgb_array, we will render the environment as an array
         assert render_mode is None or render_mode in self.metadata["render_modes"]
         self.render_mode = render_mode
 
@@ -318,7 +315,6 @@ class WindFarmEnv(WindEnv):
                     "The BaseController must be either Local or Global... For now"
                 )
             # Definde the turbines
-            # self.wts_baseline = copy.deepcopy(self.wts)
             if self.HTC_path is not None:
                 # If we have a high fidelity turbine model, then we need to load it in
                 self.wts_baseline = HAWC2WindTurbines(
@@ -485,7 +481,6 @@ class WindFarmEnv(WindEnv):
         """
         Does the measurement and saves it to the self.
         """
-        # print("Running _take_measurements")
         # Get the observation of the environment
         self.current_ws = np.linalg.norm(
             self.fs.windTurbines.rotor_avg_windspeed, axis=1
@@ -631,12 +626,13 @@ class WindFarmEnv(WindEnv):
                 L=33.6,  # length scale
                 Gamma=3.9,  # anisotropy parameter
                 # numbers should be even and should be large enough to cover whole farm in all dimensions and time, see above
-                Nxyz=(8192, 512, 64),
-                # should be small enough to capture variations needed for the wind the turbine model
-                dxyz=(3.0, 3.0, 3.0),
+                Nxyz=(
+                    4096,
+                    512,
+                    64,
+                ),  # Maybe 8192 would be better. This is untimately farm size specific. But for now this is good enough.
+                dxyz=(self.D / 20, self.D / 10, self.D / 10),  # Liew suggest /50
                 seed=TF_seed,  # seed for random generator
-                # HighFreqComp=0, # the high frequency compensation is questionable and it is recommened to switch it off
-                # double_xyz=(False, False, False), # turbulence periodicity is not expected to be an issue in a wind farm
             )
             tf_agent.scale_TI(TI=self.ti, U=self.ws)
             self.addedTurbulenceModel = SynchronizedAutoScalingIsotropicMannTurbulence()
@@ -648,7 +644,6 @@ class WindFarmEnv(WindEnv):
             self.addedTurbulenceModel = AutoScalingIsotropicMannTurbulence()
 
         elif self.turbtype == "MannFixed":
-            # print("Using fixed Mann turbulence box")
             # Generates a fixed mann box
             TF_seed = 1234  # Hardcoded for now
             tf_agent = MannTurbulenceField.generate(
@@ -657,7 +652,6 @@ class WindFarmEnv(WindEnv):
                 Gamma=3.9,  # anisotropy parameter
                 # numbers should be even and should be large enough to cover whole farm in all dimensions and time, see above
                 Nxyz=(2048, 512, 64),
-                # should be small enough to capture variations needed for the wind the turbine model
                 dxyz=(3.0, 3.0, 3.0),
                 seed=TF_seed,  # seed for random generator
             )
@@ -990,8 +984,6 @@ class WindFarmEnv(WindEnv):
         info = self._get_info()
         self.fs_time = self.fs.time  # Save the flow simulation timestep.
         # Save the power output of the farm
-        # self.farm_pow_deq.append(self.fs.windTurbines.power().sum())
-
         # Calculate the reward
         # The power production reward with the scaling
         power_rew = self._power_rew() * self.Power_scaling
@@ -1001,7 +993,6 @@ class WindFarmEnv(WindEnv):
         action_penalty = self._action_penalty()  # The penalty for the actions
 
         # The reward is: power reward - action penalty. This makes it possible to add a reward for power tracking, and/or damage, easily.
-        # The reward is the power reward minus the action penalty
         reward = power_rew + track_rew - action_penalty
 
         # If we are at the end of the simulation, we truncate the agents.
@@ -1070,7 +1061,6 @@ class WindFarmEnv(WindEnv):
 
         # [0] is the u component of the wind speed
         plt.pcolormesh(uvw.x.values, uvw.y.values, uvw[0].T, shading="nearest")
-        # plt.colorbar().set_label('Wind speed, u [m/s]')
         WindTurbinesPW.plot_xy(
             fs_use.windTurbines,
             x_turb,
