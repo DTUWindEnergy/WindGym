@@ -67,13 +67,13 @@ class WindFarmEnv(WindEnv):
         sample_site=None,
         HTC_path=None,
         reset_init=True,
-        noise_dict = { #Dictionary containing values for the noise function
-        "scale": 1,
-        "ws_std": 2,
-        "ws_mu": 0,
-        "wd_std": 5,
-        "wd_mu": 0,
-            },
+        noise_dict={  # Dictionary containing values for the noise function
+            "scale": 1,
+            "ws_std": 2,
+            "ws_mu": 0,
+            "wd_std": 5,
+            "wd_mu": 0,
+        },
     ):
         """
         This is a steadystate environment. The environment only ever changes wind conditions at reset. Then the windconditions are constatnt for the rest of the episode

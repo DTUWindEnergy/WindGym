@@ -398,14 +398,14 @@ class farm_mes(WindEnv):
         TI_min=0.00,
         TI_max=0.50,
         power_max=2000000,  # 2 MW
-        noise_dict = { #Dictionary containing values for the noise function
-                "scale": 1,
-                "ws_std": 2,
-                "ws_mu": 0,
-                "wd_std": 5,
-                "wd_mu": 0,
-                    },
-        ):
+        noise_dict={  # Dictionary containing values for the noise function
+            "scale": 1,
+            "ws_std": 2,
+            "ws_mu": 0,
+            "wd_std": 5,
+            "wd_mu": 0,
+        },
+    ):
         self.n_turbines = n_turbines
         self.turb_mes = []
         self.turb_ws = turb_ws  # do we want measurements from the turbines individually
@@ -441,7 +441,7 @@ class farm_mes(WindEnv):
 
         # TODO Add Ornstein–Uhlenbeck process for noise
         self.noise_dict = noise_dict
-        self.ws_noise = self.noise_dict["ws_std"]  * self.noise_dict["scale"] #
+        self.ws_noise = self.noise_dict["ws_std"] * self.noise_dict["scale"]  #
         self.wd_noise = self.noise_dict["wd_std"] * self.noise_dict["scale"]
         self.yaw_noise = 0.0
         self.power_noise = 0.0
@@ -542,7 +542,9 @@ class farm_mes(WindEnv):
         return np.array([])
 
     def add_ws(self, measurement):
-        measurement += self._add_noise(mean=self.noise_dict["ws_mu"], std=self.ws_noise, n=len(measurement))
+        measurement += self._add_noise(
+            mean=self.noise_dict["ws_mu"], std=self.ws_noise, n=len(measurement)
+        )
         # add measurements to the ws
         for turb in self.turb_mes:
             turb.add_ws(measurement)
@@ -551,7 +553,9 @@ class farm_mes(WindEnv):
 
     def add_wd(self, measurement):
         # add measurements to the wd
-        measurement += self._add_noise(mean=self.noise_dict["wd_mu"], std=self.wd_noise, n=len(measurement))
+        measurement += self._add_noise(
+            mean=self.noise_dict["wd_mu"], std=self.wd_noise, n=len(measurement)
+        )
         for turb in self.turb_mes:
             turb.add_wd(measurement)
         if self.farm_wd:
