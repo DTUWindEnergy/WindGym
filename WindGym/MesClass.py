@@ -595,7 +595,7 @@ class farm_mes(WindEnv):
         )
         yaws += self._add_noise(mean=0, std=self.yaw_noise, n=len(yaws))
         powers += self._add_noise(mean=0, std=self.power_noise, n=len(powers))
-        print("After noise in farm: ws: ", ws, "| wd: ", wd, "| yaws: ", yaws, "| powers: ", powers)
+        # print("After noise in farm: ws: ", ws, "| wd: ", wd, "| yaws: ", yaws, "| powers: ", powers)
 
         for turb, speed, direction, yaw, power in zip(
             self.turb_mes, ws, wd, yaws, powers
