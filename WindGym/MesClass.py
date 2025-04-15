@@ -450,6 +450,10 @@ class farm_mes(WindEnv):
             self._add_noise = self._random_normal
         elif noise == "None":
             self._add_noise = self._return_zeros
+        else:
+            raise ValueError(
+                "Noise type not recognized. Please use 'Normal' or 'None'."
+            )
 
         # We assume that the farm oberservations would take the same form as the turbine observations.
         self.farm_observed_variables = (
@@ -583,11 +587,15 @@ class farm_mes(WindEnv):
         # Adding noise to the measurements
         # print("Before noise in farm: ws: ", ws, "| wd: ", wd, "| yaws: ", yaws, "| powers: ", powers)
 
-        ws += self._add_noise(mean=0, std=self.ws_noise, n=len(ws))
-        wd += self._add_noise(mean=0, std=self.wd_noise, n=len(wd))
+        ws += self._add_noise(
+            mean=self.noise_dict["ws_mu"], std=self.ws_noise, n=len(ws)
+        )
+        wd += self._add_noise(
+            mean=self.noise_dict["wd_mu"], std=self.wd_noise, n=len(wd)
+        )
         yaws += self._add_noise(mean=0, std=self.yaw_noise, n=len(yaws))
         powers += self._add_noise(mean=0, std=self.power_noise, n=len(powers))
-        # print("After norise in farm: ws: ", ws, "| wd: ", wd, "| yaws: ", yaws, "| powers: ", powers)
+        print("After noise in farm: ws: ", ws, "| wd: ", wd, "| yaws: ", yaws, "| powers: ", powers)
 
         for turb, speed, direction, yaw, power in zip(
             self.turb_mes, ws, wd, yaws, powers
