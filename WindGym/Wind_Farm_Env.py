@@ -280,7 +280,7 @@ class WindFarmEnv(WindEnv):
                 y=self.y_pos,
                 htc_lst=[self.HTC_path],
                 case_name="MyYawCase_1",  # subfolder name in the htc, res and log folders
-                suppress_output=False,  # don't show hawc2 output in console
+                suppress_output=True,  # don't show hawc2 output in console
             )
             # Add the yaw sensor, but because the only keyword does not work with h2lib, we add another layer that then only returns the first values of them.
             self.wts.add_sensor(
@@ -321,7 +321,7 @@ class WindFarmEnv(WindEnv):
                     x=self.x_pos,
                     y=self.y_pos,
                     htc_lst=[self.HTC_path],
-                    case_name="MyYawCase_1",  # subfolder name in the htc, res and log folders
+                    case_name="MyYawCase_2",  # subfolder name in the htc, res and log folders
                     suppress_output=True,  # don't show hawc2 output in console
                 )
                 # Add the yaw sensor, but because the only keyword does not work with h2lib, we add another layer that then only returns the first values of them.
