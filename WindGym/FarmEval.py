@@ -29,6 +29,13 @@ class FarmEval(WindFarmEnv):
         n_passthrough=5,
         HTC_path=None,
         reset_init=True,
+        noise_dict = { #Dictionary containing values for the noise function
+        "scale": 1,
+        "ws_std": 2,
+        "ws_mu": 0,
+        "wd_std": 5,
+        "wd_mu": 0,
+            },
     ):
         # TODO There must be a better way to set all these valuesm **kwargs???
         # Run the Env with these values, to make sure that the oberservartion space is the same.
@@ -49,6 +56,7 @@ class FarmEval(WindFarmEnv):
             yaw_step=yaw_step,
             HTC_path=HTC_path,
             reset_init=reset_init,
+            noise_dict=noise_dict,
         )
 
     def reset(self, seed=None, options=None):

@@ -67,6 +67,13 @@ class WindFarmEnv(WindEnv):
         sample_site=None,
         HTC_path=None,
         reset_init=True,
+        noise_dict = { #Dictionary containing values for the noise function
+        "scale": 1,
+        "ws_std": 2,
+        "ws_mu": 0,
+        "wd_std": 5,
+        "wd_mu": 0,
+            },
     ):
         """
         This is a steadystate environment. The environment only ever changes wind conditions at reset. Then the windconditions are constatnt for the rest of the episode
@@ -90,7 +97,7 @@ class WindFarmEnv(WindEnv):
             HTC_path: str: The path to the high fidelity turbine model. If this is Not none, then we assume you want to use that instead of pywake turbines. Note you still need a pywake version of your turbine.
             reset_init: bool: If True, then the environment will be reset at initialization. This is used to save time for things that call the reset method anyways.
         """
-
+        self.noise_dict = noise_dict
         # Predefined values
         # The power setpoint for the farm. This is used if the Track_power is True. (Not used yet)
         self.power_setpoint = 0.0
@@ -448,6 +455,7 @@ class WindFarmEnv(WindEnv):
             self.TI_min_mes,
             self.TI_max_mes,
             power_max=self.maxturbpower,
+            noise_dict=self.noise_dict,
         )
 
     def _init_spaces(self):
