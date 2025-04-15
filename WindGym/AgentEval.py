@@ -353,8 +353,7 @@ def eval_single_fast(
             plt.clf()
             plt.close("all")
 
-
-    # To make sure that the turbulence box is removed from memory, we set the current timestep to be equal to the max, and then do one last step. 
+    # To make sure that the turbulence box is removed from memory, we set the current timestep to be equal to the max, and then do one last step.
     # This clears the turbulence box from memory, and makes sure that we dont have any issues with the turbulence box being in memory.
     env.timestep = env.time_max
     obs, reward, terminated, truncated, info = env.step(action)
@@ -582,9 +581,16 @@ class AgentEval:
         Evaluate the agent on multiple wind directions, wind speeds, turbulence intensities and turbulence boxes.
 
         """
-        i = len(self.winddirs)*len(self.windspeeds)*len(self.turbintensities)*len(self.turbboxes)
+        i = (
+            len(self.winddirs)
+            * len(self.windspeeds)
+            * len(self.turbintensities)
+            * len(self.turbboxes)
+        )
         print(
-            "Running for a total of ", i," simulations.",
+            "Running for a total of ",
+            i,
+            " simulations.",
         )
         # Flag that we are running multiple evaluations.
         self.multiple_eval = True
