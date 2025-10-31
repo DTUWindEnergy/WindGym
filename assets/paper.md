@@ -83,8 +83,6 @@ Finally, reproducibility is a core concern. The environment is tested for consis
 
 The full documentation of the library is available at [https://sys.pages.windenergy.dtu.dk/windgym/](https://sys.pages.windenergy.dtu.dk/windgym/)
 
-http://windrose.readthedocs.io
-
 <!-- # Acknowledgements
 
 This work was supported by the Department of Wind and Energy Systems at the Technical University of Denmark. We also acknowledge the development of DYNAMIKS, which was instrumental in building WindGym. -->
