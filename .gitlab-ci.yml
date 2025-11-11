@@ -74,6 +74,10 @@ pre_commit:
   variables:
     PRE_COMMIT_HOME: ${CI_PROJECT_DIR}/.cache/pre-commit
     GIT_CLEAN_FLAGS: -ffdx
+  before_script:
+    - apt-get update && apt-get install -y git
+    - rm -rf .pixi/  # Clean up any leftover pixi environment
+    - pixi clean cache || true  # Clean pixi's global cache
   script:
     - apt-get update && apt-get install -y git
     - pixi run pre-commit run --all-files
@@ -81,6 +85,9 @@ pre_commit:
     key: pre-commit-cache # Retains cache across all branches
     paths:
       - ${PRE_COMMIT_HOME}
+    - key: pixi-$CI_COMMIT_REF_SLUG  # Separate cache per branch
+    paths:
+      - .pixi/
   tags:
     - linux
   <<: *default_rules
