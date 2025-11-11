@@ -79,13 +79,12 @@ pre_commit:
     - rm -rf .pixi/  # Clean up any leftover pixi environment
     - pixi clean cache || true  # Clean pixi's global cache
   script:
-    - apt-get update && apt-get install -y git
     - pixi run pre-commit run --all-files
   cache:
-    key: pre-commit-cache # Retains cache across all branches
+  - key: pre-commit-cache # Retains cache across all branches
     paths:
       - ${PRE_COMMIT_HOME}
-    - key: pixi-$CI_COMMIT_REF_SLUG  # Separate cache per branch
+  - key: pixi-$CI_COMMIT_REF_SLUG  # Separate cache per branch
     paths:
       - .pixi/
   tags:
@@ -96,9 +95,15 @@ test_linux:
   stage: test
   needs:
     - pre_commit
-  script:
+  before_script:
     - apt-get update && apt-get install -y git
+  script:
     - pixi run pytest -v --cov=windgym --cov-report=html:htmlcov --cov-report=term
+  cache:
+    - key: pixi-$CI_COMMIT_REF_SLUG  # Reuse the same pixi cache from pre_commit
+      paths:
+        - .pixi/
+      policy: pull  # Only pull, don't push (pre_commit already builds it)
   artifacts:
     paths:
       - ./htmlcov
