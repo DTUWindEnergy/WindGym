@@ -80,11 +80,11 @@ pre_commit:
     - echo "--- Checking Disk Space ---"
     - df -h
     - echo "--- Checking Runner Cache Size ---"
-    - du -sh /root/.cache
+    - du -sh /root/.cache || true
     - echo "--- End Debugging ---"
     - echo "Cleaning up runner-level pixi/uv caches..."
-    - rm -rf /root/.cache/rattler
-    - rm -rf /root/.cache/uv-cache
+    - rm -rf /root/.cache/rattler || true
+    - rm -rf /root/.cache/uv-cache || true
   script:
     - pixi run pre-commit run --all-files
   cache:
