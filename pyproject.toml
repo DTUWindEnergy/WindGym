@@ -83,5 +83,10 @@ nodejs = ">=24.4.1,<24.10"
 install = { cmd = "pip install -e ." }
 test = { depends-on = ["install"], cmd = "pytest" }
 
-[tool.pixi.environments.lint]
-dependencies = { python = ">=3.7,<3.12", pre-commit = ">=4.0.1,<5" }
+[tool.pixi.feature.lint.dependencies]
+python = ">=3.7,<3.12"
+pre-commit = ">=4.0.1,<5"
+
+
+[tool.pixi.environments]
+lint = { features = ["lint"], no-default-feature = true }
