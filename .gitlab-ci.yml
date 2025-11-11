@@ -77,7 +77,6 @@ pre_commit:
   before_script:
     - apt-get update && apt-get install -y git
     - rm -rf .pixi/  # Clean up any leftover pixi environment
-    - pixi clean cache || true  # Clean pixi's global cache
   script:
     - pixi run pre-commit run --all-files
   cache:
