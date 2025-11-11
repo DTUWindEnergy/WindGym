@@ -1,12 +1,13 @@
 """
 Simple test script for RewardCalculator to verify it works correctly.
 """
+
 import sys
 import numpy as np
 from collections import deque
 
 # Import the reward calculator directly
-sys.path.insert(0, '/home/user/WindGym')
+sys.path.insert(0, "/home/user/WindGym")
 from WindGym.core.reward_calculator import RewardCalculator
 
 
@@ -19,7 +20,7 @@ def test_reward_calculator_init():
         power_reward_type="Baseline",
         power_scaling=1.0,
         action_penalty=0.01,
-        action_penalty_type="change"
+        action_penalty_type="change",
     )
     assert rc.power_reward_type == "Baseline"
     print("✓ Baseline reward initialization works")
@@ -29,16 +30,14 @@ def test_reward_calculator_init():
         power_reward_type="Power_avg",
         power_scaling=2.0,
         action_penalty=0.05,
-        action_penalty_type="total"
+        action_penalty_type="total",
     )
     assert rc.power_scaling == 2.0
     print("✓ Power_avg reward initialization works")
 
     # Test Power_diff reward
     rc = RewardCalculator(
-        power_reward_type="Power_diff",
-        power_scaling=1.0,
-        power_window_size=50
+        power_reward_type="Power_diff", power_scaling=1.0, power_window_size=50
     )
     assert rc._power_window_size == 50
     print("✓ Power_diff reward initialization works")
@@ -57,8 +56,7 @@ def test_baseline_reward():
     baseline_deque = deque([100.0, 100.0, 100.0])
 
     reward = rc.calculate_power_reward(
-        farm_power_deque=farm_deque,
-        baseline_power_deque=baseline_deque
+        farm_power_deque=farm_deque, baseline_power_deque=baseline_deque
     )
 
     # Agent avg = 105, baseline avg = 100
@@ -80,9 +78,7 @@ def test_power_avg_reward():
     n_turbines = 3
 
     reward = rc.calculate_power_reward(
-        farm_power_deque=farm_deque,
-        rated_power=rated_power,
-        n_turbines=n_turbines
+        farm_power_deque=farm_deque, rated_power=rated_power, n_turbines=n_turbines
     )
 
     # Agent avg = 1100
@@ -99,9 +95,7 @@ def test_action_penalty():
 
     # Test "change" penalty
     rc = RewardCalculator(
-        power_reward_type="None",
-        action_penalty=0.1,
-        action_penalty_type="change"
+        power_reward_type="None", action_penalty=0.1, action_penalty_type="change"
     )
 
     old_yaws = np.array([0.0, 5.0, -5.0])
@@ -118,9 +112,7 @@ def test_action_penalty():
 
     # Test "total" penalty
     rc = RewardCalculator(
-        power_reward_type="None",
-        action_penalty=0.1,
-        action_penalty_type="total"
+        power_reward_type="None", action_penalty=0.1, action_penalty_type="total"
     )
 
     penalty = rc.calculate_action_penalty(old_yaws, new_yaws, yaw_max)
@@ -142,7 +134,7 @@ def test_total_reward():
         power_reward_type="Baseline",
         power_scaling=2.0,
         action_penalty=0.1,
-        action_penalty_type="change"
+        action_penalty_type="change",
     )
 
     farm_deque = deque([100.0, 110.0, 105.0])
@@ -157,7 +149,7 @@ def test_total_reward():
         old_yaws=old_yaws,
         new_yaws=new_yaws,
         yaw_max=yaw_max,
-        n_turbines=2
+        n_turbines=2,
     )
 
     # Power reward = 0.05 (as calculated before)

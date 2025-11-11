@@ -112,9 +112,7 @@ class BaselineManager:
         """
         mode = base.split("_", 1)[1] if "_" in base else "oracle"
         if mode not in {"oracle", "local"}:
-            raise ValueError(
-                f"PyWake mode must be 'oracle' or 'local', got '{mode}'"
-            )
+            raise ValueError(f"PyWake mode must be 'oracle' or 'local', got '{mode}'")
         self.py_agent_mode = mode
 
         # lookup_mode is True if local mode, False if oracle mode
@@ -303,9 +301,7 @@ class BaselineManager:
         if self.pywake_agent is not None:
             if self.py_agent_mode == "oracle":
                 # Oracle mode: always update with global wind conditions
-                self.pywake_agent.update_wind(
-                    wind_speed=ws, wind_direction=wd, TI=ti
-                )
+                self.pywake_agent.update_wind(wind_speed=ws, wind_direction=wd, TI=ti)
                 self.pywake_ws = ws
                 self.pywake_wd = wd
             elif self.pywake_ws is None or self.pywake_wd is None:

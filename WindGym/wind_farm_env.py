@@ -297,8 +297,6 @@ class WindFarmEnv(gym.Env):
 
         self.D = turbine.diameter()
 
-
-
         # Define the observation and action space
         self.obs_var = self.farm_measurements.observed_variables()
 
@@ -391,7 +389,6 @@ class WindFarmEnv(gym.Env):
             )
         else:
             self.wts_baseline = None
-
 
     def _normalize_config_input(self, config):
         """
@@ -646,7 +643,6 @@ class WindFarmEnv(gym.Env):
             )  # Just the largest component
         return return_dict
 
-
     def _set_windconditions(self) -> None:
         """
         Sets the global windconditions for the environment
@@ -868,7 +864,6 @@ class WindFarmEnv(gym.Env):
 
         return observation, info
 
-
     def _advance_and_measure(
         self,
         n_sim_steps: int,
@@ -1055,7 +1050,6 @@ class WindFarmEnv(gym.Env):
         else:
             raise ValueError("The ActionMethod must be yaw, wind or absolute")
 
-
     def step(self, action):
         """
         The step function
@@ -1224,7 +1218,6 @@ class WindFarmEnv(gym.Env):
         return self.renderer._render_frame(
             self.fs, fs_baseline, probes, baseline, self.turbine, self.ws
         )
-
 
     def close(self):
         """Close the environment and clean up resources."""

@@ -66,6 +66,7 @@ If you see "WindGym installed successfully!", your basic WindGym environment is 
 ### Common Installation Issues
 
 #### Pixi Installation Fails
+
 - **Issue**: Pixi fails to resolve dependencies or times out
 - **Solution**: Try using a different mirror or clearing the pixi cache:
   ```bash
@@ -74,6 +75,7 @@ If you see "WindGym installed successfully!", your basic WindGym environment is 
   ```
 
 #### Import Errors After Installation
+
 - **Issue**: `ModuleNotFoundError` when importing WindGym
 - **Solution**: Ensure you've activated the environment with `pixi shell` and that the installation completed successfully:
   ```bash
@@ -82,15 +84,18 @@ If you see "WindGym installed successfully!", your basic WindGym environment is 
   ```
 
 #### Git Clone Authentication Issues
+
 - **Issue**: Access denied when cloning from GitLab
 - **Solution**: Ensure you have access to the repository. You may need to set up SSH keys or use HTTPS with credentials. See [GitLab documentation](https://docs.gitlab.com/ee/user/ssh.html) for help.
 
 #### Platform-Specific Issues
+
 - **macOS**: If you encounter issues with HDF5 or NetCDF, ensure Xcode Command Line Tools are installed:
   ```bash
   xcode-select --install
   ```
 - **Linux**: Some systems may require additional system libraries. Install them via your package manager:
+
   ```bash
   # Ubuntu/Debian
   sudo apt-get install libhdf5-dev libnetcdf-dev
@@ -102,6 +107,7 @@ If you see "WindGym installed successfully!", your basic WindGym environment is 
 ### Getting Help
 
 If you encounter issues not covered here:
+
 1. Check the [Troubleshooting & FAQ](troubleshooting.md) page
 2. Search [existing issues](https://gitlab.windenergy.dtu.dk/sys/windgym/-/issues) on GitLab
 3. Open a [new issue](https://gitlab.windenergy.dtu.dk/sys/windgym/-/issues/new) with details about your problem
@@ -109,6 +115,7 @@ If you encounter issues not covered here:
 ## Next Steps
 
 Now that you have WindGym installed, you can:
+
 - Explore the [Examples](../examples/README.md) to see WindGym in action
 - Learn about [Core Concepts](concepts.md) to understand how WindGym works
 - Start with [Example 1](../examples/Example%201%20Make%20environment.ipynb) to create your first environment

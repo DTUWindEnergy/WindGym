@@ -72,9 +72,7 @@ class RewardCalculator:
                 )
 
         if self.track_power:
-            raise NotImplementedError(
-                "Power tracking reward is not yet implemented."
-            )
+            raise NotImplementedError("Power tracking reward is not yet implemented.")
 
         if self.action_penalty_type is not None:
             valid_penalty_types = {"change", "total"}
@@ -125,9 +123,7 @@ class RewardCalculator:
         else:
             raise ValueError(f"Unknown power_reward_type: {self.power_reward_type}")
 
-    def _power_reward_baseline(
-        self, farm_power_deque, baseline_power_deque
-    ) -> float:
+    def _power_reward_baseline(self, farm_power_deque, baseline_power_deque) -> float:
         """
         Calculate reward based on baseline farm comparison.
 

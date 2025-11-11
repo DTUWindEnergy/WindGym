@@ -75,13 +75,14 @@ env = WindFarmEnv(
 ```
 
 **In your `EnvConfigs/Env1.yaml`**:
+
 ```yaml
 wind:
-  ws_min: 10.0      # Fixed wind speed (when min == max)
+  ws_min: 10.0 # Fixed wind speed (when min == max)
   ws_max: 10.0
-  wd_min: 270.0     # Fixed wind direction (270° = from West)
+  wd_min: 270.0 # Fixed wind direction (270° = from West)
   wd_max: 270.0
-  TI_min: 0.06      # Fixed turbulence intensity
+  TI_min: 0.06 # Fixed turbulence intensity
   TI_max: 0.06
 ```
 
@@ -232,13 +233,13 @@ env = WindFarmEnv(
 ```yaml
 obs_config:
   turbine_level:
-    - ws          # Wind speed
-    - wd          # Wind direction
-    - yaw         # Yaw angle
-    - power       # Power output
+    - ws # Wind speed
+    - wd # Wind direction
+    - yaw # Yaw angle
+    - power # Power output
 
   farm_level:
-    - ws_mean     # Average farm wind speed
+    - ws_mean # Average farm wind speed
     - total_power # Total farm power
 
   include_history: true
@@ -298,6 +299,7 @@ penalty_scaling: 0.01       # Penalty weight
 ```
 
 **Reward Types**:
+
 - `"Baseline"`: Reward based on improvement over baseline
 - `"Power_avg"`: Normalized average power
 - `"Power_diff"`: Power improvement over time
@@ -452,16 +454,19 @@ env.close()
 ## Troubleshooting
 
 ### Simulation runs slowly
+
 - Use larger `dt_sim` and `dt_env` values
 - Use `turbtype='random'` instead of `'mann'`
 - Reduce `n_passthrough`
 
 ### Memory issues
+
 - Reduce `history_length` in observation config
 - Use fewer turbines
 - Decrease turbulence box resolution
 
 ### Unstable rewards
+
 - Increase `burn_in_passthroughs`
 - Use reward smoothing or moving averages
 - Check action penalty scaling

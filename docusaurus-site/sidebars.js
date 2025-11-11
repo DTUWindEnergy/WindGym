@@ -9,8 +9,8 @@ const sidebars = {
 
     // Core Documentation
     {
-      type: 'category',
-      label: 'User Guide',
+      type: "category",
+      label: "User Guide",
       collapsible: true,
       collapsed: false,
       items: [
@@ -24,14 +24,11 @@ const sidebars = {
 
     // Reference
     {
-      type: 'category',
-      label: 'Reference',
+      type: "category",
+      label: "Reference",
       collapsible: true,
       collapsed: false,
-      items: [
-        "api-reference",
-        "troubleshooting",
-      ],
+      items: ["api-reference", "troubleshooting"],
     },
 
     // Contributing

@@ -395,13 +395,13 @@ for _ in range(100):
 
 ## Agent Comparison Table
 
-| Agent Type | Use Case | Requires Training | Computational Cost |
-|------------|----------|-------------------|-------------------|
-| **PyWakeAgent** | Optimal static baseline | No | Medium |
-| **GreedyAgent** | Simple reactive control | No | Low |
-| **RandomAgent** | Testing & baseline | No | Low |
-| **ConstantAgent** | Fixed strategies | No | Very Low |
-| **Custom RL Agent** | Learning-based control | Yes | High |
+| Agent Type          | Use Case                | Requires Training | Computational Cost |
+| ------------------- | ----------------------- | ----------------- | ------------------ |
+| **PyWakeAgent**     | Optimal static baseline | No                | Medium             |
+| **GreedyAgent**     | Simple reactive control | No                | Low                |
+| **RandomAgent**     | Testing & baseline      | No                | Low                |
+| **ConstantAgent**   | Fixed strategies        | No                | Very Low           |
+| **Custom RL Agent** | Learning-based control  | Yes               | High               |
 
 ---
 

@@ -38,7 +38,9 @@ def plot_power_turb(
     n_wds = len(WDS)  # The number of wind directions we are looking at
 
     if axs is None:
-        fig, axs = plt.subplots(n_turb, n_wds, figsize=(18, 9), sharex=True, sharey=True)
+        fig, axs = plt.subplots(
+            n_turb, n_wds, figsize=(18, 9), sharex=True, sharey=True
+        )
     else:
         fig = axs[0, 0].get_figure()
 
@@ -46,9 +48,7 @@ def plot_power_turb(
         for j, wd in enumerate(WDS):
             data.sel(ws=ws).sel(wd=wd).sel(TI=TI).sel(turbbox=TURBBOX).sel(
                 turb=i
-            ).powerT_a.rolling(time=avg_n, center=True).mean().dropna(
-                "time"
-            ).plot.line(
+            ).powerT_a.rolling(time=avg_n, center=True).mean().dropna("time").plot.line(
                 x="time", label="Agent", ax=axs[i, j]
             )
             data.sel(ws=ws).sel(wd=wd).sel(TI=TI).sel(turbbox=TURBBOX).sel(
@@ -116,7 +116,9 @@ def plot_yaw_turb(
     n_wds = len(WDS)  # The number of wind directions we are looking at
 
     if axs is None:
-        fig, axs = plt.subplots(n_turb, n_wds, figsize=(18, 9), sharex=True, sharey=True)
+        fig, axs = plt.subplots(
+            n_turb, n_wds, figsize=(18, 9), sharex=True, sharey=True
+        )
     else:
         fig = axs[0, 0].get_figure()
 
@@ -192,7 +194,9 @@ def plot_speed_turb(
     n_wds = len(WDS)  # The number of wind directions we are looking at
 
     if axs is None:
-        fig, axs = plt.subplots(n_turb, n_wds, figsize=(18, 9), sharex=True, sharey=True)
+        fig, axs = plt.subplots(
+            n_turb, n_wds, figsize=(18, 9), sharex=True, sharey=True
+        )
     else:
         fig = axs[0, 0].get_figure()
 
@@ -292,22 +296,14 @@ def plot_turb(
             # Plot the data
             data.sel(ws=ws).sel(wd=wd).sel(TI=TI).sel(turbbox=TURBBOX).sel(
                 turb=i
-            ).data_vars[to_plot + "a"].rolling(
-                time=avg_n, center=True
-            ).mean().dropna(
+            ).data_vars[to_plot + "a"].rolling(time=avg_n, center=True).mean().dropna(
                 "time"
-            ).plot.line(
-                x="time", label="Agent", ax=axs[i, j]
-            )
+            ).plot.line(x="time", label="Agent", ax=axs[i, j])
             data.sel(ws=ws).sel(wd=wd).sel(TI=TI).sel(turbbox=TURBBOX).sel(
                 turb=i
-            ).data_vars[to_plot + "b"].rolling(
-                time=avg_n, center=True
-            ).mean().dropna(
+            ).data_vars[to_plot + "b"].rolling(time=avg_n, center=True).mean().dropna(
                 "time"
-            ).plot.line(
-                x="time", label="Baseline", ax=axs[i, j]
-            )
+            ).plot.line(x="time", label="Baseline", ax=axs[i, j])
 
             # Set the title of the plot
             if i == 0:

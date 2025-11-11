@@ -247,7 +247,6 @@ def test_power_reward_power_diff(temp_yaml_file_factory, mock_turbulence_env_set
         reset_init=True,
     )
 
-
     # Run enough steps to have distinct "oldest" and "latest" windows after reset's filling
     # The reset already fills `power_avg_val` times if fill_window is set so.
     obs, info_reset = env.reset(seed=123)
@@ -275,7 +274,7 @@ def test_power_reward_power_diff(temp_yaml_file_factory, mock_turbulence_env_set
     x_pos, y_pos = generate_square_grid(turbine=V80(), nx=2, ny=1, xDist=5, yDist=3)
     with pytest.raises(
         ValueError,
-        match=f"The Power_avg must be larger then 40 for the Power_diff reward",
+        match="The Power_avg must be larger then 40 for the Power_diff reward",
     ):
         WindFarmEnv(
             turbine=V80(),

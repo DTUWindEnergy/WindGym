@@ -57,26 +57,26 @@ const config = {
         title: "WindGym Docs",
         items: [
           {
-            type: 'doc',
-            docId: 'index',
-            position: 'left',
-            label: 'Documentation',
+            type: "doc",
+            docId: "index",
+            position: "left",
+            label: "Documentation",
           },
           {
-            type: 'doc',
-            docId: 'api-reference',
-            position: 'left',
-            label: 'API Reference',
+            type: "doc",
+            docId: "api-reference",
+            position: "left",
+            label: "API Reference",
           },
           {
-            href: 'https://gitlab.windenergy.dtu.dk/sys/windgym/-/tree/main/examples',
-            label: 'Examples',
-            position: 'left',
+            href: "https://gitlab.windenergy.dtu.dk/sys/windgym/-/tree/main/examples",
+            label: "Examples",
+            position: "left",
           },
           {
-            href: 'https://gitlab.windenergy.dtu.dk/sys/windgym',
-            label: 'GitLab',
-            position: 'right',
+            href: "https://gitlab.windenergy.dtu.dk/sys/windgym",
+            label: "GitLab",
+            position: "right",
           },
         ],
       },
@@ -84,53 +84,53 @@ const config = {
         style: "dark",
         links: [
           {
-            title: 'Documentation',
+            title: "Documentation",
             items: [
               {
-                label: 'Getting Started',
-                to: '/installation',
+                label: "Getting Started",
+                to: "/installation",
               },
               {
-                label: 'User Guide',
-                to: '/concepts',
+                label: "User Guide",
+                to: "/concepts",
               },
               {
-                label: 'API Reference',
-                to: '/api-reference',
+                label: "API Reference",
+                to: "/api-reference",
               },
               {
-                label: 'Troubleshooting',
-                to: '/troubleshooting',
+                label: "Troubleshooting",
+                to: "/troubleshooting",
               },
             ],
           },
           {
-            title: 'Community',
+            title: "Community",
             items: [
               {
-                label: 'GitLab',
-                href: 'https://gitlab.windenergy.dtu.dk/sys/windgym',
+                label: "GitLab",
+                href: "https://gitlab.windenergy.dtu.dk/sys/windgym",
               },
               {
-                label: 'Issues',
-                href: 'https://gitlab.windenergy.dtu.dk/sys/windgym/-/issues',
+                label: "Issues",
+                href: "https://gitlab.windenergy.dtu.dk/sys/windgym/-/issues",
               },
               {
-                label: 'Discussions',
-                href: 'https://gitlab.windenergy.dtu.dk/sys/windgym/-/discussions',
+                label: "Discussions",
+                href: "https://gitlab.windenergy.dtu.dk/sys/windgym/-/discussions",
               },
             ],
           },
           {
-            title: 'More',
+            title: "More",
             items: [
               {
-                label: 'Examples',
-                href: 'https://gitlab.windenergy.dtu.dk/sys/windgym/-/tree/main/examples',
+                label: "Examples",
+                href: "https://gitlab.windenergy.dtu.dk/sys/windgym/-/tree/main/examples",
               },
               {
-                label: 'DTU Wind Energy',
-                href: 'https://windenergy.dtu.dk/',
+                label: "DTU Wind Energy",
+                href: "https://windenergy.dtu.dk/",
               },
             ],
           },

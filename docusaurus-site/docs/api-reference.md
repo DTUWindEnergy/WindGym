@@ -211,6 +211,7 @@ action, _ = agent.predict(obs)
 ```
 
 **Behavior:**
+
 - Computes optimal yaw angles for current wind conditions
 - Uses PyWake's internal optimization
 - Does not adapt to observation changes during episode
@@ -236,6 +237,7 @@ action, _ = agent.predict(obs)
 ```
 
 **Behavior:**
+
 - Averages multiple wind measurements to estimate true conditions
 - More robust to measurement noise than standard PyWakeAgent
 
@@ -253,6 +255,7 @@ action, _ = agent.predict(obs)
 ```
 
 **Parameters:**
+
 - `use_global_wind` (bool): Use global wind direction vs local measurements
 
 ---
@@ -379,6 +382,7 @@ coliseum = Coliseum(
 - `plot_summary_bar_chart(results, metric='mean_reward')`: Compare agents
 
 **Returns:**
+
 - Time series: pandas.DataFrame with episode statistics
 - Grid: xarray.Dataset with results across wind conditions
 
@@ -433,15 +437,15 @@ observations:
   history_length: 10
 
 # Action configuration
-ActionMethod: "yaw"  # or "wind"
+ActionMethod: "yaw" # or "wind"
 yaw_min: -30
 yaw_max: 30
 yaw_step_env: 3.0
 
 # Reward configuration
-power_reward: "Baseline"  # or "Power_avg", "Power_diff", "None"
+power_reward: "Baseline" # or "Power_avg", "Power_diff", "None"
 Power_scaling: 1.0
-action_penalty: "Change"  # or "Total", "None"
+action_penalty: "Change" # or "Total", "None"
 penalty_scaling: 0.01
 ```
 
@@ -454,11 +458,13 @@ penalty_scaling: 0.01
 Observations are returned as flattened numpy arrays with values scaled to [-1, 1].
 
 **Structure depends on YAML configuration:**
+
 - Turbine-level measurements: repeated for each turbine
 - Farm-level measurements: single values
 - History: past N observations concatenated
 
 **Example:**
+
 ```
 obs = [ws_t1, wd_t1, yaw_t1, power_t1, ws_t2, wd_t2, yaw_t2, power_t2, ..., ws_farm, total_power]
 ```
@@ -468,6 +474,7 @@ obs = [ws_t1, wd_t1, yaw_t1, power_t1, ws_t2, wd_t2, yaw_t2, power_t2, ..., ws_f
 ### Action Space
 
 Actions are numpy arrays of length `n_wt`, with values in [-1, 1] representing:
+
 - **"yaw" method**: Change in yaw angle (scaled)
 - **"wind" method**: Target yaw offset from wind direction (scaled)
 
@@ -478,15 +485,18 @@ Actions are numpy arrays of length `n_wt`, with values in [-1, 1] representing:
 The `info` dict returned by `step()` contains:
 
 **Standard keys:**
+
 - `'episode'`: Episode statistics (if terminated)
 - `'TimeLimit.truncated'`: Whether episode was truncated by time limit
 
 **FarmEval additions:**
+
 - `'power'`: Current power output per turbine
 - `'yaw'`: Current yaw angles
 - `'ws'`, `'wd'`: Current wind conditions
 
 **NoisyWindFarmEnv additions:**
+
 - `'clean_obs'`: Ground truth observations
 - `'noise_info'`: Applied noise details
 

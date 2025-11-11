@@ -97,9 +97,7 @@ class WindManager:
         wd = self._random_uniform(self.wd_min, self.wd_max)
         ti = self._random_uniform(self.ti_min, self.ti_max)
 
-        return WindConditions(
-            wind_speed=ws, wind_direction=wd, turbulence_intensity=ti
-        )
+        return WindConditions(wind_speed=ws, wind_direction=wd, turbulence_intensity=ti)
 
     def _sample_from_site(self) -> WindConditions:
         """

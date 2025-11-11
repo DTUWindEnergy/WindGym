@@ -13,18 +13,21 @@ This page covers common issues and frequently asked questions about WindGym.
 **Solutions**:
 
 1. **Clear the cache and retry:**
+
    ```bash
    pixi clean cache-dir
    pixi install
    ```
 
 2. **Check your pixi version:**
+
    ```bash
    pixi --version
    # Should be >= 0.10.0
    ```
 
 3. **Update pixi:**
+
    ```bash
    curl -fsSL https://pixi.sh/install.sh | bash
    ```
@@ -43,12 +46,14 @@ This page covers common issues and frequently asked questions about WindGym.
 **Solutions**:
 
 1. **Ensure the environment is activated:**
+
    ```bash
    pixi shell
    python -c "import WindGym; print('Success!')"
    ```
 
 2. **Check if WindGym is installed in editable mode:**
+
    ```bash
    pip list | grep WindGym
    # Should show: WindGym 0.0.2 /path/to/windgym
@@ -70,6 +75,7 @@ This page covers common issues and frequently asked questions about WindGym.
 **Solution**: The pixi configuration currently only includes Linux and macOS platforms. However, **WindGym itself is OS-independent** and can run on Windows. You have two options:
 
 **Option 1 - Use pip directly on Windows:**
+
 ```bash
 git clone https://gitlab.windenergy.dtu.dk/sys/windgym.git
 cd windgym
@@ -77,6 +83,7 @@ pip install -e .
 ```
 
 **Option 2 - Use WSL2 on Windows:**
+
 ```bash
 # In WSL2
 git clone https://gitlab.windenergy.dtu.dk/sys/windgym.git
@@ -93,12 +100,14 @@ pixi install
 **Solutions**:
 
 **Ubuntu/Debian:**
+
 ```bash
 sudo apt-get update
 sudo apt-get install libhdf5-dev libnetcdf-dev build-essential
 ```
 
 **macOS:**
+
 ```bash
 brew install hdf5 netcdf
 # If you get Xcode errors:
@@ -106,6 +115,7 @@ xcode-select --install
 ```
 
 **Fedora/RHEL:**
+
 ```bash
 sudo dnf install hdf5-devel netcdf-devel gcc-c++
 ```
@@ -121,6 +131,7 @@ sudo dnf install hdf5-devel netcdf-devel gcc-c++
 **Solutions**:
 
 1. **Increase timesteps:**
+
    ```python
    env = WindFarmEnv(
        dt_sim=0.2,    # Increase from 0.1
@@ -129,6 +140,7 @@ sudo dnf install hdf5-devel netcdf-devel gcc-c++
    ```
 
 2. **Reduce episode length:**
+
    ```python
    env = WindFarmEnv(
        n_passthrough=1,  # Reduce from 3
@@ -136,6 +148,7 @@ sudo dnf install hdf5-devel netcdf-devel gcc-c++
    ```
 
 3. **Use simpler turbulence:**
+
    ```python
    env = WindFarmEnv(
        turbtype='random',  # Instead of 'mann'
@@ -156,11 +169,12 @@ sudo dnf install hdf5-devel netcdf-devel gcc-c++
 **Solutions**:
 
 1. **Reduce history length in observations:**
+
    ```yaml
    # In config.yaml
    observations:
      include_history: true
-     history_length: 5  # Reduce from 10
+     history_length: 5 # Reduce from 10
    ```
 
 2. **Limit turbulence box size:**
@@ -168,6 +182,7 @@ sudo dnf install hdf5-devel netcdf-devel gcc-c++
    - Reduce simulation duration
 
 3. **Close environments properly:**
+
    ```python
    env.close()  # Always close when done
    ```
@@ -190,12 +205,14 @@ sudo dnf install hdf5-devel netcdf-devel gcc-c++
 **Solutions**:
 
 1. **Check reward configuration:**
+
    ```yaml
-   power_reward: "Baseline"  # Make sure this is set
-   Power_scaling: 1.0        # Adjust scaling
+   power_reward: "Baseline" # Make sure this is set
+   Power_scaling: 1.0 # Adjust scaling
    ```
 
 2. **Verify baseline is enabled for "Baseline" reward:**
+
    ```python
    env = FarmEval(
        Baseline_comp=True  # Required for Baseline reward
@@ -203,8 +220,9 @@ sudo dnf install hdf5-devel netcdf-devel gcc-c++
    ```
 
 3. **Check action penalties:**
+
    ```yaml
-   penalty_scaling: 0.01  # If too high, reduces reward significantly
+   penalty_scaling: 0.01 # If too high, reduces reward significantly
    ```
 
 4. **Verify turbines are producing power:**
@@ -224,12 +242,14 @@ sudo dnf install hdf5-devel netcdf-devel gcc-c++
 **Solutions**:
 
 1. **Check action method configuration:**
+
    ```yaml
-   ActionMethod: "yaw"  # or "wind"
-   yaw_step_env: 3.0    # Must be > 0
+   ActionMethod: "yaw" # or "wind"
+   yaw_step_env: 3.0 # Must be > 0
    ```
 
 2. **Verify action scaling:**
+
    ```python
    # Actions should be in [-1, 1]
    action = np.array([1.0, -1.0, 0.0])  # Valid
@@ -252,6 +272,7 @@ sudo dnf install hdf5-devel netcdf-devel gcc-c++
 **Solutions**:
 
 1. **Check wind conditions are valid:**
+
    ```python
    env = WindFarmEnv(
        ws=10.0,   # Must be > 0
@@ -261,6 +282,7 @@ sudo dnf install hdf5-devel netcdf-devel gcc-c++
    ```
 
 2. **Verify turbine positions don't overlap:**
+
    ```python
    x_pos = np.array([0, 500, 1000])  # Good spacing
    y_pos = np.array([0, 0, 0])
@@ -281,6 +303,7 @@ sudo dnf install hdf5-devel netcdf-devel gcc-c++
 **Possible Causes**:
 
 1. **PyWake optimization failed silently:**
+
    ```python
    agent = PyWakeAgent(env)
    action, _ = agent.predict(obs)
@@ -304,6 +327,7 @@ sudo dnf install hdf5-devel netcdf-devel gcc-c++
 **Solutions**:
 
 1. **Check reward signal:**
+
    ```python
    obs, _ = env.reset()
    for _ in range(100):
@@ -313,6 +337,7 @@ sudo dnf install hdf5-devel netcdf-devel gcc-c++
    ```
 
 2. **Verify observation/action spaces:**
+
    ```python
    print(f"Observation space: {env.observation_space}")
    print(f"Action space: {env.action_space}")
@@ -320,6 +345,7 @@ sudo dnf install hdf5-devel netcdf-devel gcc-c++
    ```
 
 3. **Adjust hyperparameters:**
+
    ```python
    model = PPO(
        "MlpPolicy",
@@ -332,6 +358,7 @@ sudo dnf install hdf5-devel netcdf-devel gcc-c++
    ```
 
 4. **Use curriculum learning:**
+
    ```python
    from WindGym.wrappers import CurriculumWrapper
    env = CurriculumWrapper(base_env, initial_difficulty=0.3)
@@ -352,6 +379,7 @@ sudo dnf install hdf5-devel netcdf-devel gcc-c++
 **Solutions**:
 
 1. **Check wrapper order:**
+
    ```python
    # Correct order
    base_env = WindFarmEnv(...)
@@ -404,6 +432,7 @@ for episode in range(10):
 **Solutions**:
 
 1. **Check environment factory returns fresh environment:**
+
    ```python
    def create_env():
        return FarmEval(n_wt=3, ws=10.0, wd=270.0)  # New instance
@@ -414,6 +443,7 @@ for episode in range(10):
    ```
 
 2. **Verify agents are initialized correctly:**
+
    ```python
    temp_env = create_env()
    agents = {
@@ -434,12 +464,14 @@ for episode in range(10):
 **Solutions**:
 
 1. **Reduce grid resolution:**
+
    ```python
    wind_speeds = np.arange(8, 12, 2)  # Fewer points
    wind_directions = [270]             # Single direction
    ```
 
 2. **Reduce episodes per condition:**
+
    ```python
    coliseum.run_wind_grid_evaluation(
        ...,
@@ -466,6 +498,7 @@ for episode in range(10):
 ### Q: Can I use WindGym with other RL libraries besides Stable Baselines3?
 
 **A:** Yes! WindGym follows the standard Gymnasium interface, so it's compatible with:
+
 - CleanRL
 - RLlib (Ray)
 - TorchRL
@@ -478,6 +511,7 @@ for episode in range(10):
 **A:** Depends on the library:
 
 **Stable Baselines3:**
+
 ```python
 # Save
 model.save("my_agent")
@@ -488,6 +522,7 @@ model = PPO.load("my_agent")
 ```
 
 **PyTorch models:**
+
 ```python
 # Save
 torch.save(agent.state_dict(), "agent.pth")
@@ -537,6 +572,7 @@ env.plot_flow_field(time_idx=-1, save_path='flowfield.png')
 ### Q: What's the difference between `WindFarmEnv` and `FarmEval`?
 
 **A:**
+
 - **`WindFarmEnv`**: Base environment for training
 - **`FarmEval`**: Wrapper that adds evaluation features:
   - Detailed results tracking
@@ -551,11 +587,13 @@ Use `FarmEval` for evaluation, `WindFarmEnv` for training.
 ### Q: How many turbines can WindGym handle?
 
 **A:** Depends on your hardware and configuration:
+
 - **3-6 turbines**: Fast, suitable for development and testing
 - **10-20 turbines**: Moderate, realistic farm sizes
 - **50+ turbines**: Slow, requires significant computational resources
 
 For large farms, consider:
+
 - Using larger `dt_sim` and `dt_env`
 - Simplifying turbulence (`turbtype='random'`)
 - Reducing observation history
@@ -567,8 +605,9 @@ For large farms, consider:
 **A:** Yes, by:
 
 1. **Using built-in options in YAML:**
+
    ```yaml
-   power_reward: "Power_avg"  # or "Baseline", "Power_diff"
+   power_reward: "Power_avg" # or "Baseline", "Power_diff"
    Power_scaling: 1.0
    action_penalty: "Change"
    penalty_scaling: 0.01
@@ -609,6 +648,7 @@ If your issue isn't covered here:
 4. **Open a new issue:** [New issue](https://gitlab.windenergy.dtu.dk/sys/windgym/-/issues/new)
 
 When reporting issues, please include:
+
 - WindGym version (`python -c "import WindGym; print(WindGym.__version__)"`)
 - Python version
 - Operating system

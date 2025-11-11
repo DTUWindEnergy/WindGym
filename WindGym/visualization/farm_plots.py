@@ -46,18 +46,12 @@ def plot_power_farm(
 
     for j, WS in enumerate(WSS):
         for i, wd in enumerate(WDS):
-            data.sel(ws=WS).sel(wd=wd).sel(TI=TI).sel(
-                turbbox=TURBBOX
-            ).powerF_a.rolling(time=avg_n, center=True).mean().dropna(
-                "time"
-            ).plot.line(
-                x="time", label="Agent", ax=axs[j, i]
-            )
-            data.sel(ws=WS).sel(wd=wd).sel(TI=TI).sel(
-                turbbox=TURBBOX
-            ).powerF_b.rolling(time=avg_n, center=True).mean().plot.line(
-                x="time", label="Baseline", ax=axs[j, i]
-            )
+            data.sel(ws=WS).sel(wd=wd).sel(TI=TI).sel(turbbox=TURBBOX).powerF_a.rolling(
+                time=avg_n, center=True
+            ).mean().dropna("time").plot.line(x="time", label="Agent", ax=axs[j, i])
+            data.sel(ws=WS).sel(wd=wd).sel(TI=TI).sel(turbbox=TURBBOX).powerF_b.rolling(
+                time=avg_n, center=True
+            ).mean().plot.line(x="time", label="Baseline", ax=axs[j, i])
 
             setup_wind_grid_axes(axs, j, i, WSS, WDS, WS, wd)
 
@@ -123,13 +117,9 @@ def plot_farm_inc(
 
     for j, WS in enumerate(WSS):
         for i, wd in enumerate(WDS):
-            data.sel(ws=WS).sel(wd=wd).sel(TI=TI).sel(
-                turbbox=TURBBOX
-            ).pct_inc.rolling(time=avg_n, center=True).mean().dropna(
-                "time"
-            ).plot.line(
-                x="time", ax=axs[j, i]
-            )
+            data.sel(ws=WS).sel(wd=wd).sel(TI=TI).sel(turbbox=TURBBOX).pct_inc.rolling(
+                time=avg_n, center=True
+            ).mean().dropna("time").plot.line(x="time", ax=axs[j, i])
 
             setup_wind_grid_axes(axs, j, i, WSS, WDS, WS, wd)
 
