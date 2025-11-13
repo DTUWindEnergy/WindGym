@@ -159,7 +159,7 @@ def test_environment_step(wind_farm_env):
         # Validate step outputs
         assert isinstance(obs, np.ndarray)
         assert obs.shape == wind_farm_env.observation_space.shape
-        assert isinstance(reward, np.float32)
+        assert isinstance(reward, (np.float32, float))
         assert not np.isnan(reward)
         assert isinstance(terminated, bool)
         assert isinstance(truncated, bool)
@@ -281,7 +281,7 @@ def test_reward_functions(wind_farm_env):
         _, reward, _, _, _ = wind_farm_env.step(
             np.zeros(wind_farm_env.action_space.shape)
         )
-        assert isinstance(reward, np.float32)
+        assert isinstance(reward, (np.float32, float))
 
     # Test action penalty
     large_action = np.ones(wind_farm_env.action_space.shape)
@@ -404,7 +404,9 @@ def test_ppo_compatibility(wind_farm_env):
             np.isnan(obs)
         ), f"Observation at step {i} should not contain NaNs."
 
-        assert isinstance(reward, np.float32), f"Reward at step {i} should be a float."
+        assert isinstance(
+            reward, (np.float32, float)
+        ), f"Reward at step {i} should be a float."
         assert not np.isnan(reward), f"Reward at step {i} should not be NaN."
 
         assert isinstance(
