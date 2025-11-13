@@ -323,13 +323,13 @@ class WindFarmEnv(gym.Env):
             Callable that initializes yaw angles
         """
         if method == "Random":
-            return lambda **kwargs: utils.randoms_uniform(
-                self.np_random, kwargs["min_val"], kwargs["max_val"], kwargs["n"]
+            return lambda **kwargs: self.np_random.uniform(
+                low=kwargs["min_val"], high=kwargs["max_val"], size=kwargs["n"]
             )
         elif method == "Defined":
             return lambda **kwargs: utils.defined_yaw(kwargs["yaws"], self.n_turb)
         else:
-            return lambda **kwargs: utils.return_zeros(kwargs["n"])
+            return lambda **kwargs: np.zeros(kwargs["n"])
 
     def _init_wts(self):
         """

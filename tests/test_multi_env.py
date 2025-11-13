@@ -599,7 +599,7 @@ class TestWindFarmEnvMultiCoverage:
         env.close()
 
     def test_yaw_init_zeros(self, basic_env_config):
-        """Test utils.return_zeros correctly returns zeros when yaw_init is "Zeros"."""
+        """Test that zeros initialization returns zeros when yaw_init is "Zeros"."""
         temp_config = basic_env_config.copy()
         temp_config["yaw_init"] = "Zeros"
         temp_config["reset_init"] = False
@@ -615,7 +615,7 @@ class TestWindFarmEnvMultiCoverage:
         env.close()
 
     def test_yaw_init_random(self, basic_env_config):
-        """Test utils.randoms_uniform correctly returns random values when yaw_init is "Random"."""
+        """Test that random initialization returns random values when yaw_init is "Random"."""
         temp_config = basic_env_config.copy()
         temp_config["yaw_init"] = "Random"
         temp_config["reset_init"] = False
@@ -627,12 +627,8 @@ class TestWindFarmEnvMultiCoverage:
         # We need to ensure np_random is initialized for determinism.
         env.np_random = np.random.default_rng(seed=123)
 
-        random_yaws_1 = utils.randoms_uniform(
-            np_random=env.np_random, min_val=-10, max_val=10, n=env.n_turb
-        )
-        random_yaws_2 = utils.randoms_uniform(
-            np_random=env.np_random, min_val=-10, max_val=10, n=env.n_turb
-        )
+        random_yaws_1 = env.np_random.uniform(low=-10, high=10, size=env.n_turb)
+        random_yaws_2 = env.np_random.uniform(low=-10, high=10, size=env.n_turb)
 
         print(f"Random yaws 1: {random_yaws_1}")
         print(f"Random yaws 2: {random_yaws_2}")

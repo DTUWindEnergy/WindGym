@@ -12,42 +12,6 @@ def scale_val(
     return 2 * (val - min_val) / (max_val - min_val) - 1
 
 
-def random_choice(
-    np_random: np.random.Generator, min_val: float, max_val: float, n: int
-) -> float:
-    """Return a random choice between min_val and max_val."""
-    return np_random.choice(np.linspace(min_val, max_val, n))
-
-
-def random_uniform(
-    np_random: np.random.Generator, min_val: float, max_val: float, n: int | None = None
-) -> float:
-    """Return a random value between min_val and max_val.
-
-    Note: The n parameter is ignored for compatibility.
-    """
-    return np_random.uniform(low=min_val, high=max_val)
-
-
-def return_zeros(n: int, **kwargs) -> NDArray[np.floating]:
-    """Return a numpy array of zeros with the specified shape."""
-    return np.zeros(n)
-
-
-def randoms_uniform(
-    np_random: np.random.Generator, min_val: float, max_val: float, n: int
-) -> NDArray[np.floating]:
-    """Return a numpy array of n random values between min_val and max_val."""
-    return np_random.uniform(low=min_val, high=max_val, size=n)
-
-
-def random_normal(
-    np_random: np.random.Generator, mean: float, std: float, n: int
-) -> NDArray[np.floating]:
-    """Return a numpy array of n random values with a normal distribution."""
-    return np_random.normal(loc=mean, scale=std, size=n)
-
-
 def defined_yaw(yaws: NDArray[np.floating], n_turb: int) -> NDArray[np.floating]:
     """Set the yaw values to a specified value.
 
@@ -67,10 +31,5 @@ def defined_yaw(yaws: NDArray[np.floating], n_turb: int) -> NDArray[np.floating]
 
 __all__ = [
     "scale_val",
-    "random_choice",
-    "random_uniform",
-    "return_zeros",
-    "randoms_uniform",
-    "random_normal",
     "defined_yaw",
 ]
