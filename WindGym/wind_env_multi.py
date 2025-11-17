@@ -130,8 +130,7 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
                         ),
                         -1.0,
                         1.0,
-                        dtype=np.float32,
-                    )
+                    ).astype(np.float32)
                 )
                 for a, turbine_mes in zip(self.agents, self.farm_measurements.turb_mes)
             }

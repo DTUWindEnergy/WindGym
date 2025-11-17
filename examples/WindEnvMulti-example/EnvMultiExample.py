@@ -1,5 +1,5 @@
 import numpy as np
-from WindGym.WindEnvMulti import WindFarmEnvMulti
+from WindGym.wind_env_multi import WindFarmEnvMulti
 from py_wake.examples.data.hornsrev1 import V80
 
 

@@ -309,8 +309,7 @@ class WindFarmEnv(gym.Env):
         # Asserting that the render_mode is valid.
         assert render_mode is None or render_mode in self.metadata["render_modes"]
         self.render_mode = render_mode  # Keep for compatibility
-        if self.render_mode is not None:
-            self.init_render()
+        # Note: init_render() will be called lazily when first needed (after reset creates self.fs)
 
     def _create_yaw_initializer(self, method: str):
         """
@@ -404,11 +403,25 @@ class WindFarmEnv(gym.Env):
         if isinstance(config, (str, Path)):  #
             p = Path(str(config))
             config_str = str(config)
+            # Check if this looks like a file path (has .yaml/.yml extension or contains path separators)
+            looks_like_file = (
+                config_str.endswith((".yaml", ".yml"))
+                or "/" in config_str
+                or "\\" in config_str
+            )
+
             if os.path.exists(config_str):  # treat as file
+                self.yaml_path = config_str
                 with open(config_str, "r") as f:
                     return yaml.safe_load(f) or {}
-                self.yaml_path = config_str
-            else:  # treat as string
+            elif looks_like_file:
+                # It looks like a file path but doesn't exist
+                raise FileNotFoundError(
+                    f"Config file not found: {config_str}\n"
+                    f"Current working directory: {os.getcwd()}\n"
+                    f"Make sure the path is correct or provide an absolute path."
+                )
+            else:  # treat as YAML string content
                 self.yaml_path = None
                 return yaml.safe_load(str(config)) or {}
         raise TypeError("`config` must be a dict, YAML string, or path to a YAML file.")
@@ -1201,16 +1214,14 @@ class WindFarmEnv(gym.Env):
         """Render method required by Gymnasium API - delegates to renderer."""
         fs_baseline = self.fs_baseline if self.Baseline_comp else None
         probes = self.probes if hasattr(self, "probes") else None
-        turbine = self.turbine if hasattr(self, "turbine") else None
-        ws = self.ws if hasattr(self, "ws") else None
-        return self.renderer.render(self.fs, fs_baseline, probes, turbine, ws)
+        return self.renderer.render(self.fs, fs_baseline, probes, self.turbine)
 
     def _render_frame_for_human(self, baseline=False):
         """Render the environment and return an RGB frame - delegates to renderer."""
         fs_baseline = self.fs_baseline if self.Baseline_comp else None
         probes = self.probes if hasattr(self, "probes") else None
         return self.renderer._render_frame_for_human(
-            self.fs, fs_baseline, probes, baseline, self.turbine, self.ws
+            self.fs, fs_baseline, probes, baseline, self.turbine
         )
 
     def _render_frame(self, baseline=False):
