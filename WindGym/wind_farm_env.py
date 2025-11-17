@@ -1201,7 +1201,9 @@ class WindFarmEnv(gym.Env):
         """Render method required by Gymnasium API - delegates to renderer."""
         fs_baseline = self.fs_baseline if self.Baseline_comp else None
         probes = self.probes if hasattr(self, "probes") else None
-        return self.renderer.render(self.fs, fs_baseline, probes)
+        turbine = self.turbine if hasattr(self, "turbine") else None
+        ws = self.ws if hasattr(self, "ws") else None
+        return self.renderer.render(self.fs, fs_baseline, probes, turbine, ws)
 
     def _render_frame_for_human(self, baseline=False):
         """Render the environment and return an RGB frame - delegates to renderer."""
