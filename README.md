@@ -42,7 +42,6 @@ WindGym provides a dynamic wind farm environment for developing and evaluating r
 - **Baseline Agents**: Pre-built agents including PyWake optimizer, greedy, and random controllers
 - **Comprehensive Evaluation**: Tools for comparing agents across various wind conditions
 - **Noise & Uncertainty**: Built-in support for noisy measurements and uncertainty modeling
-- **Curriculum Learning**: Support for progressive training strategies
 - **Gymnasium Compatible**: Standard RL interface compatible with popular frameworks
 
 ---
@@ -153,48 +152,19 @@ See the [examples directory](examples/) for complete demonstrations:
 
 ---
 
-## System Requirements
-
-- **OS**: Linux, macOS, or Windows (OS-independent, but Pixi package manager currently supports Linux/macOS only)
-- **Python**: 3.7 - 3.11
-- **RAM**: 8 GB minimum (16 GB recommended)
-- **Disk**: 5 GB free space
-
-**Note**: On Windows, use `pip install -e .` directly instead of Pixi, or use WSL2 for Pixi support.
-
----
 
 ## Contributing
 
-We welcome contributions! Please see our [Contributing Guide](docusaurus-site/docs/developer-guidelines.md) for details on:
-
-- Code of conduct
-- Development workflow
-- Pull request process
-- Code style guidelines
+We welcome contributions! Feel free to open a merge request if you have anything you want to add.
 
 ---
 
-## Citation
-
-If you use WindGym in your research, please cite:
-
-```bibtex
-@software{windgym2023,
-  title = {WindGym: Reinforcement Learning Environment for Wind Farm Control},
-  author = {Nilsen, Marcus and Quick, Julian and Simutis, Ernestas and Åstrand, Teodor},
-  year = {2023},
-  url = {https://gitlab.windenergy.dtu.dk/sys/windgym}
-}
-```
-
----
 
 ## License
 
 WindGym is released under the [MIT License](LICENSE).
 
-Copyright (c) 2023 Technical University of Denmark (DTU)
+Copyright (c) 2025 Technical University of Denmark (DTU)
 
 ---
 
