@@ -4,7 +4,7 @@ import gymnasium as gym
 from unittest.mock import MagicMock, patch
 
 # Import the class to be tested
-from WindGym.wrappers.powerWrapper import PowerWrapper
+from WindGym.wrappers.power_wrapper import PowerWrapper
 
 
 @pytest.fixture
@@ -30,7 +30,7 @@ def mock_env():
     return env
 
 
-@patch("WindGym.wrappers.powerWrapper.PyWakeAgent")
+@patch("WindGym.wrappers.power_wrapper.PyWakeAgent")
 def test_initialization(MockPyWakeAgent, mock_env):
     """Test the initialization of the PowerWrapper."""
     n_envs = 3
@@ -51,7 +51,7 @@ def test_initialization(MockPyWakeAgent, mock_env):
     assert callable(wrapper.weight_function)
 
 
-@patch("WindGym.wrappers.powerWrapper.PyWakeAgent")
+@patch("WindGym.wrappers.power_wrapper.PyWakeAgent")
 def test_reset(MockPyWakeAgent, mock_env):
     """Test the reset method of the PowerWrapper."""
     # Setup mock agent instance
@@ -78,7 +78,7 @@ def test_reset(MockPyWakeAgent, mock_env):
     assert info["curriculum_weight"] == 1.0  # Default weight_function at step 0
 
 
-@patch("WindGym.wrappers.powerWrapper.PyWakeAgent")
+@patch("WindGym.wrappers.power_wrapper.PyWakeAgent")
 def test_step_baseline_reward(MockPyWakeAgent, mock_env):
     """Test the step method with 'Baseline' power reward."""
     # Setup mock agent instance and environment
@@ -119,7 +119,7 @@ def test_step_baseline_reward(MockPyWakeAgent, mock_env):
     assert not truncated
 
 
-@patch("WindGym.wrappers.powerWrapper.PyWakeAgent")
+@patch("WindGym.wrappers.power_wrapper.PyWakeAgent")
 def test_step_power_avg_reward(MockPyWakeAgent, mock_env):
     """Test the step method with 'Power_avg' power reward."""
     mock_agent_instance = MockPyWakeAgent.return_value
@@ -144,7 +144,7 @@ def test_step_power_avg_reward(MockPyWakeAgent, mock_env):
     assert info["wrapper_reward"] == pytest.approx(0.7)
 
 
-@patch("WindGym.wrappers.powerWrapper.PyWakeAgent")
+@patch("WindGym.wrappers.power_wrapper.PyWakeAgent")
 def test_step_unknown_reward_type(MockPyWakeAgent, mock_env):
     """Test that an unknown power_reward type raises a ValueError."""
     mock_agent_instance = MockPyWakeAgent.return_value
@@ -164,7 +164,7 @@ def test_step_unknown_reward_type(MockPyWakeAgent, mock_env):
         wrapper.step(action)
 
 
-@patch("WindGym.wrappers.powerWrapper.PyWakeAgent")
+@patch("WindGym.wrappers.power_wrapper.PyWakeAgent")
 def test_step_reward_weighting(MockPyWakeAgent, mock_env):
     """Test the weighting between environment and wrapper rewards."""
     mock_agent_instance = MockPyWakeAgent.return_value
@@ -195,7 +195,7 @@ def test_step_reward_weighting(MockPyWakeAgent, mock_env):
     assert info["curriculum_weight"] == pytest.approx(env_w)
 
 
-@patch("WindGym.wrappers.powerWrapper.PyWakeAgent")
+@patch("WindGym.wrappers.power_wrapper.PyWakeAgent")
 def test_step_counter_and_info(MockPyWakeAgent, mock_env):
     """Test that the step counter and info dictionary are updated correctly."""
     mock_agent_instance = MockPyWakeAgent.return_value

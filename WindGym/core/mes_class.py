@@ -1,21 +1,24 @@
+from __future__ import annotations
 from collections import deque
+from typing import Callable
 import itertools
 import numpy as np
-from .WindEnv import WindEnv
+from numpy.typing import NDArray
+from .. import utils
 
 """
 This file contains the classes for the measurements of the wind farm.
 
 It is divided into three classes:
 - Mes: Baseclass for the measurements
-- turb_mes: Class for the measurements of the turbines
-- farm_mes: Class for the measurements of the farm
+- TurbMes: Class for the measurements of the turbines
+- FarmMes: Class for the measurements of the farm
 
-The mes class is a baseclass for a type of measurements. It is just a deque with a get_measurements function that can return the desired measurements.
+The Mes class is a baseclass for a type of measurements. It is just a deque with a get_measurements function that can return the desired measurements.
 
-The turb_mes class is a class for the measurements of the turbines. It contains mes classes for the type of sensors we want to use. It also contains a function for calculating the turbulence intensity.
+The TurbMes class is a class for the measurements of the turbines. It contains Mes classes for the type of sensors we want to use. It also contains a function for calculating the turbulence intensity.
 
-the farm_mes class is the senosrs for the farm. It contains a list of the turb_mes classes, and a mes class for the farm. It also contains a function for calculating the turbulence intensity for the farm.
+The FarmMes class is the sensors for the farm. It contains a list of the TurbMes classes, and a Mes class for the farm. It also contains a function for calculating the turbulence intensity for the farm.
 
 """
 
@@ -33,41 +36,41 @@ class Mes:
 
     def __init__(
         self,
-        current=True,
-        rolling_mean=False,
-        history_N=3,
-        history_length=100,
-        window_length=5,
-    ):
+        current: bool = True,
+        rolling_mean: bool = False,
+        history_N: int = 3,
+        history_length: int = 100,
+        window_length: int = 5,
+    ) -> None:
         # Do you want the current wind speed to be included in the measurements
-        self.current = current
+        self.current: bool = current
         # Do you want the rolling mean of the wind speed to be included in the measurements
-        self.rolling_mean = rolling_mean
-        self.history_N = (
+        self.rolling_mean: bool = rolling_mean
+        self.history_N: int = (
             history_N  # Number of rolling windows to use for the rolling mean
         )
-        self.history_length = history_length  # Number of measurements to save
-        self.window_length = window_length  # Size of the rolling window
+        self.history_length: int = history_length  # Number of measurements to save
+        self.window_length: int = window_length  # Size of the rolling window
 
-        self.measurements = deque(maxlen=self.history_length)
+        self.measurements: deque = deque(maxlen=self.history_length)
 
-    def __call__(self, measurement):
+    def __call__(self, measurement: float | NDArray[np.floating]) -> None:
         """
         Append the measurement to the deque via the call function
         """
         self.measurements.append(measurement)
 
-    def append(self, measurement):
+    def append(self, measurement: float | NDArray[np.floating]) -> None:
         """
         Append the measurement to the deque via the append function
         """
         self.measurements.append(measurement)
 
-    def add_measurement(self, measurement):
+    def add_measurement(self, measurement: float | NDArray[np.floating]) -> None:
         """Append the measurement to the deque"""
         self.measurements.append(measurement)
 
-    def get_measurements(self):
+    def get_measurements(self) -> NDArray[np.float32]:
         """
         Get the desired measurements with graceful handling of startup period
         """
@@ -125,7 +128,7 @@ class Mes:
         return np.array(return_vals, dtype=np.float32)
 
 
-class turb_mes:
+class TurbMes:
     """
     Class for all measurements.
     Each turbine stores measurements for wind speed, wind direction and yaw angle...
@@ -133,39 +136,39 @@ class turb_mes:
 
     def __init__(
         self,
-        ws_current=False,
-        ws_rolling_mean=True,
-        ws_history_N=1,
-        ws_history_length=10,
-        ws_window_length=10,
-        wd_current=False,
-        wd_rolling_mean=True,
-        wd_history_N=1,
-        wd_history_length=10,
-        wd_window_length=10,
-        yaw_current=False,
-        yaw_rolling_mean=True,
-        yaw_history_N=2,
-        yaw_history_length=30,
-        yaw_window_length=1,
-        power_current=False,
-        power_rolling_mean=True,
-        power_history_N=1,
-        power_history_length=10,
-        power_window_length=10,
+        ws_current: bool = False,
+        ws_rolling_mean: bool = True,
+        ws_history_N: int = 1,
+        ws_history_length: int = 10,
+        ws_window_length: int = 10,
+        wd_current: bool = False,
+        wd_rolling_mean: bool = True,
+        wd_history_N: int = 1,
+        wd_history_length: int = 10,
+        wd_window_length: int = 10,
+        yaw_current: bool = False,
+        yaw_rolling_mean: bool = True,
+        yaw_history_N: int = 2,
+        yaw_history_length: int = 30,
+        yaw_window_length: int = 1,
+        power_current: bool = False,
+        power_rolling_mean: bool = True,
+        power_history_N: int = 1,
+        power_history_length: int = 10,
+        power_window_length: int = 10,
         ws_min: float = 7.0,
         ws_max: float = 20.0,
         wd_min: float = 270.0,
         wd_max: float = 360.0,
-        yaw_min=-45,
-        yaw_max=45,
-        TI_min=0.00,
-        TI_max=0.50,
-        include_TI=True,
-        power_max=2000000,  # 2 MW
-        n_probes_per_turb={},
-        ti_sample_count=30,
-    ):
+        yaw_min: float = -45,
+        yaw_max: float = 45,
+        TI_min: float = 0.00,
+        TI_max: float = 0.50,
+        include_TI: bool = True,
+        power_max: float = 2000000,  # 2 MW
+        n_probes_per_turb: dict = {},
+        ti_sample_count: int = 30,
+    ) -> None:
         self.ws = Mes(
             current=ws_current,
             rolling_mean=ws_rolling_mean,
@@ -195,37 +198,37 @@ class turb_mes:
             window_length=power_window_length,
         )
 
-        self.ws_hf_buffer = deque(maxlen=ti_sample_count)
-        self.ws_max = ws_max
-        self.ws_min = ws_min
-        self.wd_min = wd_min
-        self.wd_max = wd_max
-        self.yaw_min = yaw_min
-        self.yaw_max = yaw_max
-        self.TI_min = TI_min
-        self.TI_max = TI_max
-        self.include_TI = include_TI
-        self.power_max = power_max
-        self.n_probes_per_turb = n_probes_per_turb
+        self.ws_hf_buffer: deque = deque(maxlen=ti_sample_count)
+        self.ws_max: float = ws_max
+        self.ws_min: float = ws_min
+        self.wd_min: float = wd_min
+        self.wd_max: float = wd_max
+        self.yaw_min: float = yaw_min
+        self.yaw_max: float = yaw_max
+        self.TI_min: float = TI_min
+        self.TI_max: float = TI_max
+        self.include_TI: bool = include_TI
+        self.power_max: float = power_max
+        self.n_probes_per_turb: dict = n_probes_per_turb
 
         if self.include_TI:
-            # If we want to include the TI, then we set the get_TI function to the calc_TI function
-            self.get_TI = self.calc_TI
+            # Set get_TI function to calc_TI for TI calculations
+            self.get_TI: Callable[[bool], NDArray[np.float32]] = self.calc_TI
         else:
-            # If not, then we just add an empty array. This is skipped in the np.concatenate function, so it should not matter
-            self.get_TI = self.empty_np
+            # Return empty array (skipped in np.concatenate)
+            self.get_TI: Callable[[bool], NDArray[np.float32]] = self.empty_np
 
-    def add_hf_ws(self, measurement):
+    def add_hf_ws(self, measurement: float) -> None:
         """Appends a single wind speed measurement to the high-frequency buffer."""
         self.ws_hf_buffer.append(measurement)
 
-    def empty_np(self, scaled=False):
+    def empty_np(self, scaled: bool = False) -> NDArray[np.float32]:
         """
         Return an empty array
         """
         return np.array([])
 
-    def calc_TI(self, scaled=False):
+    def calc_TI(self, scaled: bool = False) -> NDArray[np.float32]:
         """
         Calcualte TI from the wind speed measurements
         """
@@ -250,7 +253,7 @@ class turb_mes:
         else:
             return TI
 
-    def max_hist(self):
+    def max_hist(self) -> int:
         """
         Return the maximum history length of the measurements
         """
@@ -264,7 +267,7 @@ class turb_mes:
             ]
         )
 
-    def observed_variables(self):
+    def observed_variables(self) -> int:
         """
         Returns the number of observed variables
         """
@@ -287,28 +290,32 @@ class turb_mes:
         obs_var += self.power.current + self.power.rolling_mean * self.power.history_N
 
         # Number of probes per turbine
-        if hasattr(self, "n_probes_per_turb") and 0 in self.n_probes_per_turb:
+        if (
+            hasattr(self, "n_probes_per_turb")
+            and self.n_probes_per_turb is not None
+            and 0 in self.n_probes_per_turb
+        ):
             obs_var += self.n_probes_per_turb[0]
 
         return obs_var
 
-    def add_ws(self, measurement):
+    def add_ws(self, measurement: float | NDArray[np.floating]) -> None:
         # add measurements to the ws
         self.ws.add_measurement(measurement)
 
-    def add_wd(self, measurement):
+    def add_wd(self, measurement: float | NDArray[np.floating]) -> None:
         # add measurements to the wd
         self.wd.add_measurement(measurement)
 
-    def add_yaw(self, measurement):
+    def add_yaw(self, measurement: float | NDArray[np.floating]) -> None:
         # add measurements to the yaw
         self.yaw.add_measurement(measurement)
 
-    def add_power(self, measurement):
+    def add_power(self, measurement: float | NDArray[np.floating]) -> None:
         # add measurements to the power
         self.power.add_measurement(measurement)
 
-    def get_ws(self, scaled=False):
+    def get_ws(self, scaled: bool = False) -> NDArray[np.float32]:
         # get the ws measurements
         if scaled:
             # Scale the measurements
@@ -316,14 +323,14 @@ class turb_mes:
         else:
             return self.ws.get_measurements()
 
-    def get_wd(self, scaled=False):
+    def get_wd(self, scaled: bool = False) -> NDArray[np.float32]:
         # get the wd measurements
         if scaled:
             return self._scale_val(self.wd.get_measurements(), self.wd_min, self.wd_max)
         else:
             return self.wd.get_measurements()
 
-    def get_yaw(self, scaled=False):
+    def get_yaw(self, scaled: bool = False) -> NDArray[np.float32]:
         # get the yaw measurements
         if scaled:
             # Scale the measurements
@@ -333,7 +340,7 @@ class turb_mes:
         else:
             return self.yaw.get_measurements()
 
-    def get_power(self, scaled=False):
+    def get_power(self, scaled: bool = False) -> NDArray[np.float32]:
         # get the power measurements
         if scaled:
             # Scale the measurements
@@ -343,11 +350,13 @@ class turb_mes:
         else:
             return self.power.get_measurements()
 
-    def _scale_val(self, val, min_val, max_val):
+    def _scale_val(
+        self, val: NDArray[np.float32], min_val: float, max_val: float
+    ) -> NDArray[np.float32]:
         # Scale the value from -1 to 1
         return 2 * (val - min_val) / (max_val - min_val) - 1
 
-    def get_measurements(self, scaled=False):
+    def get_measurements(self, scaled: bool = False) -> NDArray[np.float32]:
         measurements = []
 
         if hasattr(self, "probes"):
@@ -391,7 +400,7 @@ class turb_mes:
         return np.concatenate(measurements)
 
 
-class farm_mes(WindEnv):
+class FarmMes:
     """
     Class for the measurements of the farm.
     The farm stores measurements from each turbine for wind speed, wind direction, yaw angle, power
@@ -399,80 +408,81 @@ class farm_mes(WindEnv):
 
     def __init__(
         self,
-        n_turbines,
-        n_probes_per_turb={},
-        turb_ws=True,
-        turb_wd=True,
-        turb_TI=True,
-        turb_power=True,
-        farm_ws=True,
-        farm_wd=True,
-        farm_TI=False,
-        farm_power=False,
-        ws_current=False,
-        ws_rolling_mean=True,
-        ws_history_N=1,
-        ws_history_length=10,
-        ws_window_length=10,
-        wd_current=False,
-        wd_rolling_mean=True,
-        wd_history_N=1,
-        wd_history_length=10,
-        wd_window_length=10,
-        yaw_current=False,
-        yaw_rolling_mean=True,
-        yaw_history_N=2,
-        yaw_history_length=30,
-        yaw_window_length=1,
-        power_current=False,
-        power_rolling_mean=True,
-        power_history_N=1,
-        power_history_length=10,
-        power_window_length=10,
+        n_turbines: int,
+        n_probes_per_turb: dict = {},
+        turb_ws: bool = True,
+        turb_wd: bool = True,
+        turb_TI: bool = True,
+        turb_power: bool = True,
+        farm_ws: bool = True,
+        farm_wd: bool = True,
+        farm_TI: bool = False,
+        farm_power: bool = False,
+        ws_current: bool = False,
+        ws_rolling_mean: bool = True,
+        ws_history_N: int = 1,
+        ws_history_length: int = 10,
+        ws_window_length: int = 10,
+        wd_current: bool = False,
+        wd_rolling_mean: bool = True,
+        wd_history_N: int = 1,
+        wd_history_length: int = 10,
+        wd_window_length: int = 10,
+        yaw_current: bool = False,
+        yaw_rolling_mean: bool = True,
+        yaw_history_N: int = 2,
+        yaw_history_length: int = 30,
+        yaw_window_length: int = 1,
+        power_current: bool = False,
+        power_rolling_mean: bool = True,
+        power_history_N: int = 1,
+        power_history_length: int = 10,
+        power_window_length: int = 10,
         ws_min: float = 7.0,
         ws_max: float = 20.0,
         wd_min: float = 270.0,
         wd_max: float = 360.0,
-        yaw_min=-45,
-        yaw_max=45,
-        TI_min=0.00,
-        TI_max=0.50,
-        power_max=2000000,  # 2 MW
-        ti_sample_count=30,
-    ):
-        self.n_turbines = n_turbines
-        self.n_probes_per_turb = n_probes_per_turb
-        self.turb_mes = []
-        self.turb_ws = turb_ws  # do we want measurements from the turbines individually
-        self.turb_wd = turb_wd  # do we want measurements from the turbines individually
-        self.turb_TI = turb_TI  # do we want measurements from the turbines individually
-        self.turb_power = (
-            turb_power  # do we want measurements from the turbines individually
-        )
+        yaw_min: float = -45,
+        yaw_max: float = 45,
+        TI_min: float = 0.00,
+        TI_max: float = 0.50,
+        power_max: float = 2000000,  # 2 MW
+        ti_sample_count: int = 30,
+    ) -> None:
+        self.n_turbines: int = n_turbines
+        self.n_probes_per_turb: dict = n_probes_per_turb
+        self.turb_mes: list[TurbMes] = []
+        # Do we want measurements from the turbines individually?
+        self.turb_ws: bool = turb_ws
+        self.turb_wd: bool = turb_wd
+        self.turb_TI: bool = turb_TI
+        self.turb_power: bool = turb_power
 
         # do we want measurements from the farm, i.e. the average of the turbines
-        self.farm_ws = farm_ws
+        self.farm_ws: bool = farm_ws
         # do we want measurements from the farm, i.e. the average of the turbines
-        self.farm_wd = farm_wd
-        self.farm_TI = farm_TI
-        self.farm_power = farm_power
+        self.farm_wd: bool = farm_wd
+        self.farm_TI: bool = farm_TI
+        self.farm_power: bool = farm_power
 
-        self.ws_max = ws_max
-        self.ws_min = ws_min
-        self.wd_min = wd_min
-        self.wd_max = wd_max
-        self.yaw_min = yaw_min
-        self.yaw_max = yaw_max
-        self.power_max = power_max
+        self.ws_max: float = ws_max
+        self.ws_min: float = ws_min
+        self.wd_min: float = wd_min
+        self.wd_max: float = wd_max
+        self.yaw_min: float = yaw_min
+        self.yaw_max: float = yaw_max
+        self.power_max: float = power_max
 
         if turb_TI or farm_TI:
-            # If we return the TI, then we check for the number of data points.
-            if ti_sample_count < 10:  # A small number might lead to a noisy TI signal.
+            # If we return the TI, check the number of data points
+            if ti_sample_count < 10:  # Small sample = noisy TI signal
                 print(
-                    f"Warning: You are only using the last {ti_sample_count} high-frequency samples for TI calculations. A low number might result in a noisy estimate."
+                    f"Warning: You are only using the last {ti_sample_count} "
+                    "high-frequency samples for TI calculations. "
+                    "A low number might result in a noisy estimate."
                 )
 
-        # We assume that the farm oberservations would take the same form as the turbine observations.
+        # Farm observations take the same form as turbine observations
         self.farm_observed_variables = (
             farm_ws * (ws_current + ws_rolling_mean * ws_history_N)
             + farm_wd * (wd_current + wd_rolling_mean * wd_history_N)
@@ -483,7 +493,7 @@ class farm_mes(WindEnv):
         # For each turbine, create a class of turbine measurements
         for _ in range(n_turbines):
             self.turb_mes.append(
-                turb_mes(
+                TurbMes(
                     ws_current=ws_current and turb_ws,
                     ws_rolling_mean=ws_rolling_mean and turb_ws,
                     ws_history_N=ws_history_N,
@@ -518,8 +528,8 @@ class farm_mes(WindEnv):
                 )
             )
 
-        # Create a class for the farm measurements. This is still used for the info dictionary, so even if there are no farm level measurements returned, it is still created
-        self.farm_mes = turb_mes(
+        # Create farm measurements (used for info dict even if no farm obs)
+        self.farm_mes: TurbMes = TurbMes(
             ws_current=ws_current and farm_ws,
             ws_rolling_mean=ws_rolling_mean and farm_ws,
             ws_history_N=ws_history_N,
@@ -555,36 +565,36 @@ class farm_mes(WindEnv):
         )  # The max power is the sum of all the turbines
 
         if self.farm_TI:
-            # If we want to include the TI, then we set the get_TI function to the calc_TI function
-            self.get_TI = self.get_TI_farm
+            # Set get_TI function to get_TI_farm for farm TI calculations
+            self.get_TI: Callable[[bool], float] = self.get_TI_farm
         else:
-            # If not, then we just add an empty array. This is skipped in the np.concatenate function, so it should not matter
-            self.get_TI = self.empty_np
+            # Return empty array (skipped in np.concatenate)
+            self.get_TI: Callable[[bool], NDArray[np.float32]] = self.empty_np
 
-    def empty_np(self, scaled=False):
+    def empty_np(self, scaled: bool = False) -> NDArray[np.float32]:
         # Return an empty array
         return np.array([])
 
-    def add_ws(self, measurement):
+    def add_ws(self, measurement: NDArray[np.floating]) -> None:
         # add measurements to the ws
         for turb in self.turb_mes:
             turb.add_ws(measurement)
         if self.farm_ws:
             self.farm_mes.add_ws(np.mean(measurement))
 
-    def add_wd(self, measurement):
+    def add_wd(self, measurement: NDArray[np.floating]) -> None:
         # add measurements to the wd
         for turb in self.turb_mes:
             turb.add_wd(measurement)
         if self.farm_wd:
             self.farm_mes.add_wd(np.mean(measurement))
 
-    def add_yaw(self, measurement):
+    def add_yaw(self, measurement: NDArray[np.floating]) -> None:
         # add measurements to the yaw
         for turb in self.turb_mes:
             turb.add_yaw(measurement)
 
-    def add_power(self, measurement):
+    def add_power(self, measurement: NDArray[np.floating]) -> None:
         # add measurements to the power
         for turb in self.turb_mes:
             turb.add_power(measurement)
@@ -593,7 +603,13 @@ class farm_mes(WindEnv):
                 np.sum(measurement)
             )  # Instead of mean, we sum the power
 
-    def add_measurements(self, ws, wd, yaws, powers):
+    def add_measurements(
+        self,
+        ws: NDArray[np.floating],
+        wd: NDArray[np.floating],
+        yaws: NDArray[np.floating],
+        powers: NDArray[np.floating],
+    ) -> None:
         # add measurements to the ws, wd and yaw in one go
         for turb, speed, direction, yaw, power in zip(
             self.turb_mes, ws, wd, yaws, powers
@@ -618,14 +634,14 @@ class farm_mes(WindEnv):
         # if self.farm_power:
         #     self.farm_mes.add_power(np.sum(powers))
 
-    def max_hist(self):
+    def max_hist(self) -> int:
         """
         Return the maximum history length of the measurements
         """
 
         return self.turb_mes[0].max_hist()
 
-    def observed_variables(self):
+    def observed_variables(self) -> int:
         """
         Returns the number of observed variables
         """
@@ -635,65 +651,65 @@ class farm_mes(WindEnv):
             + self.farm_observed_variables
         )
 
-    def get_ws_turb(self, scaled=False):
+    def get_ws_turb(self, scaled: bool = False) -> NDArray[np.float32]:
         # get the ws measurements
         return np.array(
             [turb.get_ws(scaled=scaled) for turb in self.turb_mes]
         ).flatten()
 
-    def get_ws_farm(self, scaled=False):
+    def get_ws_farm(self, scaled: bool = False) -> NDArray[np.float32]:
         # get the ws measurements
         if scaled:
             # Scale the measurements
-            return self._scale_val(self.farm_mes.get_ws(), self.ws_min, self.ws_max)
+            return utils.scale_val(self.farm_mes.get_ws(), self.ws_min, self.ws_max)
         else:
             return self.farm_mes.get_ws()
 
-    def get_power_turb(self, scaled=False):
+    def get_power_turb(self, scaled: bool = False) -> NDArray[np.float32]:
         # get the power measurements
         return np.array(
             [turb.get_power(scaled=scaled) for turb in self.turb_mes]
         ).flatten()
 
-    def get_power_farm(self, scaled=False):
+    def get_power_farm(self, scaled: bool = False) -> NDArray[np.float32]:
         # get the power measurements
         if scaled:
             # Scale the measurements
-            return self._scale_val(
+            return utils.scale_val(
                 self.farm_mes.get_power(), 0, self.power_max * self.n_turbines
             )  # Min power is 0, max is the sum of all the turbines
         else:
             return self.farm_mes.get_power()
 
-    def get_wd_turb(self, scaled=False):
+    def get_wd_turb(self, scaled: bool = False) -> NDArray[np.float32]:
         # get the wd measurements
         return np.array(
             [turb.get_wd(scaled=scaled) for turb in self.turb_mes]
         ).flatten()
 
-    def get_wd_farm(self, scaled=False):
+    def get_wd_farm(self, scaled: bool = False) -> NDArray[np.float32]:
         # get the wd measurements
         if scaled:
-            return self._scale_val(self.farm_mes.get_wd(), self.wd_min, self.wd_max)
+            return utils.scale_val(self.farm_mes.get_wd(), self.wd_min, self.wd_max)
         else:
             return self.farm_mes.get_wd()
 
-    def get_TI_turb(self, scaled=False):
+    def get_TI_turb(self, scaled: bool = False) -> NDArray[np.float32]:
         # get the TI measurements
         return np.array(
             [turb.calc_TI(scaled=scaled) for turb in self.turb_mes]
         ).flatten()
 
-    def get_TI_farm(self, scaled=False):
+    def get_TI_farm(self, scaled: bool = False) -> float:
         # Return the average value of the TI measurements
         TI_farm = self.get_TI_turb(scaled=scaled)
         return TI_farm.mean()
 
-    def get_yaw_turb(self, scaled=False):
+    def get_yaw_turb(self, scaled: bool = False) -> NDArray[np.float32]:
         # get the yaw measurements
         return np.array([turb.get_yaw(scaled) for turb in self.turb_mes]).flatten()
 
-    def get_measurements(self, scaled=False):
+    def get_measurements(self, scaled: bool = False) -> NDArray[np.float32]:
         # get all the measurements
         # if scaled is true, then the measurements are scaled between -1 and 1
         farm_measurements = np.array([])

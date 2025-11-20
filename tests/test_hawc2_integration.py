@@ -198,14 +198,20 @@ def mock_hawc2_wind_turbines():
 
         return collection_mock
 
-    with patch(
-        "WindGym.Wind_Farm_Env.HAWC2WindTurbines", side_effect=mock_factory
-    ) as mock_class:
-        yield mock_class
+    # Patch both locations where HAWC2WindTurbines is used
+    with (
+        patch(
+            "WindGym.wind_farm_env.HAWC2WindTurbines", side_effect=mock_factory
+        ) as mock_class_env,
+        patch(
+            "WindGym.core.baseline_manager.HAWC2WindTurbines", side_effect=mock_factory
+        ) as mock_class_baseline,
+    ):
+        yield mock_class_env
 
 
 @patch("shutil.rmtree")
-@patch("WindGym.AgentEval.gtsdf.load")
+@patch("WindGym.agent_eval.gtsdf.load")
 def test_agent_eval_fast_with_hawc2(
     mock_gtsdf_load,
     mock_rmtree,

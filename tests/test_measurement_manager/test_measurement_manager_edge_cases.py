@@ -5,7 +5,7 @@ import numpy as np
 import gymnasium as gym
 from unittest.mock import MagicMock, patch
 
-from WindGym.Measurement_Manager import (
+from WindGym.core.measurement_manager import (
     MeasurementManager,
     MeasurementType,
     MeasurementSpec,

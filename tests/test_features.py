@@ -518,7 +518,7 @@ class TestSpecificFeatures:
         x_pos, y_pos = generate_square_grid(turbine=V80(), nx=2, ny=1, xDist=5, yDist=3)
 
         with pytest.raises(
-            NotImplementedError, match="The Track_power is not implemented yet"
+            NotImplementedError, match="Power tracking reward is not yet implemented."
         ):
             env = WindFarmEnv(
                 turbine=V80(),

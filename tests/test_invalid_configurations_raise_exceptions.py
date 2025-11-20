@@ -209,7 +209,7 @@ class TestInvalidConfigurations:
                 },
                 "expected_exception_info": (
                     ValueError,
-                    r"The Power_avg must be larger then 40 for the Power_diff reward",
+                    "The Power_avg must be larger then 40 for the Power_diff reward",
                 ),
             },
             id="InvalidPowerDiffAvgTooSmall",

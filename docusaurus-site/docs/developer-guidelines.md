@@ -23,10 +23,10 @@ Two principles should guide our conduct:
 
 # Contribution management
 
-Contributions are tracked with `git <https://docs.github.com/en/get-started/start-your-journey/about-github-and-git#about-git>`_
-and coordinated with `GitHub <https://docs.github.com/en/get-started/start-your-journey/about-github-and-git#about-github>`_.
+Contributions are tracked with [Git](https://docs.gitlab.com/ee/gitlab-basics/start-using-git.html)
+and coordinated with [GitLab](https://gitlab.windenergy.dtu.dk/sys/windgym).
 
-In general, a version of the `git-flow <https://nvie.com/posts/a-successful-git-branching-model/>`\_
+In general, a version of the [git-flow](https://nvie.com/posts/a-successful-git-branching-model/)
 model is used to navigate parallel development efforts.
 Here's a brief summary:
 

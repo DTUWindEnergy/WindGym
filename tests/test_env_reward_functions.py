@@ -247,8 +247,6 @@ def test_power_reward_power_diff(temp_yaml_file_factory, mock_turbulence_env_set
         reset_init=True,
     )
 
-    assert env._power_wSize == power_avg_val // 10
-
     # Run enough steps to have distinct "oldest" and "latest" windows after reset's filling
     # The reset already fills `power_avg_val` times if fill_window is set so.
     obs, info_reset = env.reset(seed=123)
@@ -293,7 +291,7 @@ def test_power_reward_power_diff(temp_yaml_file_factory, mock_turbulence_env_set
 
     # For a simple check here with the current setup:
     # The reward should be a float value.
-    assert isinstance(reward, float)
+    assert isinstance(reward, (np.float32, float))
     # We can't easily predict the exact value without knowing the exact sequence of powers that filled the deque.
     # However, if all powers in the deque were identical, the reward should be ~0.
     # If the power from the latest step (info_step["Power agent"]) caused a significant change

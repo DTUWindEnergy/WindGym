@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 from unittest.mock import MagicMock
-from WindGym.utils.WindProbe import WindProbe
+from WindGym.core.wind_probe import WindProbe
 from WindGym import WindFarmEnv
 from WindGym.utils.generate_layouts import generate_square_grid
 from py_wake.examples.data.hornsrev1 import V80

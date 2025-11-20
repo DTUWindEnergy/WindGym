@@ -74,13 +74,31 @@ pre_commit:
   variables:
     PRE_COMMIT_HOME: ${CI_PROJECT_DIR}/.cache/pre-commit
     GIT_CLEAN_FLAGS: -ffdx
-  script:
+  before_script:
     - apt-get update && apt-get install -y git
-    - pixi run pre-commit run --all-files
+    - rm -rf .pixi/
+    - echo "--- Checking Disk Space ---"
+    - df -h
+    # - echo "--- Checking Runner Cache Size ---"
+    # - du -sh /root/.cache || true
+    # - echo "--- End Debugging ---"
+    # - echo "Cleaning up runner-level pixi/uv caches..."
+    # - rm -rf /root/.cache/rattler || true
+    # - rm -rf /root/.cache/uv-cache || true
+  script:
+    # - pixi run pre-commit run --all-files
+    - pixi run --environment lint pre-commit run --all-files
   cache:
-    key: pre-commit-cache # Retains cache across all branches
+  - key: pre-commit-cache # Retains cache across all branches
     paths:
       - ${PRE_COMMIT_HOME}
+  - key:
+      files:
+        - pixi.lock  # Re-builds cache only if this file changes
+      prefix: pixi-lint-${CI_COMMIT_REF_SLUG}
+    paths:
+      - .pixi/
+    policy: pull-push # This job creates and updates the cache
   tags:
     - linux
   <<: *default_rules
@@ -89,9 +107,23 @@ test_linux:
   stage: test
   needs:
     - pre_commit
-  script:
+  before_script:
     - apt-get update && apt-get install -y git
+  script:
     - pixi run pytest -v --cov=windgym --cov-report=html:htmlcov --cov-report=term
+  cache:
+      - key:
+          files:
+            - pixi.lock
+          prefix: pixi-default-${CI_COMMIT_REF_SLUG}
+        paths:
+          - .pixi/
+        policy: pull-push # This job just downloads the cache
+  # cache:
+  #   - key: pixi-$CI_COMMIT_REF_SLUG  # Reuse the same pixi cache from pre_commit
+  #     paths:
+  #       - .pixi/
+  #     policy: pull  # Only pull, don't push (pre_commit already builds it)
   artifacts:
     paths:
       - ./htmlcov
@@ -118,6 +150,14 @@ build_docs:
     - cd docusaurus-site # Navigate into the docusaurus-site directory
     - npm install # Install Node.js dependencies for Docusaurus
     - npm run build # This will run prebuild.sh (which now finds python/jupyter from pixi env) and then the Docusaurus build
+  cache:
+      - key:
+          files:
+            - pixi.lock
+          prefix: pixi-default-${CI_COMMIT_REF_SLUG}
+        paths:
+          - .pixi/
+        policy: pull # This job only PULLS the default env cache
   artifacts:
     paths:
       - docusaurus-site/build/

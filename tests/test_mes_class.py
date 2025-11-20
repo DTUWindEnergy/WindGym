@@ -1,6 +1,6 @@
 import unittest
 import numpy as np
-from WindGym.MesClass import Mes, turb_mes, farm_mes
+from WindGym.core.mes_class import Mes, TurbMes, FarmMes
 import sys
 from io import StringIO
 
@@ -99,7 +99,7 @@ class TestMes(unittest.TestCase):
 class TestTurbMes(unittest.TestCase):
     def setUp(self):
         # Create an instance with specific parameters.
-        self.t = turb_mes(
+        self.t = TurbMes(
             ws_current=False,
             ws_rolling_mean=True,
             ws_history_N=1,
@@ -197,7 +197,7 @@ class TestFarmMes(unittest.TestCase):
     def setUp(self):
         # Use 2 turbines for testing.
         self.n_turbines = 2
-        self.f = farm_mes(
+        self.f = FarmMes(
             n_turbines=self.n_turbines,
             turb_ws=True,
             turb_wd=True,
@@ -438,7 +438,7 @@ class TestFarmMes(unittest.TestCase):
         try:
             # Instantiate farm_mes with ti_sample_count < 10 and TI enabled
             # We also set turb_TI to True as per the original warning condition
-            farm_mes_instance = farm_mes(
+            farm_mes_instance = FarmMes(
                 n_turbines=1,  # Can be any number of turbines
                 turb_ws=True,
                 turb_wd=False,

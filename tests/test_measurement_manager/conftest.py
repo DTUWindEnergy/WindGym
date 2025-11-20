@@ -9,7 +9,7 @@ import os
 from WindGym import WindFarmEnv
 from py_wake.examples.data.hornsrev1 import V80
 from WindGym.utils.generate_layouts import generate_square_grid
-from WindGym.Measurement_Manager import MeasurementSpec, MeasurementType
+from WindGym.core.measurement_manager import MeasurementSpec, MeasurementType
 
 
 @pytest.fixture

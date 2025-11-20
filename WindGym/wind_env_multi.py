@@ -5,7 +5,7 @@ from copy import copy
 
 import numpy as np
 from gymnasium.spaces import Box
-from .Wind_Farm_Env import WindFarmEnv
+from .wind_farm_env import WindFarmEnv
 
 """
 This is the multi agent version of the wind farm env. It just wraps the wind farm env and makes it behave in a way that pettingzoo can understand.
@@ -130,8 +130,7 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
                         ),
                         -1.0,
                         1.0,
-                        dtype=np.float32,
-                    )
+                    ).astype(np.float32)
                 )
                 for a, turbine_mes in zip(self.agents, self.farm_measurements.turb_mes)
             }

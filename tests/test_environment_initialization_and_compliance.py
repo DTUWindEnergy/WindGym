@@ -296,6 +296,7 @@ class TestSpecificFeatures:
 
         try:
             # Test render call after reset
+            env.init_render()
             frame = env.render()
             if render_mode_val is None:
                 assert frame is None, "None render mode should return None"
@@ -592,7 +593,7 @@ class TestSpecificFeatures:
         )
 
         with pytest.raises(
-            NotImplementedError, match="The Track_power is not implemented yet"
+            NotImplementedError, match="Power tracking reward is not yet implemented."
         ):
             WindFarmEnv(
                 turbine=V80(),

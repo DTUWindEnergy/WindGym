@@ -55,12 +55,87 @@ const config = {
     ({
       navbar: {
         title: "WindGym Docs",
-        items: [],
+        items: [
+          {
+            type: "doc",
+            docId: "index",
+            position: "left",
+            label: "Documentation",
+          },
+          {
+            type: "doc",
+            docId: "api-reference",
+            position: "left",
+            label: "API Reference",
+          },
+          {
+            href: "https://gitlab.windenergy.dtu.dk/sys/windgym/-/tree/main/examples",
+            label: "Examples",
+            position: "left",
+          },
+          {
+            href: "https://gitlab.windenergy.dtu.dk/sys/windgym",
+            label: "GitLab",
+            position: "right",
+          },
+        ],
       },
       footer: {
         style: "dark",
-        links: [],
-        copyright: `Copyright © ${new Date().getFullYear()} WindGym. Built with Docusaurus.`,
+        links: [
+          {
+            title: "Documentation",
+            items: [
+              {
+                label: "Getting Started",
+                to: "/installation",
+              },
+              {
+                label: "User Guide",
+                to: "/concepts",
+              },
+              {
+                label: "API Reference",
+                to: "/api-reference",
+              },
+              {
+                label: "Troubleshooting",
+                to: "/troubleshooting",
+              },
+            ],
+          },
+          {
+            title: "Community",
+            items: [
+              {
+                label: "GitLab",
+                href: "https://gitlab.windenergy.dtu.dk/sys/windgym",
+              },
+              {
+                label: "Issues",
+                href: "https://gitlab.windenergy.dtu.dk/sys/windgym/-/issues",
+              },
+              {
+                label: "Discussions",
+                href: "https://gitlab.windenergy.dtu.dk/sys/windgym/-/discussions",
+              },
+            ],
+          },
+          {
+            title: "More",
+            items: [
+              {
+                label: "Examples",
+                href: "https://gitlab.windenergy.dtu.dk/sys/windgym/-/tree/main/examples",
+              },
+              {
+                label: "DTU Wind Energy",
+                href: "https://windenergy.dtu.dk/",
+              },
+            ],
+          },
+        ],
+        copyright: `Copyright © ${new Date().getFullYear()} Technical University of Denmark (DTU). Built with Docusaurus.`,
       },
       prism: {
         theme: lightCodeTheme,

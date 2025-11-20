@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 # FIX 3: Add missing import for NoisyPyWakeAgent
 from WindGym.Agents import NoisyPyWakeAgent
-from WindGym.Measurement_Manager import (
+from WindGym.core.measurement_manager import (
     EpisodicBiasNoiseModel,
     WhiteNoiseModel,
     NoisyWindFarmEnv,

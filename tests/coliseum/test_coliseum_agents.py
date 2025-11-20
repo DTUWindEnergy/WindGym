@@ -9,7 +9,7 @@ import os
 from unittest.mock import patch, MagicMock
 
 from WindGym.utils.evaluate_PPO import Coliseum
-from WindGym.FarmEval import FarmEval
+from WindGym.farm_eval import FarmEval
 from WindGym.Agents import PyWakeAgent
 from WindGym.utils.generate_layouts import generate_square_grid
 from py_wake.examples.data.hornsrev1 import V80, Hornsrev1Site

@@ -7,7 +7,7 @@ import yaml
 # --- WindGym Imports ---
 from WindGym import WindFarmEnv
 from WindGym.Agents import PyWakeAgent, NoisyPyWakeAgent
-from WindGym.Measurement_Manager import (
+from WindGym.core.measurement_manager import (
     MeasurementManager,
     EpisodicBiasNoiseModel,
     NoisyWindFarmEnv,

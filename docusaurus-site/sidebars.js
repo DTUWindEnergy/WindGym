@@ -3,29 +3,36 @@
  */
 const sidebars = {
   tutorialSidebar: [
-    // The 'intro' page (index.md) should usually be first
-    "index", // Refers to docusaurus-site/docs/index.md
+    // Getting Started
+    "index",
+    "installation",
 
-    // Then, list your other pages in the order you want them to appear
-    "installation", // Refers to docusaurus-site/docs/installation.md
-    "concepts", // Refers to docusaurus-site/docs/concepts.md
-    "agents", // Refers to docusaurus-site/docs/agents.md
-    "noise-and-uncertainty",
-    "simulations", // Refers to docusaurus-site/docs/simulations.md
-    "evaluations", // Refers to docusaurus-site/docs/evaluations.md
-    "developer-guidelines",
-
-    // You can also group related pages into categories
-    /*
+    // Core Documentation
     {
-      type: 'category',
-      label: 'Advanced Topics',
+      type: "category",
+      label: "User Guide",
+      collapsible: true,
+      collapsed: false,
       items: [
-        'advanced/topic1',
-        'advanced/topic2',
+        "concepts",
+        "simulations",
+        "agents",
+        "evaluations",
+        "noise-and-uncertainty",
       ],
     },
-    */
+
+    // Reference
+    {
+      type: "category",
+      label: "Reference",
+      collapsible: true,
+      collapsed: false,
+      items: ["api-reference", "troubleshooting"],
+    },
+
+    // Contributing
+    "developer-guidelines",
   ],
 };
 

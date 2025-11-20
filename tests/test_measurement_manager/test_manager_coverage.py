@@ -7,7 +7,7 @@ import itertools
 from unittest.mock import MagicMock
 import gymnasium as gym
 
-from WindGym.Measurement_Manager import (
+from WindGym.core.measurement_manager import (
     MeasurementManager,
     MeasurementType,
     MeasurementSpec,

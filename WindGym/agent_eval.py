@@ -1,11 +1,5 @@
 import xarray as xr
 import numpy as np
-
-# import concurrent.futures
-# import multiprocessing
-from dynamiks.views import XYView, EastNorthView
-from dynamiks.visualizers.flow_visualizers import Flow2DVisualizer
-from py_wake.utils.plotting import setup_plot
 import os
 
 import matplotlib.pyplot as plt
@@ -22,18 +16,27 @@ import torch.nn.functional as F
 from wetb.gtsdf import gtsdf
 from wetb.fatigue_tools.fatigue import eq_load
 
+from dynamiks.views import XYView, EastNorthView
+from dynamiks.visualizers.flow_visualizers import Flow2DVisualizer
+from py_wake.utils.plotting import setup_plot
 
-# from pathos.pools import ProcessPool
+# Import visualization functions from new modules
+from .visualization import (
+    plot_power_farm,
+    plot_farm_inc,
+    plot_power_turb,
+    plot_yaw_turb,
+    plot_speed_turb,
+    plot_turb,
+)
 
 """
 AgentEval is a class that is used to evaluate an agent on the EnvEval environment.
 The class is made to evaluate the agent for multiple wind directions, and then save a xarray dataset with the results.
 
-TODO: Finish the class so that it can plot the results, and save the results to a file. maybe?
 TODO: We could add in a check that the agent has already been evaluated on a given condition. if yes, then we dont need to simulate it again.
 TODO: Add a function to animate the results.
 TODO: parallelize the evaluation in eval_multiple()
-TODO: Consolidate the plotting functions, so that they are more general.
 """
 
 # def eval_single_fast(env, model, ws=10.0, ti=0.05, wd=270, yaw=0.0, turbbox="Default", t_sim=1000, save_figs=False, scale_obs=None, debug=False):
@@ -993,74 +996,10 @@ class AgentEval:
         """
         Plot the power output for the farm.
         """
-        data = self.multiple_eval_ds  # Just for easier writing
-        if axs is None:
-            fig, axs = plt.subplots(
-                len(WSS),
-                len(WDS),
-                figsize=(4 * int(len(WDS)), 3 * int(len(WSS))),
-                sharey=True,
-            )
-        else:
-            fig = axs[0, 0].get_figure()
-
-        for j, WS in enumerate(WSS):
-            for i, wd in enumerate(WDS):
-                data.sel(ws=WS).sel(wd=wd).sel(TI=TI).sel(
-                    turbbox=TURBBOX
-                ).powerF_a.rolling(time=avg_n, center=True).mean().dropna(
-                    "time"
-                ).plot.line(x="time", label="Agent", ax=axs[j, i])
-                data.sel(ws=WS).sel(wd=wd).sel(TI=TI).sel(
-                    turbbox=TURBBOX
-                ).powerF_b.rolling(time=avg_n, center=True).mean().plot.line(
-                    x="time", label="Baseline", ax=axs[j, i]
-                )
-
-                if j == 0:  # Only set the top row to have a title
-                    axs[j, i].set_title(f"WD ={wd} [deg]")
-                else:
-                    axs[j, i].set_title("")
-                if i == 0:  # Only set the left column to have a y-label
-                    axs[j, i].set_ylabel(f"WS ={WS} [m/s]")
-                else:
-                    axs[j, i].set_ylabel("")
-
-                axs[j, i].set_xlabel("")
-                axs[j, i].grid()
-                x_start = (
-                    data.sel(ws=WS)
-                    .sel(wd=wd)
-                    .sel(TI=TI)
-                    .sel(turbbox=TURBBOX)
-                    .powerF_a.rolling(time=avg_n, center=True)
-                    .mean()
-                    .dropna("time")
-                    .time.values.min()
-                )
-                x_end = (
-                    data.sel(ws=WS)
-                    .sel(wd=wd)
-                    .sel(TI=TI)
-                    .sel(turbbox=TURBBOX)
-                    .powerF_a.rolling(time=avg_n, center=True)
-                    .mean()
-                    .dropna("time")
-                    .time.values.max()
-                )
-                axs[j, i].set_xlim(x_start, x_end)
-        axs[0, 1].legend()
-        fig.suptitle(
-            f"Power output for agent and baseline, WS = {WSS}, WD = {WDS}, TI = {TI}, TurbBox = {TURBBOX}",
-            fontsize=15,
-            fontweight="bold",
+        save_path = self.name + "_power_farm.png" if save else None
+        return plot_power_farm(
+            self.multiple_eval_ds, WSS, WDS, avg_n, TI, TURBBOX, axs, save, save_path
         )
-        fig.supylabel("Power [W]", fontsize=15, fontweight="bold")
-        fig.supxlabel("Time [s]", fontsize=15, fontweight="bold")
-        plt.tight_layout()
-        if save:
-            plt.savefig(self.name + "_power_farm.png")
-        return fig, axs
 
     def plot_farm_inc(
         self, WSS, WDS, avg_n=10, TI=0.07, TURBBOX="Default", axs=None, save=False
@@ -1068,68 +1007,10 @@ class AgentEval:
         """
         Plot the percentage increase in power output for the farm.
         """
-        data = self.multiple_eval_ds  # Just for easier writing
-        if axs is None:
-            fig, axs = plt.subplots(
-                len(WSS),
-                len(WDS),
-                figsize=(4 * int(len(WDS)), 3 * int(len(WSS))),
-                sharey=True,
-            )
-        else:
-            fig = axs[0, 0].get_figure()
-
-        for j, WS in enumerate(WSS):
-            for i, wd in enumerate(WDS):
-                data.sel(ws=WS).sel(wd=wd).sel(TI=TI).sel(
-                    turbbox=TURBBOX
-                ).pct_inc.rolling(time=avg_n, center=True).mean().dropna(
-                    "time"
-                ).plot.line(x="time", ax=axs[j, i])
-                if j == 0:  # Only set the top row to have a title
-                    axs[j, i].set_title(f"WD ={wd} [deg]")
-                else:
-                    axs[j, i].set_title("")
-                if i == 0:  # Only set the left column to have a y-label
-                    axs[j, i].set_ylabel(f"WS ={WS} [m/s]")
-                else:
-                    axs[j, i].set_ylabel("")
-
-                axs[j, i].set_xlabel("")
-                axs[j, i].grid()
-                x_start = (
-                    data.sel(ws=WS)
-                    .sel(wd=wd)
-                    .sel(TI=TI)
-                    .sel(turbbox=TURBBOX)
-                    .pct_inc.rolling(time=avg_n, center=True)
-                    .mean()
-                    .dropna("time")
-                    .time.values.min()
-                )
-                x_end = (
-                    data.sel(ws=WS)
-                    .sel(wd=wd)
-                    .sel(TI=TI)
-                    .sel(turbbox=TURBBOX)
-                    .pct_inc.rolling(time=avg_n, center=True)
-                    .mean()
-                    .dropna("time")
-                    .time.values.max()
-                )
-                axs[j, i].set_xlim(x_start, x_end)
-
-        fig.suptitle(
-            f"Power increase, WS = {WSS}, WD = {WDS}, TI = {TI}, TurbBox = {TURBBOX}",
-            fontsize=15,
-            fontweight="bold",
+        save_path = self.name + "_power_farm_inc.png" if save else None
+        return plot_farm_inc(
+            self.multiple_eval_ds, WSS, WDS, avg_n, TI, TURBBOX, axs, save, save_path
         )
-        fig.supylabel("Power increase [%]", fontsize=15, fontweight="bold")
-        fig.supxlabel("Time [s]", fontsize=15, fontweight="bold")
-        plt.tight_layout()
-        if save:
-            plt.savefig(self.name + "_power_farm.png")
-        return fig, axs
 
     def plot_power_turb(
         self, ws, WDS, avg_n=10, TI=0.07, TURBBOX="Default", axs=None, save=False
@@ -1137,71 +1018,10 @@ class AgentEval:
         """
         Plot the power output for each turbine in the farm.
         """
-        data = self.multiple_eval_ds  # Just for easier writing
-        n_turb = len(data.turb.values)  # The number of turbines in the farm
-        n_wds = len(WDS)  # The number of wind directions we are looking at
-
-        if axs is None:
-            fig, axs = plt.subplots(
-                n_turb, n_wds, figsize=(18, 9), sharex=True, sharey=True
-            )
-        else:
-            fig = axs[0, 0].get_figure()
-
-        for i in range(n_turb):
-            for j, wd in enumerate(WDS):
-                data.sel(ws=ws).sel(wd=wd).sel(TI=TI).sel(turbbox=TURBBOX).sel(
-                    turb=i
-                ).powerT_a.rolling(time=avg_n, center=True).mean().dropna(
-                    "time"
-                ).plot.line(x="time", label="Agent", ax=axs[i, j])
-                data.sel(ws=ws).sel(wd=wd).sel(TI=TI).sel(turbbox=TURBBOX).sel(
-                    turb=i
-                ).powerT_b.rolling(time=avg_n, center=True).mean().plot.line(
-                    x="time", label="Baseline", ax=axs[i, j]
-                )
-                axs[i, j].set_title(f"WD ={wd}, Turbine {i}")
-
-                x_start = (
-                    data.sel(ws=ws)
-                    .sel(wd=wd)
-                    .sel(TI=TI)
-                    .sel(turbbox=TURBBOX)
-                    .sel(turb=0)
-                    .powerT_a.rolling(time=avg_n, center=True)
-                    .mean()
-                    .dropna("time")
-                    .time.values.min()
-                )
-                x_end = (
-                    data.sel(ws=ws)
-                    .sel(wd=wd)
-                    .sel(TI=TI)
-                    .sel(turbbox=TURBBOX)
-                    .sel(turb=0)
-                    .powerT_a.rolling(time=avg_n, center=True)
-                    .mean()
-                    .dropna("time")
-                    .time.values.max()
-                )
-
-                axs[i, j].grid()
-                axs[i, j].set_xlim(x_start, x_end)
-                axs[i, j].set_ylabel(" ")
-                axs[i, j].set_xlabel(" ")
-
-        fig.supylabel("Power [W]", fontsize=15, fontweight="bold")
-        fig.supxlabel("Time [s]", fontsize=15, fontweight="bold")
-        fig.suptitle(
-            f"Power output pr turbine for agent and baseline, ws = {ws}, WD = {WDS}, TI = {TI}, TurbBox = {TURBBOX}",
-            fontsize=15,
-            fontweight="bold",
+        save_path = self.name + "_power_turb.png" if save else None
+        return plot_power_turb(
+            self.multiple_eval_ds, ws, WDS, avg_n, TI, TURBBOX, axs, save, save_path
         )
-        axs[0, 0].legend()
-        plt.tight_layout()
-        if save:
-            plt.savefig(self.name + "_power_farm.png")
-        return fig, axs
 
     def plot_yaw_turb(
         self, ws, WDS, avg_n=10, TI=0.07, TURBBOX="Default", axs=None, save=False
@@ -1209,71 +1029,10 @@ class AgentEval:
         """
         Plot the yaw angle for each turbine in the farm.
         """
-        data = self.multiple_eval_ds  # Just for easier writing
-        n_turb = len(data.turb.values)  # The number of turbines in the farm
-        n_wds = len(WDS)  # The number of wind directions we are looking at
-
-        if axs is None:
-            fig, axs = plt.subplots(
-                n_turb, n_wds, figsize=(18, 9), sharex=True, sharey=True
-            )
-        else:
-            fig = axs[0, 0].get_figure()
-
-        for i in range(n_turb):
-            for j, wd in enumerate(WDS):
-                data.sel(ws=ws).sel(wd=wd).sel(TI=TI).sel(turbbox=TURBBOX).sel(
-                    turb=i
-                ).yaw_a.rolling(time=avg_n, center=True).mean().dropna(
-                    "time"
-                ).plot.line(x="time", label="Agent", ax=axs[i, j])
-                data.sel(ws=ws).sel(wd=wd).sel(TI=TI).sel(turbbox=TURBBOX).sel(
-                    turb=i
-                ).yaw_b.rolling(time=avg_n, center=True).mean().plot.line(
-                    x="time", label="Baseline", ax=axs[i, j]
-                )
-                axs[i, j].set_title(f"WD ={wd}, Turbine {i}")
-
-                x_start = (
-                    data.sel(ws=ws)
-                    .sel(wd=wd)
-                    .sel(TI=TI)
-                    .sel(turbbox=TURBBOX)
-                    .sel(turb=0)
-                    .yaw_a.rolling(time=avg_n, center=True)
-                    .mean()
-                    .dropna("time")
-                    .time.values.min()
-                )
-                x_end = (
-                    data.sel(ws=ws)
-                    .sel(wd=wd)
-                    .sel(TI=TI)
-                    .sel(turbbox=TURBBOX)
-                    .sel(turb=0)
-                    .yaw_a.rolling(time=avg_n, center=True)
-                    .mean()
-                    .dropna("time")
-                    .time.values.max()
-                )
-
-                axs[i, j].grid()
-                axs[i, j].set_xlim(x_start, x_end)
-                axs[i, j].set_ylabel(" ")
-                axs[i, j].set_xlabel(" ")
-
-        fig.supylabel("Yaw offset [deg]", fontsize=15, fontweight="bold")
-        fig.supxlabel("Time [s]", fontsize=15, fontweight="bold")
-        fig.suptitle(
-            f"Yaw angle pr turbine for agent and baseline, ws = {ws}, WD = {WDS}, TI = {TI}, TurbBox = {TURBBOX}",
-            fontsize=15,
-            fontweight="bold",
+        save_path = self.name + "_yaw_turb.png" if save else None
+        return plot_yaw_turb(
+            self.multiple_eval_ds, ws, WDS, avg_n, TI, TURBBOX, axs, save, save_path
         )
-        axs[0, 0].legend()
-        plt.tight_layout()
-        if save:
-            plt.savefig(self.name + "_yaw_farm.png")
-        return fig, axs
 
     def plot_speed_turb(
         self, ws, WDS, avg_n=10, TI=0.07, TURBBOX="Default", axs=None, save=False
@@ -1281,71 +1040,10 @@ class AgentEval:
         """
         Plot the rotor wind speed for each turbine in the farm.
         """
-        data = self.multiple_eval_ds  # Just for easier writing
-        n_turb = len(data.turb.values)  # The number of turbines in the farm
-        n_wds = len(WDS)  # The number of wind directions we are looking at
-
-        if axs is None:
-            fig, axs = plt.subplots(
-                n_turb, n_wds, figsize=(18, 9), sharex=True, sharey=True
-            )
-        else:
-            fig = axs[0, 0].get_figure()
-
-        for i in range(n_turb):
-            for j, wd in enumerate(WDS):
-                data.sel(ws=ws).sel(wd=wd).sel(TI=TI).sel(turbbox=TURBBOX).sel(
-                    turb=i
-                ).ws_a.rolling(time=avg_n, center=True).mean().dropna("time").plot.line(
-                    x="time", label="Agent", ax=axs[i, j]
-                )
-                data.sel(ws=ws).sel(wd=wd).sel(TI=TI).sel(turbbox=TURBBOX).sel(
-                    turb=i
-                ).ws_b.rolling(time=avg_n, center=True).mean().plot.line(
-                    x="time", label="Baseline", ax=axs[i, j]
-                )
-                axs[i, j].set_title(f"WD ={wd}, Turbine {i}")
-
-                x_start = (
-                    data.sel(ws=ws)
-                    .sel(wd=wd)
-                    .sel(TI=TI)
-                    .sel(turbbox=TURBBOX)
-                    .sel(turb=0)
-                    .ws_a.rolling(time=avg_n, center=True)
-                    .mean()
-                    .dropna("time")
-                    .time.values.min()
-                )
-                x_end = (
-                    data.sel(ws=ws)
-                    .sel(wd=wd)
-                    .sel(TI=TI)
-                    .sel(turbbox=TURBBOX)
-                    .sel(turb=0)
-                    .ws_a.rolling(time=avg_n, center=True)
-                    .mean()
-                    .dropna("time")
-                    .time.values.max()
-                )
-
-                axs[i, j].grid()
-                axs[i, j].set_xlim(x_start, x_end)
-                axs[i, j].set_ylabel(" ")
-                axs[i, j].set_xlabel(" ")
-
-        fig.supylabel("Wind speed [m/s]", fontsize=15, fontweight="bold")
-        fig.supxlabel("Time [s]", fontsize=15, fontweight="bold")
-        fig.suptitle(
-            f"Rotor wind speed, ws={ws}, WD = {WDS}, TI = {TI}, TurbBox = {TURBBOX}",
-            fontsize=15,
-            fontweight="bold",
+        save_path = self.name + "_speed_turb.png" if save else None
+        return plot_speed_turb(
+            self.multiple_eval_ds, ws, WDS, avg_n, TI, TURBBOX, axs, save, save_path
         )
-        axs[0, 0].legend()
-        plt.tight_layout()
-        if save:
-            plt.savefig(self.name + "_yaw_farm.png")
-        return fig, axs
 
     def plot_turb(
         self, ws, wd, avg_n=10, TI=0.07, TURBBOX="Default", axs=None, save=False
@@ -1353,100 +1051,7 @@ class AgentEval:
         """
         Plot the power, yaw and rotor wind speed for each turbine in the farm.
         """
-        data = self.multiple_eval_ds  # Just for easier writing
-        n_turb = len(data.turb.values)  # The number of turbines in the farm
-        # n_wds = len(WDS)  #The number of wind directions we are looking at
-
-        plot_x = ["Power", "Yaw", "Rotor wind speed"]
-
-        if axs is None:
-            fig, axs = plt.subplots(n_turb, len(plot_x), figsize=(18, 9), sharex=True)
-        else:
-            fig = axs[0, 0].get_figure()
-
-        for i in range(n_turb):
-            # Bookkeeping for the different variables
-            for j, plot_var in enumerate(plot_x):
-                if plot_var == "Power":
-                    to_plot = "powerT_"
-                    plot_title = "Turbine power"
-                    y_label = "Power [W]"
-                elif plot_var == "Yaw":
-                    to_plot = "yaw_"
-                    plot_title = "Yaw offset [deg]"
-                    y_label = "Yaw offset [deg]"
-                elif plot_var == "Rotor wind speed":
-                    to_plot = "ws_"
-                    plot_title = "Rotor wind speed [m/s]"
-
-                # Set the y axis to be shared between the different plots
-                axs[i, j].sharey(axs[0, j])
-
-                # Plot the data
-                data.sel(ws=ws).sel(wd=wd).sel(TI=TI).sel(turbbox=TURBBOX).sel(
-                    turb=i
-                ).data_vars[to_plot + "a"].rolling(
-                    time=avg_n, center=True
-                ).mean().dropna("time").plot.line(x="time", label="Agent", ax=axs[i, j])
-                data.sel(ws=ws).sel(wd=wd).sel(TI=TI).sel(turbbox=TURBBOX).sel(
-                    turb=i
-                ).data_vars[to_plot + "b"].rolling(
-                    time=avg_n, center=True
-                ).mean().dropna("time").plot.line(
-                    x="time", label="Baseline", ax=axs[i, j]
-                )
-
-                # Set the title of the plot
-                if i == 0:
-                    axs[i, j].set_title(plot_title)
-                else:
-                    axs[i, j].set_title("")
-
-                # Find at set the x-axis limits
-                x_start = (
-                    data.sel(ws=ws)
-                    .sel(wd=wd)
-                    .sel(TI=TI)
-                    .sel(turbbox=TURBBOX)
-                    .sel(turb=i)
-                    .data_vars[to_plot + "a"]
-                    .rolling(time=avg_n, center=True)
-                    .mean()
-                    .dropna("time")
-                    .time.values.min()
-                )
-                x_end = (
-                    data.sel(ws=ws)
-                    .sel(wd=wd)
-                    .sel(TI=TI)
-                    .sel(turbbox=TURBBOX)
-                    .sel(turb=i)
-                    .data_vars[to_plot + "a"]
-                    .rolling(time=avg_n, center=True)
-                    .mean()
-                    .dropna("time")
-                    .time.values.max()
-                )
-                axs[i, j].set_xlim(x_start, x_end)
-
-                # Set the y and x labels
-                if j == 0:
-                    axs[i, j].set_ylabel(f"Turbine {i}")
-                else:
-                    axs[i, j].set_ylabel(" ")
-                if i == n_turb - 1:
-                    axs[i, j].set_xlabel("Time [s]")
-                else:
-                    axs[i, j].set_xlabel(" ")
-
-        fig.suptitle(
-            f"Turbine power, yaw and rotor windspeed, ws={ws}, WD = {wd}, TI = {TI}, TurbBox = {TURBBOX}",
-            fontsize=15,
-            fontweight="bold",
+        save_path = self.name + "_turbine_metrics.png" if save else None
+        return plot_turb(
+            self.multiple_eval_ds, ws, wd, avg_n, TI, TURBBOX, axs, save, save_path
         )
-        axs[0, 0].legend()
-        plt.tight_layout()
-        plt.show()
-        if save:
-            plt.savefig(self.name + "_turbine_metrics.png")
-        return fig, axs

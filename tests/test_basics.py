@@ -159,7 +159,7 @@ def test_environment_step(wind_farm_env):
         # Validate step outputs
         assert isinstance(obs, np.ndarray)
         assert obs.shape == wind_farm_env.observation_space.shape
-        assert isinstance(reward, float)
+        assert isinstance(reward, (np.float32, float))
         assert not np.isnan(reward)
         assert isinstance(terminated, bool)
         assert isinstance(truncated, bool)
@@ -186,17 +186,18 @@ def test_random_actions(wind_farm_env):
         assert isinstance(info["Power agent"], (int, float))
         assert info["Power agent"] >= 0
 
-        # Check that the action penalty is applied correctly
-        wind_farm_env.action_penalty = 1.0
-        wind_farm_env.action_penalty_type = "Change"
-        pen_1 = wind_farm_env._action_penalty()
+        # Action penalties are moved into the reward calculator now.
+        # # Check that the action penalty is applied correctly
+        # wind_farm_env.action_penalty = 1.0
+        # wind_farm_env.action_penalty_type = "Change"
+        # pen_1 = wind_farm_env._action_penalty()
 
-        wind_farm_env.action_penalty_type = "Total"
-        pen_2 = wind_farm_env._action_penalty()
+        # wind_farm_env.action_penalty_type = "Total"
+        # pen_2 = wind_farm_env._action_penalty()
 
-        # Assert that both should be above 0
-        assert pen_1 >= 0, "The penalty should be above 0"
-        assert pen_2 >= 0, "The penalty should be above 0"
+        # # Assert that both should be above 0
+        # assert pen_1 >= 0, "The penalty should be above 0"
+        # assert pen_2 >= 0, "The penalty should be above 0"
 
 
 def test_yaw_angle_limits(wind_farm_env):
@@ -280,7 +281,7 @@ def test_reward_functions(wind_farm_env):
         _, reward, _, _, _ = wind_farm_env.step(
             np.zeros(wind_farm_env.action_space.shape)
         )
-        assert isinstance(reward, float)
+        assert isinstance(reward, (np.float32, float))
 
     # Test action penalty
     large_action = np.ones(wind_farm_env.action_space.shape)
@@ -403,7 +404,9 @@ def test_ppo_compatibility(wind_farm_env):
             np.isnan(obs)
         ), f"Observation at step {i} should not contain NaNs."
 
-        assert isinstance(reward, float), f"Reward at step {i} should be a float."
+        assert isinstance(
+            reward, (np.float32, float)
+        ), f"Reward at step {i} should be a float."
         assert not np.isnan(reward), f"Reward at step {i} should not be NaN."
 
         assert isinstance(

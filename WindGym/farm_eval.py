@@ -1,4 +1,4 @@
-from .Wind_Farm_Env import WindFarmEnv
+from .wind_farm_env import WindFarmEnv
 
 
 """
@@ -96,14 +96,23 @@ class FarmEval(WindFarmEnv):
             self.ws = ws
             self.ws_inflow_min = ws
             self.ws_inflow_max = ws
+            # Update wind_manager to use exact values
+            self.wind_manager.ws_min = ws
+            self.wind_manager.ws_max = ws
         if ti is not None:
             self.ti = ti
             self.TI_inflow_min = ti
             self.TI_inflow_max = ti
+            # Update wind_manager to use exact values
+            self.wind_manager.ti_min = ti
+            self.wind_manager.ti_max = ti
         if wd is not None:
             self.wd = wd
             self.wd_inflow_min = wd
             self.wd_inflow_max = wd
+            # Update wind_manager to use exact values
+            self.wind_manager.wd_min = wd
+            self.wind_manager.wd_max = wd
 
     def set_yaw_vals(self, yaw_vals):
         """

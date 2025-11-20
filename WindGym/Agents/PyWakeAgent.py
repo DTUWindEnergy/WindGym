@@ -3,7 +3,7 @@ from py_wake.examples.data.lillgrund import LillgrundSite
 from py_wake.deflection_models.jimenez import JimenezWakeDeflection
 from py_wake.examples.data.hornsrev1 import V80
 
-from WindGym.Measurement_Manager import MeasurementType, MeasurementManager
+from WindGym.core.measurement_manager import MeasurementType, MeasurementManager
 
 from py_wake.literature.gaussian_models import Blondel_Cathelain_2020
 from py_wake.turbulence_models import CrespoHernandez

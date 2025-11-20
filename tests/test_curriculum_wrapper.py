@@ -66,7 +66,7 @@ def cw_mod():
     """Import once, share for all tests."""
     import importlib
 
-    return importlib.import_module("WindGym.wrappers.curriculumWrapper")
+    return importlib.import_module("WindGym.wrappers.curriculum_wrapper")
 
 
 @pytest.fixture

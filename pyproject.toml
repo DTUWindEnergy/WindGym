@@ -55,7 +55,7 @@ omit = [
         "WindGym/version.py"
        ]
 
-[tool.pixi.project]
+[tool.pixi.workspace]
 channels = ["conda-forge"]
 platforms = ["osx-arm64", "linux-64"]
 
@@ -67,10 +67,9 @@ hdf5 = "*"
 h5py = "*"
 netcdf4 = "*"
 numpy = "<2"
-pre-commit = ">=4.0.1,<5"
 pytest = ">=8.3.4,<9"
 pytest-cov = ">=6.0.0,<7"
-gymnasium-all = ">=1.0.0,<2"
+gymnasium = ">=1.0.0,<2"
 xarray = ">=2022.0.0,<2025"
 pytz = ">=2025.1,<2026"
 jupyter = ">=1.1.1,<2"
@@ -84,3 +83,10 @@ nodejs = ">=24.4.1,<24.10"
 install = { cmd = "pip install -e ." }
 test = { depends-on = ["install"], cmd = "pytest" }
 
+[tool.pixi.feature.lint.dependencies]
+python = ">=3.7,<3.12"
+pre-commit = ">=4.0.1,<5"
+
+
+[tool.pixi.environments]
+lint = { features = ["lint"], no-default-feature = true }

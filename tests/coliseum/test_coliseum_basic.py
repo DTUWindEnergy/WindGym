@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 # --- Imports from the WindGym project ---
 from WindGym.utils.evaluate_PPO import Coliseum
-from WindGym.FarmEval import FarmEval
+from WindGym.farm_eval import FarmEval
 from WindGym import WindFarmEnv
 from WindGym.Agents import ConstantAgent
 from WindGym.utils.generate_layouts import generate_square_grid
