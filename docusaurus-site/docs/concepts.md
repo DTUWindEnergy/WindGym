@@ -52,7 +52,7 @@ Agents interact with the environment by providing actions that modify the wind t
 - **`ActionMethod`**: Configurable in the YAML file, this determines how the agent's action translates into a yaw change:
   - `"yaw"`: The action represents a desired _change_ in yaw angle. The environment limits the rate of change per `dt_sim`.
   - `"wind"`: The action represents a _target yaw angle_ (relative to the global wind direction). The environment then adjusts the turbine's yaw towards this target, respecting the maximum yaw rate.
-  - `"absolute"`: (Currently not implemented) Would directly set the yaw angle, ignoring yaw rate limits.
+  - `"absolute"`: (Currently not implemented) The yaw angles are direclt based on the global coordinate system.
 - **`yaw_step_sim` / `yaw_step_env`**: Defines the maximum rate at which turbine yaw angles can change.
   - `yaw_step_sim`: The maximum change in yaw angle allowed per internal simulation step (`dt_sim`).
   - `yaw_step_env`: The maximum change in yaw angle allowed per environment step (`dt_env`). If `yaw_step_env` is `None`, it's calculated based on `yaw_step_sim` and the ratio of `dt_env` to `dt_sim`.

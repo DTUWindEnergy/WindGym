@@ -29,7 +29,7 @@
 
 WindGym provides a dynamic wind farm environment for developing and evaluating reinforcement learning agents for wind farm control. Built on [DYNAMIKS](https://gitlab.windenergy.dtu.dk/DYNAMIKS/dynamiks) and [PyWake](https://gitlab.windenergy.dtu.dk/TOPFARM/PyWake), it enables agents to learn optimal turbine yaw control strategies for power maximization and load reduction in complex wake interactions.
 
-**📚 [View the full documentation →](https://sys.pages.windenergy.dtu.dk/windgym/)**
+**📚 [View the full documentation here](https://sys.pages.windenergy.dtu.dk/windgym/)**
 
 ---
 

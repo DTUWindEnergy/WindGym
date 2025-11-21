@@ -1,474 +1,663 @@
-# Running Simulations
+# Simulations with WindGym Environments
 
-This guide covers how to run simulations in WindGym, from basic environment setup to advanced configuration options.
+This notebook provides a comprehensive guide to running simulations in WindGym, focusing on the core environment classes: `WindFarmEnv` and `FarmEval`. We'll explore their differences, intended use cases, and how to interact with them for both single-agent and multi-agent scenarios.
+
+## 1. Core WindGym Environments: `WindFarmEnv` vs. `FarmEval`
+
+WindGym offers two primary environment classes for different simulation needs:
+
+1.  **`WindFarmEnv`**: The base, general-purpose environment.
+2.  **`FarmEval`**: A specialized subclass of `WindFarmEnv` designed specifically for evaluation and fixed-condition simulations.
+
+Understanding their relationship and distinctions is crucial for effective use of WindGym.
+
+### `WindFarmEnv`: The Flexible Base Environment
+
+`WindFarmEnv` is your go-to environment for general-purpose wind farm simulations. It's designed to be flexible, supporting various configurations and dynamic wind conditions, making it suitable for:
+
+- **Reinforcement Learning Training**: Agents can learn to adapt to changing wind conditions over long episodes.
+- **Stochastic Wind Sampling**: It can integrate with PyWake `Site` objects (`sample_site` parameter) to sample realistic wind speeds and directions based on wind resource distributions (e.g., Weibull for speed, frequency for direction). If `sample_site` is not provided, it samples uniformly from defined min/max ranges.
+- **Dynamic Changes**: While this version primarily uses steady wind within an episode, `WindFarmEnv`'s architecture allows for future extensions that could introduce wind changes mid-episode.
+- **Multi-Agent Foundation**: It serves as the base for the `WindFarmEnvMulti` environment (discussed later) for decentralized control problems.
+
+### `FarmEval`: The Evaluation-Focused Environment
+
+`FarmEval` is a direct subclass of `WindFarmEnv` (`class FarmEval(WindFarmEnv):`). It inherits all capabilities of `WindFarmEnv` but **overrides key behaviors** to facilitate precise and reproducible evaluations under specific, controlled conditions. Its main features include:
+
+- **Fixed Wind Conditions**: `FarmEval` allows you to _directly set_ the wind speed (`ws`), wind direction (`wd`), and turbulence intensity (`ti`) via `set_wind_vals()` _before_ calling `reset()`. This overrides any stochastic sampling, ensuring the environment always starts with the exact specified wind conditions.
+- **Evaluation Loop Compatibility**: It is specifically used by the `AgentEval` class (and its `eval_single_fast` function) for running standardized benchmarks, as demonstrated later in this notebook.
+- **Non-Terminating Episodes**: By default, `FarmEval` episodes are "infinite" (or very long, set by `time_max = 9999999`) unless `finite_episode=True` is explicitly set. This ensures that evaluation runs for a consistent duration without premature termination.
+- **Baseline Comparison**: It often enables the `Baseline_comp=True` flag by default or is configured to always run a parallel baseline simulation for direct comparison of agent performance.
+
+### Key Differences Summary
+
+| Feature                | `WindFarmEnv`                                      | `FarmEval`                                                 |
+| :--------------------- | :------------------------------------------------- | :--------------------------------------------------------- |
+| **Base Class**         | `gymnasium.Env`                                    | `WindFarmEnv`                                              |
+| **Primary Use**        | RL Training, General Simulation (stochastic wind)  | Fixed-condition Evaluation, Benchmarking                   |
+| **Wind Conditions**    | Randomly sampled (from ranges or `sample_site`)    | Explicitly set via `set_wind_vals()` (overrides sampling)  |
+| **Episode Length**     | Defined by `n_passthrough`, can terminate/truncate | Effectively 'infinite' by default (`time_max` overwritten) |
+| **`reset()` behavior** | Samples new wind unless overridden                 | Uses explicitly set wind conditions                        |
+| **Stochasticity**      | High (wind sampling, turbulence generation)        | Controlled (fixed wind for evaluation)                     |
+| **Parameter Setting**  | Parameters set during initialization (`__init__`)  | Parameters can be explicitly set/overridden via methods    |
 
 ---
 
-## Quick Start
+Now, let's start by setting up the necessary imports and a `config.yaml` file that both environments will use.
 
-### Creating Your First Environment
+### Initial Setup: Imports and Configuration File
 
-The simplest way to create a WindGym environment:
+We'll need common Python libraries and specific WindGym components. We'll also define a `config.yaml` file, which specifies various environment parameters like observation details, reward functions, and action methods. Ensure this `config.yaml` is saved in the same directory as this notebook.
 
 ```python
+import numpy as np
+import gymnasium as gym
+import matplotlib.pyplot as plt
+import os
+import yaml
+import xarray as xr
+import warnings
+warnings.filterwarnings('ignore')
+
+# Import WindGym environment classes
 from WindGym import WindFarmEnv
-from py_wake.examples.data.hornsrev1 import V80
+from WindGym import FarmEval
+from WindGym import AgentEvalFast
+from WindGym.Agents import PyWakeAgent, RandomAgent
+from WindGym import WindFarmEnvMulti
 
-# Create a basic 3-turbine wind farm
-env = WindFarmEnv(
-    turbine=V80(),           # PyWake turbine model (REQUIRED)
-    x_pos=[0, 500, 1000],    # Turbine x positions in meters (REQUIRED)
-    y_pos=[0, 0, 0],         # Turbine y positions in meters (REQUIRED)
-    config="EnvConfigs/Env1.yaml",  # Configuration file with wind conditions
-)
-
-# Reset the environment (samples wind conditions from config)
-obs, info = env.reset()
-print(f"Observation shape: {obs.shape}")
-print(f"Action space: {env.action_space}")
+# Import a default turbine model from PyWake
+from py_wake.examples.data.hornsrev1 import V80, Hornsrev1Site # Hornsrev1Site for stochastic wind example
 ```
 
-### Running a Simple Episode
+#### `config` Content
+
+This can either be specified as a `.yaml` file, or as a dictionary with the same content. This defines the detailed behavior of the WindGym environments.
 
 ```python
-# Run one episode with random actions
-obs, info = env.reset()
-total_reward = 0
+config_dict = {
+    "yaw_init": "Zeros",
+    "BaseController": "Local",
+    "ActionMethod": "wind",
+    "Track_power": False,
+    "farm": {
+        "yaw_min": -45,
+        "yaw_max": 45,
+    },
+    "wind": {
+        "ws_min": 8,
+        "ws_max": 12,
+        "TI_min": 0.07,
+        "TI_max": 0.15,
+        "wd_min": 260,
+        "wd_max": 280,
+    },
+    "act_pen": {"action_penalty": 0.0, "action_penalty_type": "Change"},
+    "power_def": {"Power_reward": "Baseline", "Power_avg": 5, "Power_scaling": 1.0},
+    "mes_level": {
+        "turb_ws": True,
+        "turb_wd": True,
+        "turb_TI": False,
+        "turb_power": True,
+        "farm_ws": True,
+        "farm_wd": True,
+        "farm_TI": False,
+        "farm_power": True,
+    },
+    "ws_mes": {
+        "ws_current": False,
+        "ws_rolling_mean": True,
+        "ws_history_N": 1,
+        "ws_history_length": 10,
+        "ws_window_length": 10,
+    },
+    "wd_mes": {
+        "wd_current": False,
+        "wd_rolling_mean": True,
+        "wd_history_N": 1,
+        "wd_history_length": 10,
+        "wd_window_length": 10,
+    },
+    "yaw_mes": {
+        "yaw_current": False,
+        "yaw_rolling_mean": True,
+        "yaw_history_N": 2,
+        "yaw_history_length": 30,
+        "yaw_window_length": 1,
+    },
+    "power_mes": {
+        "power_current": False,
+        "power_rolling_mean": True,
+        "power_history_N": 1,
+        "power_history_length": 10,
+        "power_window_length": 10,
+    },
+}
 
-for step in range(100):
-    # Take a random action
+```
+
+## 2. Basic `WindFarmEnv` Usage: Training Environment
+
+Let's demonstrate how to initialize and interact with the base `WindFarmEnv`. This environment is typically used for training Reinforcement Learning agents, where wind conditions might vary from episode to episode.
+
+```python
+# Define turbine positions (e.g., two turbines placed along the x-axis)
+x_pos_base = np.array([0, 500])  # Meters
+y_pos_base = np.array([0, 0])    # Meters
+
+# Initialize the WindFarmEnv
+env = WindFarmEnv(
+    turbine=V80(),              # The wind turbine model to use
+    x_pos=x_pos_base,           # X-coordinates of the turbines
+    y_pos=y_pos_base,           # Y-coordinates of the turbines
+    n_passthrough=5,            # Simulate for 5 "flow passthroughs" to define episode length
+    dt_sim=1,                   # Internal simulation timestep in seconds (e.g., DWM solver step)
+    dt_env=5,                   # Environment timestep in seconds (how often the agent acts)
+                                # dt_env must be a multiple of dt_sim
+    yaw_step_sim=1,             # Maximum 1 degree yaw change per dt_sim
+    config=config_dict,         # Path to the YAML configuration file
+    Baseline_comp=True,         # Enable a parallel baseline farm for comparison
+    render_mode=None,           # Set to 'human' for visualization, 'None' for headless operation
+    seed=42                     # Random seed for reproducibility
+)
+
+print(f"Initialized WindFarmEnv: Observation Space {env.observation_space}, Action Space {env.action_space}")
+```
+
+    Initialized WindFarmEnv: Observation Space Box(-1.0, 1.0, (13,), float32), Action Space Box(-1.0, 1.0, (2,), float32)
+
+The plot can be visualized by balling the `.plot_farm()` command
+
+```python
+env.plot_farm()
+```
+
+![png](simulations_files/simulations_11_0.png)
+
+### Interacting with `WindFarmEnv`: `reset()` and `step()`
+
+The standard Gymnasium API (`reset()` and `step()`) is used for interaction.
+
+#### Resetting the Environment
+
+`env.reset()` initializes a new episode. In `WindFarmEnv`, this involves sampling new global wind conditions (speed, direction, turbulence intensity) within the ranges defined in `config`, setting up a turbulence field, initializing turbine yaw angles, and running a "burn-in" period to stabilize the flow.
+
+```python
+# Reset the environment to start a new episode
+observation, info = env.reset()
+
+print("\n--- Initial State of WindFarmEnv ---")
+print("Initial Observation (scaled between -1 and 1):\n", observation)
+print("\nInitial Info Dictionary (contains raw values and metadata):")
+for key, value in info.items():
+    if isinstance(value, np.ndarray):
+        print(f"  {key}: shape={value.shape}, dtype={value.dtype}")
+    else:
+        print(f"  {key}: {value}")
+
+print(f"\nInitial Wind Conditions for this episode: WS={info['Wind speed Global']:.2f} m/s, WD={info['Wind direction Global']:.2f} deg, TI={info['Turbulence intensity']:.2f}")
+```
+
+    --- Initial State of WindFarmEnv ---
+    Initial Observation (scaled between -1 and 1):
+     [-0.43978208  0.55598783  0.          0.         -0.18232864 -0.44562423
+      0.5533742   0.          0.         -0.20923835 -0.4427032   0.55468106
+     -0.1957835 ]
+
+    Initial Info Dictionary (contains raw values and metadata):
+      yaw angles agent: shape=(2,), dtype=float64
+      yaw angles measured: shape=(4,), dtype=float32
+      Wind speed Global: 8.376709391550598
+      Wind speed at turbines: shape=(2,), dtype=float64
+      Wind speed at turbines measured: shape=(2,), dtype=float32
+      Wind speed at farm measured: shape=(1,), dtype=float32
+      Wind direction Global: 279.5124470327351
+      Wind direction at turbines: shape=(2,), dtype=float64
+      Wind direction at turbines measured: shape=(2,), dtype=float32
+      Wind direction at farm measured: shape=(1,), dtype=float32
+      Turbulence intensity: 0.13089117615922824
+      Power agent: 1596653.08341162
+      Power agent nowake: 1465319.5066567962
+      Power pr turbine agent: shape=(2,), dtype=float64
+      Turbine x positions: shape=(2,), dtype=float64
+      Turbine y positions: shape=(2,), dtype=float64
+      Turbulence intensity at turbines: shape=(2,), dtype=float32
+      yaw angles base: shape=(2,), dtype=float64
+      Power baseline: 1596653.08341162
+      Power pr turbine baseline: shape=(2,), dtype=float64
+      Wind speed at turbines baseline: shape=(2,), dtype=float64
+
+    Initial Wind Conditions for this episode: WS=8.38 m/s, WD=279.51 deg, TI=0.13
+
+#### Taking Steps (`env.step()`)
+
+In each `step()`, your agent provides an `action` (a NumPy array scaled between -1 and 1), and the environment returns the `next_observation`, `reward`, `terminated` flag, `truncated` flag, and an updated `info` dictionary.
+
+```python
+num_steps = 5 # Number of environment steps to simulate
+
+print(f"\nRunning {num_steps} steps in WindFarmEnv with random actions...")
+for i in range(num_steps):
+    # Check if the episode has ended
+    if info.get('terminated', False) or info.get('truncated', False):
+        print(f"Episode ended at step {i}.\n")
+        break
+
+    # Sample a random action from the environment's action space
     action = env.action_space.sample()
 
-    # Step the environment
-    obs, reward, terminated, truncated, info = env.step(action)
-    total_reward += reward
+    # Take a step in the environment with the sampled action
+    observation, reward, terminated, truncated, info = env.step(action)
 
-    # Check if episode is done
-    if terminated or truncated:
-        print(f"Episode finished after {step + 1} steps")
-        break
+    print(f"\n--- Step {i+1} ---")
+    print(f"Action (raw): {action}")
+    print(f"Reward: {reward:.4f}")
+    print(f"Farm Power (Agent): {info['Power agent'] / 1e6:.2f} MW")
+    if 'Power baseline' in info: # Baseline power is only available if Baseline_comp is True
+        print(f"Farm Power (Baseline): {info['Power baseline'] / 1e6:.2f} MW")
+    print(f"Current Yaw Angles (Agent): {np.round(info['yaw angles agent'], 2)}")
+    print(f"Time: {info['time_array'][-1]:.2f} s")
+```
 
-print(f"Total reward: {total_reward:.2f}")
+    Running 5 steps in WindFarmEnv with random actions...
+
+    --- Step 1 ---
+    Action (raw): [ 0.8504555  -0.06852277]
+    Reward: -0.0008
+    Farm Power (Agent): 1.86 MW
+    Farm Power (Baseline): 1.87 MW
+    Current Yaw Angles (Agent): [ 5.   -3.08]
+    Time: 275.00 s
+
+
+
+    --- Step 2 ---
+    Action (raw): [-0.49940988 -0.8867711 ]
+    Reward: -0.0027
+    Farm Power (Agent): 1.70 MW
+    Farm Power (Baseline): 1.73 MW
+    Current Yaw Angles (Agent): [ 0.   -8.08]
+    Time: 280.00 s
+
+    --- Step 3 ---
+    Action (raw): [-0.8357171   0.28006923]
+    Reward: -0.0043
+    Farm Power (Agent): 1.81 MW
+    Farm Power (Baseline): 1.82 MW
+    Current Yaw Angles (Agent): [-5.   -3.08]
+    Time: 285.00 s
+
+
+
+    --- Step 4 ---
+    Action (raw): [-0.05847819 -0.7088383 ]
+    Reward: -0.0063
+    Farm Power (Agent): 1.15 MW
+    Farm Power (Baseline): 1.17 MW
+    Current Yaw Angles (Agent): [-2.63 -8.08]
+    Time: 290.00 s
+
+    --- Step 5 ---
+    Action (raw): [0.51846343 0.46678016]
+    Reward: -0.0076
+    Farm Power (Agent): 1.19 MW
+    Farm Power (Baseline): 1.19 MW
+    Current Yaw Angles (Agent): [ 2.37 -3.08]
+    Time: 295.00 s
+
+```python
+# Close the environment to free resources
+print("\nClosing WindFarmEnv...")
 env.close()
+print("WindFarmEnv closed.")
 ```
 
----
+    Closing WindFarmEnv...
+    WindFarmEnv closed.
 
-## Environment Configuration
+## 3. Running Simulations with `FarmEval`: Evaluation and Pre-built Agents
 
-### Wind Conditions
-
-WindGym configures wind conditions through the YAML configuration file:
-
-#### Fixed Wind Conditions
+`FarmEval` is ideal for reproducible evaluations under fixed wind conditions, which is crucial for benchmarking and comparing different agents. Here, we'll use it to evaluate a `PyWakeAgent`.
 
 ```python
-from WindGym import WindFarmEnv
-from py_wake.examples.data.hornsrev1 import V80
+# Define turbine positions for a small farm for evaluation (e.g., three turbines in a row)
+x_pos_eval = np.array([0, 600, 1200]) # meters
+y_pos_eval = np.array([0, 0, 0])      # meters
 
-env = WindFarmEnv(
+# Initialize the FarmEval environment
+eval_env = FarmEval(
     turbine=V80(),
-    x_pos=[0, 500, 1000],
-    y_pos=[0, 0, 0],
-    config="EnvConfigs/Env1.yaml",  # Defines wind conditions
-)
-```
-
-**In your `EnvConfigs/Env1.yaml`**:
-
-```yaml
-wind:
-  ws_min: 10.0 # Fixed wind speed (when min == max)
-  ws_max: 10.0
-  wd_min: 270.0 # Fixed wind direction (270° = from West)
-  wd_max: 270.0
-  TI_min: 0.06 # Fixed turbulence intensity
-  TI_max: 0.06
-```
-
-#### Sampled Wind Conditions
-
-Use PyWake's Site object to sample realistic wind distributions:
-
-```python
-from WindGym import WindFarmEnv
-from py_wake.examples.data.hornsrev1 import V80
-from py_wake.site import UniformSite
-
-# Create a site with wind resource distribution
-site = UniformSite(
-    p_wd=[0.1, 0.2, 0.3, 0.4],  # Probability for each direction sector
-    a=[9.0],                     # Weibull A parameter (wind speed)
-    k=[2.0],                     # Weibull k parameter (shape)
-    ti=0.06
+    x_pos=x_pos_eval,
+    y_pos=y_pos_eval,
+    dt_sim=1,
+    dt_env=10,
+    yaw_step_sim=1,
+    config=config_dict,
+    Baseline_comp=True,     # Essential for comparing agent to a baseline
+    render_mode=None,       # Typically headless for evaluations to speed up
+    seed=42,
+    # For fixed wind condition evaluation, ensure sample_site is None.
+    # The wind conditions are set directly via eval_env.set_wind_vals().
+    sample_site=None,
 )
 
-env = WindFarmEnv(
+# Set specific, fixed wind conditions for this evaluation run BEFORE resetting
+eval_env.set_wind_vals(ws=10.0, ti=0.07, wd=270.0)
+
+# Initialize the PyWakeAgent
+# The PyWakeAgent calculates optimal yaw angles based on the current wind conditions
+pywake_agent = PyWakeAgent(
+    x_pos=x_pos_eval,
+    y_pos=y_pos_eval,
     turbine=V80(),
-    x_pos=[0, 500, 1000],
-    y_pos=[0, 0, 0],
-    config="EnvConfigs/Env1.yaml",
-    sample_site=site,  # Sample wind conditions from site distribution
+    env=eval_env # Pass the environment object to the agent for context
 )
+
+print("\n--- Running simulation with PyWakeAgent using eval_single_fast ---")
+# eval_single_fast runs a full episode with the specified agent and returns an xarray Dataset
+# t_sim specifies the total simulation time in seconds
+eval_results = eval_single_fast(
+    env=eval_env,
+    model=pywake_agent,
+    ws=10.0,
+    ti=0.07,
+    wd=270.0,
+    t_sim=6,
+    save_figs=False,        # Set to True to generate frame-by-frame plots (can be very slow)
+    debug=False,
+    deterministic=True,     # Use deterministic policy for the agent
+    name="PyWake_3Turbines_Test"
+)
+
+
 ```
 
-### Turbine Layout
+    --- Running simulation with PyWakeAgent using eval_single_fast ---
 
-Configure the wind farm layout by specifying turbine positions:
+
+
+    ---------------------------------------------------------------------------
+
+    NameError                                 Traceback (most recent call last)
+
+    Cell In[8], line 37
+         34 print("\n--- Running simulation with PyWakeAgent using eval_single_fast ---")
+         35 # eval_single_fast runs a full episode with the specified agent and returns an xarray Dataset
+         36 # t_sim specifies the total simulation time in seconds
+    ---> 37 eval_results = eval_single_fast(
+         38     env=eval_env,
+         39     model=pywake_agent,
+         40     ws=10.0,
+         41     ti=0.07,
+         42     wd=270.0,
+         43     t_sim=6,
+         44     save_figs=False,        # Set to True to generate frame-by-frame plots (can be very slow)
+         45     debug=False,
+         46     deterministic=True,     # Use deterministic policy for the agent
+         47     name="PyWake_3Turbines_Test"
+         48 )
+
+
+    NameError: name 'eval_single_fast' is not defined
 
 ```python
-from WindGym import WindFarmEnv
-from py_wake.examples.data.hornsrev1 import V80
+# Select a single wind speed, direction, and TI for plotting, assuming eval_results has these dimensions
+selected_data = eval_results.sel(ws=10.0, wd=270.0, TI=0.07, method='nearest')
+#print(selected_data['powerF_a'].head())
+
+# Access the underlying data for plotting, and use .squeeze() to remove singleton dimensions
+agent_power = selected_data['powerF_a'].squeeze().values
+baseline_power = selected_data['powerF_b'].squeeze().values
+time_steps = selected_data['time'].values
+
+agent_yaw_all_turbines = selected_data['yaw_a'].squeeze().values
+baseline_yaw_all_turbines = selected_data['yaw_b'].squeeze().values
+
+front_turbine_idx = np.argmin(x_pos_eval)
+back_turbine_idx = np.argmax(x_pos_eval)
+
+# One for power, one for front turbine yaw, one for back turbine yaw
+fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 12), sharex=True) # Increased figsize for 3 plots
+
+# Plot 1: Farm Power Output
+ax1.plot(time_steps, agent_power / 1e6, label='PyWake Agent Power (MW)')
+ax1.plot(time_steps, baseline_power / 1e6, label='Baseline Power (MW)', linestyle='--')
+ax1.set_ylabel('Farm Power (MW)')
+ax1.set_title(f'Farm Performance (WS={selected_data.ws.item()}m/s, WD={selected_data.wd.item()}deg, TI={selected_data.TI.item()})')
+ax1.grid(True, alpha=0.3)
+ax1.legend()
+
+# Plot 2: Front Turbine Yaw Angle
+ax2.plot(time_steps, agent_yaw_all_turbines[:, front_turbine_idx], label=f'PyWake Agent Yaw (Turbine {front_turbine_idx+1})', color='purple')
+ax2.plot(time_steps, baseline_yaw_all_turbines[:, front_turbine_idx], label=f'Baseline Yaw (Turbine {front_turbine_idx+1})', color='purple', linestyle=':')
+ax2.set_ylabel('Yaw Angle (degrees)')
+ax2.set_title(f'Front Turbine Yaw Angles (Turbine {front_turbine_idx+1})') # Specific title
+ax2.grid(True, alpha=0.3)
+ax2.legend() # Local legend for this plot
+
+# Plot 3: Back Turbine Yaw Angle
+ax3.plot(time_steps, agent_yaw_all_turbines[:, back_turbine_idx], label=f'PyWake Agent Yaw (Turbine {back_turbine_idx+1})', color='green')
+ax3.plot(time_steps, baseline_yaw_all_turbines[:, back_turbine_idx], label=f'Baseline Yaw (Turbine {back_turbine_idx+1})', color='green', linestyle=':')
+ax3.set_ylabel('Yaw Angle (degrees)')
+ax3.set_xlabel('Time (s)') # Label x-axis only on the bottom-most plot
+ax3.set_title(f'Back Turbine Yaw Angles (Turbine {back_turbine_idx+1})') # Specific title
+ax3.grid(True, alpha=0.3)
+ax3.legend() # Local legend for this plot
+
+# Adjust layout to prevent overlapping titles/labels
+plt.tight_layout()
+plt.show()
+
+
+print("\nClosing FarmEval environment...")
+eval_env.close() # Important: close the evaluation environment to release resources
+print("FarmEval environment closed.")
+```
+
+    ---------------------------------------------------------------------------
+
+    NameError                                 Traceback (most recent call last)
+
+    Cell In[9], line 2
+          1 # Select a single wind speed, direction, and TI for plotting, assuming eval_results has these dimensions
+    ----> 2 selected_data = eval_results.sel(ws=10.0, wd=270.0, TI=0.07, method='nearest')
+          3 #print(selected_data['powerF_a'].head())
+          4
+          5 # Access the underlying data for plotting, and use .squeeze() to remove singleton dimensions
+          6 agent_power = selected_data['powerF_a'].squeeze().values
+
+
+    NameError: name 'eval_results' is not defined
+
+## 4. Multi-Agent Simulations (`WindFarmEnvMulti`)
+
+WindGym also supports multi-agent environments, where each turbine can be controlled by an independent agent. This is achieved using `WindFarmEnvMulti`, which wraps `WindFarmEnv` to conform to the [PettingZoo Parallel API](https://pettingzoo.farama.org/api/parallel/).
+
+In this setup:
+
+- Each turbine is considered a separate 'agent'.
+- `reset()` and `step()` methods return dictionaries where keys are agent IDs (e.g., `'turbine_0'`, `'turbine_1'`).
+- Actions provided to `step()` must also be a dictionary with agent IDs as keys.
+
+### Multi-Agent Simulations (`WindFarmEnvMulti`)
+
+WindGym extends its capabilities to **multi-agent environments**, allowing each wind turbine within a farm to be controlled by its own independent agent. This is facilitated by the `WindFarmEnvMulti` class, a specialized wrapper around the core `WindFarmEnv`. It adheres to the **[PettingZoo Parallel API](https://pettingzoo.farama.org/api/parallel/)**, a standard for multi-agent reinforcement learning environments, making it compatible with a wide range of multi-agent algorithms and tools.
+
+In this multi-agent paradigm:
+
+- Each individual wind turbine is treated as a distinct **'agent'**.
+- The `reset()` and `step()` methods of the environment return **dictionaries**. The keys of these dictionaries are **agent IDs** (e.g., `'turbine_0'`, `'turbine_1'`), and the values correspond to the observations, rewards, terminations, truncations, or information pertinent to that specific agent.
+- Similarly, actions provided to the `step()` method must also be a **dictionary**, mapping agent IDs to their respective actions.
+
+To illustrate this, let's set up a simple multi-agent simulation. We'll use a **leader-follower strategy** where one turbine acts randomly, and the others attempt to align their yaw angles with the leader's previous yaw. This demonstrates inter-agent dynamics within the simulation.
+
+```python
 import numpy as np
+import matplotlib.pyplot as plt
+import os
+import yaml
+import warnings
 
-# Create a 3x2 grid layout
-x_positions = np.array([0, 500, 1000, 0, 500, 1000])  # meters
-y_positions = np.array([0, 0, 0, 500, 500, 500])      # meters
+# Suppress warnings for a cleaner output
+warnings.filterwarnings('ignore')
 
-env = WindFarmEnv(
-    turbine=V80(),
-    x_pos=x_positions,    # Turbine x coordinates
-    y_pos=y_positions,    # Turbine y coordinates
-    config="EnvConfigs/Env1.yaml",  # Wind conditions in config
-)
-```
-
-### Simulation Timesteps
-
-Control the simulation granularity:
-
-```python
-from WindGym import WindFarmEnv
+# Required imports from your environment
+from WindGym.utils.generate_layouts import generate_square_grid
+from WindGym.WindEnvMulti import WindFarmEnvMulti
 from py_wake.examples.data.hornsrev1 import V80
 
-env = WindFarmEnv(
-    turbine=V80(),
-    x_pos=[0, 500, 1000],
-    y_pos=[0, 0, 0],
-    config="EnvConfigs/Env1.yaml",
-    dt_sim=0.1,       # Internal simulation timestep (seconds)
-    dt_env=1.0,       # Agent decision timestep (seconds)
-)
+# --- Main Execution Block ---
+def main():
+    """Initializes the environment, runs a simulation with random agents, and plots the results."""
+
+    config_dict = {
+        "yaw_init": "Zeros",
+        "BaseController": "Local",
+        "ActionMethod": "wind",
+        "Track_power": False,
+        "farm": {
+            "yaw_min": -45,
+            "yaw_max": 45,
+        },
+        "wind": {
+            "ws_min": 8,
+            "ws_max": 12,
+            "TI_min": 0.07,
+            "TI_max": 0.15,
+            "wd_min": 260,
+            "wd_max": 280,
+        },
+        "act_pen": {"action_penalty": 0.0, "action_penalty_type": "Change"},
+        "power_def": {"Power_reward": "Baseline", "Power_avg": 5, "Power_scaling": 1.0},
+        "mes_level": {
+            "turb_ws": True,
+            "turb_wd": True,
+            "turb_TI": False,
+            "turb_power": True,
+            "farm_ws": True,
+            "farm_wd": True,
+            "farm_TI": False,
+            "farm_power": True,
+        },
+        "ws_mes": {
+            "ws_current": False,
+            "ws_rolling_mean": True,
+            "ws_history_N": 1,
+            "ws_history_length": 10,
+            "ws_window_length": 10,
+        },
+        "wd_mes": {
+            "wd_current": False,
+            "wd_rolling_mean": True,
+            "wd_history_N": 1,
+            "wd_history_length": 10,
+            "wd_window_length": 10,
+        },
+        "yaw_mes": {
+            "yaw_current": False,
+            "yaw_rolling_mean": True,
+            "yaw_history_N": 2,
+            "yaw_history_length": 30,
+            "yaw_window_length": 1,
+        },
+        "power_mes": {
+            "power_current": False,
+            "power_rolling_mean": True,
+            "power_history_N": 1,
+            "power_history_length": 10,
+            "power_window_length": 10,
+        },
+    }
+
+
+
+    n_turbines = 3
+    x_pos, y_pos = generate_square_grid(turbine=V80(), nx=n_turbines, ny=1, xDist=7, yDist=7)
+
+    env = WindFarmEnvMulti(
+        turbine=V80(),
+        x_pos=x_pos,
+        y_pos=y_pos,
+        config=config_dict,
+        render_mode=None
+    )
+
+    print("Environment created successfully!")
+    print(f"Agents: {env.possible_agents}")
+
+    # --- Simulation with Random Actions ---
+    print("\\n--- Running simulation with random agents ---")
+    observations, info = env.reset(seed=42)
+
+    # Data logging
+    history = {
+        'time': [0],
+        'power': [env.fs.windTurbines.power().sum()],
+        'yaws': {agent: [env.current_yaw[i]] for i, agent in enumerate(env.possible_agents)}
+    }
+
+    terminated = truncated = False
+    max_steps = 50
+    step = 0
+    while not (terminated or truncated) and step < max_steps:
+        actions = {agent: env.action_space(agent).sample() for agent in env.possible_agents}
+        observations, rewards, terminations, truncations, infos = env.step(actions)
+
+        terminated = any(terminations.values())
+        truncated = any(truncations.values())
+
+        # Log data for plotting
+        info = next(iter(infos.values()))
+        # Calculate time manually from the step count and env's time delta (dt_env)
+        history['time'].append((step + 1) * env.dt_env)
+        history['power'].append(info['Power agent'])
+        for i, agent_id in enumerate(env.possible_agents):
+            history['yaws'][agent_id].append(env.current_yaw[i])
+
+        step += 1
+
+    env.close()
+    print("\\nSimulation finished and environment closed.")
+
+    # --- Plotting ---
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10), sharex=True)
+    fig.suptitle('Multi-Agent Simulation with Random Actions', fontsize=16)
+
+    # Plot 1: Total Farm Power
+    ax1.plot(history['time'], np.array(history['power']) / 1e6, label='Total Farm Power', color='blue')
+    ax1.set_title('Total Farm Power Output Over Time')
+    ax1.set_ylabel('Farm Power (MW)')
+    ax1.grid(True, linestyle='--', linewidth=0.5)
+    ax1.legend()
+
+    # Plot 2: Yaw Angles
+    colors = plt.cm.viridis(np.linspace(0, 1, n_turbines))
+    for i, agent_id in enumerate(history['yaws'].keys()):
+        ax2.plot(history['time'], history['yaws'][agent_id], label=f'Yaw ({agent_id})', color=colors[i], marker='.', markersize=4, linestyle='-')
+
+    ax2.set_title('Individual Turbine Yaw Angles Over Time')
+    ax2.set_xlabel('Time (s)')
+    ax2.set_ylabel('Yaw Angle (degrees)')
+    ax2.grid(True, linestyle='--', linewidth=0.5)
+    ax2.legend(loc='best')
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.show()
+
+if __name__ == "__main__":
+    main()
 ```
 
-**Note**: `dt_env` must be a multiple of `dt_sim`.
+    ---------------------------------------------------------------------------
 
-### Episode Length
+    ModuleNotFoundError                       Traceback (most recent call last)
 
-Configure episode duration using flow passthroughs:
+    Cell In[10], line 12
+         10 # Required imports from your environment
+         11 from WindGym.utils.generate_layouts import generate_square_grid
+    ---> 12 from WindGym.WindEnvMulti import WindFarmEnvMulti
+         13 from py_wake.examples.data.hornsrev1 import V80
+         15 # --- Main Execution Block ---
 
-```python
-from WindGym import WindFarmEnv
-from py_wake.examples.data.hornsrev1 import V80
 
-env = WindFarmEnv(
-    turbine=V80(),
-    x_pos=[0, 500, 1000],
-    y_pos=[0, 0, 0],
-    config="EnvConfigs/Env1.yaml",
-    n_passthrough=3,           # Number of times flow passes through farm
-    burn_in_passthroughs=1,    # Initial stabilization period
-)
-```
-
----
-
-## Turbulence Models
-
-### Mann Turbulence
-
-Use high-fidelity Mann turbulence boxes:
-
-```python
-from WindGym import WindFarmEnv
-from py_wake.examples.data.hornsrev1 import V80
-
-env = WindFarmEnv(
-    turbine=V80(),
-    x_pos=[0, 500, 1000],
-    y_pos=[0, 0, 0],
-    config="EnvConfigs/Env1.yaml",  # TI defined in config
-    turbtype='MannGenerate',        # Use Mann turbulence model
-    TurbBox='path/to/turbulence/box.nc',  # Optional: pre-generated box
-)
-```
-
-### Random Turbulence
-
-For faster simulations, use simpler turbulence:
-
-```python
-from WindGym import WindFarmEnv
-from py_wake.examples.data.hornsrev1 import V80
-
-env = WindFarmEnv(
-    turbine=V80(),
-    x_pos=[0, 500, 1000],
-    y_pos=[0, 0, 0],
-    config="EnvConfigs/Env1.yaml",  # TI defined in config
-    turbtype='Random',  # Simple random turbulence
-)
-```
-
----
-
-## Observation Configuration
-
-Customize what the agent observes using YAML configuration:
-
-```python
-from WindGym import WindFarmEnv
-from py_wake.examples.data.hornsrev1 import V80
-
-env = WindFarmEnv(
-    turbine=V80(),
-    x_pos=[0, 500, 1000],
-    y_pos=[0, 0, 0],
-    config='path/to/config.yaml',  # Custom observation and wind config
-)
-```
-
-**Example `config.yaml`**:
-
-```yaml
-obs_config:
-  turbine_level:
-    - ws # Wind speed
-    - wd # Wind direction
-    - yaw # Yaw angle
-    - power # Power output
-
-  farm_level:
-    - ws_mean # Average farm wind speed
-    - total_power # Total farm power
-
-  include_history: true
-  history_length: 10
-```
-
-See [Core Concepts](concepts.md#observations-and-measurement-system-mesclass) for more details on observations.
-
----
-
-## Action Methods
-
-Configure how agents control turbines:
-
-### Yaw Change Method
-
-Agent specifies change in yaw angle:
-
-```python
-# In your YAML config
-ActionMethod: "yaw"
-yaw_step_env: 3.0  # Maximum yaw change per step (degrees)
-```
-
-```python
-# In your agent
-action = np.array([1.0, -0.5, 0.0])  # Change yaw by [+3°, -1.5°, 0°]
-```
-
-### Wind-Relative Method
-
-Agent specifies target yaw relative to wind direction:
-
-```python
-# In your YAML config
-ActionMethod: "wind"
-yaw_step_env: 3.0
-```
-
-```python
-# In your agent
-action = np.array([5.0, 10.0, 0.0])  # Target yaw: [+5°, +10°, 0°] from wind
-```
-
----
-
-## Rewards
-
-Configure the reward function:
-
-```python
-# In your YAML config
-power_reward: "Baseline"    # Compare to baseline
-Power_scaling: 1.0          # Reward scaling factor
-action_penalty: "Change"    # Penalize yaw changes
-penalty_scaling: 0.01       # Penalty weight
-```
-
-**Reward Types**:
-
-- `"Baseline"`: Reward based on improvement over baseline
-- `"Power_avg"`: Normalized average power
-- `"Power_diff"`: Power improvement over time
-- `"None"`: No power reward
-
-See [Core Concepts](concepts.md#rewards) for more details.
-
----
-
-## Using Evaluation Wrapper
-
-For detailed evaluation, use the `FarmEval` wrapper:
-
-```python
-from WindGym.FarmEval import FarmEval
-from py_wake.examples.data.hornsrev1 import V80
-
-env = FarmEval(
-    turbine=V80(),
-    x_pos=[0, 500, 1000],
-    y_pos=[0, 0, 0],
-    config="EnvConfigs/Env1.yaml",
-    Baseline_comp=True,  # Run parallel baseline simulation
-)
-
-# Run episode
-obs, info = env.reset()
-for _ in range(100):
-    action, _ = agent.predict(obs)
-    obs, reward, terminated, truncated, info = env.step(action)
-    if terminated or truncated:
-        break
-
-# Get detailed results
-results = env.get_results()
-print(f"Average power: {results['power'].mean():.2f} W")
-```
-
----
-
-## Multi-Agent Environments
-
-For cooperative or competitive scenarios:
-
-```python
-from WindGym import WindFarmEnvMulti
-from py_wake.examples.data.hornsrev1 import V80
-
-env = WindFarmEnvMulti(
-    turbine=V80(),
-    x_pos=[0, 500, 1000, 0, 500, 1000],
-    y_pos=[0, 0, 0, 500, 500, 500],
-    config="EnvConfigs/Env1.yaml",
-)
-
-# Each agent controls a subset of turbines
-observations = env.reset()
-for agent_id, obs in observations.items():
-    print(f"Agent {agent_id} observation shape: {obs.shape}")
-```
-
----
-
-## Visualization
-
-### Plot Flow Field
-
-```python
-# After running simulation
-env.plot_flow_field(
-    time_idx=-1,  # Last timestep
-    save_path='flowfield.png'
-)
-```
-
-### Animate Episode
-
-```python
-from WindGym.utils.visualization import create_animation
-
-create_animation(
-    env,
-    results,
-    output_path='episode_animation.mp4',
-    fps=10
-)
-```
-
----
-
-## Complete Example
-
-Putting it all together:
-
-```python
-from WindGym import WindFarmEnv
-from WindGym.Agents import PyWakeAgent
-from py_wake.examples.data.hornsrev1 import V80
-import numpy as np
-
-# Turbine positions
-x_pos = np.array([0, 500, 1000])
-y_pos = np.array([0, 0, 0])
-
-# Configure environment
-env = WindFarmEnv(
-    turbine=V80(),
-    x_pos=x_pos,
-    y_pos=y_pos,
-    config="EnvConfigs/Env1.yaml",
-    dt_env=1.0,
-    n_passthrough=3,
-    turbtype='MannGenerate',
-)
-
-# Create agent
-agent = PyWakeAgent(x_pos=x_pos, y_pos=y_pos, turbine=V80())
-
-# Run episode
-obs, info = env.reset()
-episode_rewards = []
-
-for step in range(100):
-    # Agent predicts action
-    action, _ = agent.predict(obs)
-
-    # Step environment
-    obs, reward, terminated, truncated, info = env.step(action)
-    episode_rewards.append(reward)
-
-    if terminated or truncated:
-        break
-
-print(f"Episode length: {len(episode_rewards)} steps")
-print(f"Average reward: {np.mean(episode_rewards):.3f}")
-print(f"Total reward: {np.sum(episode_rewards):.3f}")
-
-env.close()
-```
-
----
-
-## Next Steps
-
-- Learn about [different agent types](agents.md)
-- Explore [evaluation tools](evaluations.md)
-- Understand [noise and uncertainty](noise-and-uncertainty.md)
-- Check out [complete examples](../examples/README.md)
-
----
-
-## Troubleshooting
-
-### Simulation runs slowly
-
-- Use larger `dt_sim` and `dt_env` values
-- Use `turbtype='random'` instead of `'mann'`
-- Reduce `n_passthrough`
-
-### Memory issues
-
-- Reduce `history_length` in observation config
-- Use fewer turbines
-- Decrease turbulence box resolution
-
-### Unstable rewards
-
-- Increase `burn_in_passthroughs`
-- Use reward smoothing or moving averages
-- Check action penalty scaling
-
-For more help, see the [Troubleshooting Guide](troubleshooting.md).
+    ModuleNotFoundError: No module named 'WindGym.WindEnvMulti'
