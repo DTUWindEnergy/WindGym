@@ -611,9 +611,9 @@ print(f"New bias: {info['noise_info']['wd']['bias']}")
 
 ## Related Examples
 
-- [Noise Examples Directory](../examples/noise_examples/)
-- [PyWake Agent with Noise](../examples/pywake_agent_with_noise.py)
-- [Training with Adversarial Noise](../examples/noise_examples/train_adversary.py)
+- [Noise Examples Directory](https://gitlab.windenergy.dtu.dk/sys/windgym/-/tree/main/examples/noise_examples)
+- [PyWake Agent with Noise](https://gitlab.windenergy.dtu.dk/sys/windgym/-/blob/main/examples/pywake_agent_with_noise.py)
+- [Training with Adversarial Noise](https://gitlab.windenergy.dtu.dk/sys/windgym/-/blob/main/examples/noise_examples/train_adversary.py)
 
 ---
 
