@@ -69,6 +69,6 @@ pip install -e .
 
 Now that you have WindGym installed, you can:
 
-- Explore the [Examples](../examples/README.md) to see WindGym in action
+- Explore the [Examples](https://gitlab.windenergy.dtu.dk/sys/windgym/-/blob/main/examples/README.md) to see WindGym in action
 - Learn about [Core Concepts](./concepts.md) to understand how WindGym works
-- Start with [Example 1](../examples/Example Make environment.ipynb) to create your first environment
+- Start with [Example 1](https://gitlab.windenergy.dtu.dk/sys/windgym/-/blob/main/examples/Example%201%20Make%20environment.ipynb) to create your first environment
