@@ -417,7 +417,7 @@ for _ in range(100):
 
 ## Related Examples
 
-- [Example 2: Evaluate Pretrained Agent](../examples/Example%202%20Evaluate%20pretrained%20agent.ipynb)
+- [Example 2: Evaluate Pretrained Agent](../examples/Example Evaluate pretrained agent.ipynb)
 - [PPO Training Example](../examples/ppo_curriculum_example.py)
 - [Agent Comparison Scripts](../examples/compare_agents_grid.py)
 
