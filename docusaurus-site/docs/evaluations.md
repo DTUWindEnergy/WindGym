@@ -589,4 +589,4 @@ def fast_env_factory():
 - Learn about [creating custom agents](agents.md)
 - Explore [simulation configuration](simulations.md)
 - Understand [noise and uncertainty](noise-and-uncertainty.md)
-- Check out [evaluation examples](../examples/compare_agents_grid.py)
+- Check out [evaluation examples](https://gitlab.windenergy.dtu.dk/sys/windgym/-/blob/main/examples/compare_agents_grid.py)
