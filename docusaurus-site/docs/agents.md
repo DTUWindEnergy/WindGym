@@ -417,9 +417,9 @@ for _ in range(100):
 
 ## Related Examples
 
-- [Example 2: Evaluate Pretrained Agent](../examples/Example Evaluate pretrained agent.ipynb)
-- [PPO Training Example](../examples/ppo_curriculum_example.py)
-- [Agent Comparison Scripts](../examples/compare_agents_grid.py)
+- [Example 2: Evaluate Pretrained Agent](https://gitlab.windenergy.dtu.dk/sys/windgym/-/blob/main/examples/Example%201%20Make%20environment.ipynb)
+- [PPO Training Example](https://gitlab.windenergy.dtu.dk/sys/windgym/-/blob/main/examples/ppo_curriculum_example.py)
+- [Agent Comparison Scripts](https://gitlab.windenergy.dtu.dk/sys/windgym/-/blob/main/examples/compare_agents_grid.py)
 
 ---
 
