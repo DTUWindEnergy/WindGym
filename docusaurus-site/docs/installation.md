@@ -12,12 +12,6 @@ Before you begin, ensure you have the following installed on your system:
   - [Install Pixi](https://pixi.sh/latest/#installation)
 - **Python (3.7 to 3.11)**: Pixi will handle the specific Python version for you, but it's good to be aware of the compatible range.
 
-### System Requirements
-
-- **Operating System**: Linux (64-bit) or macOS (ARM64/Intel)
-- **Disk Space**: At least 5 GB free space for dependencies and simulation data
-- **RAM**: Minimum 8 GB (16 GB recommended for large-scale simulations)
-
 ## 2. Core WindGym Installation
 
 First, clone the main WindGym repository. Navigate to your desired working directory and run:
@@ -61,56 +55,15 @@ python -c "from WindGym.Wind_Farm_Env import WindFarmEnv; print('WindGym install
 
 If you see "WindGym installed successfully!", your basic WindGym environment is ready for you to use!
 
-## 5. Troubleshooting
+## 5. Pixi free installation
 
-### Common Installation Issues
+If you do not wish to use pixi, you can also install the package locally with pip using
 
-#### Pixi Installation Fails
-
-- **Issue**: Pixi fails to resolve dependencies or times out
-- **Solution**: Try using a different mirror or clearing the pixi cache:
-  ```bash
-  pixi clean cache-dir
-  pixi install
-  ```
-
-#### Import Errors After Installation
-
-- **Issue**: `ModuleNotFoundError` when importing WindGym
-- **Solution**: Ensure you've activated the environment with `pixi shell` and that the installation completed successfully:
-  ```bash
-  pixi shell
-  pip list | grep WindGym
-  ```
-
-#### Git Clone Authentication Issues
-
-- **Issue**: Access denied when cloning from GitLab
-- **Solution**: Ensure you have access to the repository. You may need to set up SSH keys or use HTTPS with credentials. See [GitLab documentation](https://docs.gitlab.com/ee/user/ssh.html) for help.
-
-#### Platform-Specific Issues
-
-- **macOS**: If you encounter issues with HDF5 or NetCDF, ensure Xcode Command Line Tools are installed:
-  ```bash
-  xcode-select --install
-  ```
-- **Linux**: Some systems may require additional system libraries. Install them via your package manager:
-
-  ```bash
-  # Ubuntu/Debian
-  sudo apt-get install libhdf5-dev libnetcdf-dev
-
-  # Fedora/RHEL
-  sudo dnf install hdf5-devel netcdf-devel
-  ```
-
-### Getting Help
-
-If you encounter issues not covered here:
-
-1. Check the [Troubleshooting & FAQ](troubleshooting.md) page
-2. Search [existing issues](https://gitlab.windenergy.dtu.dk/sys/windgym/-/issues) on GitLab
-3. Open a [new issue](https://gitlab.windenergy.dtu.dk/sys/windgym/-/issues/new) with details about your problem
+```bash
+git clone https://gitlab.windenergy.dtu.dk/sys/windgym.git
+cd windgym
+pip install -e .
+```
 
 ## Next Steps
 
