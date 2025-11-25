@@ -11,6 +11,7 @@ The primary examples are provided as Jupyter notebooks:
 | **Example 1: Make Environment** | Learn how to create and configure a WindGym environment with different settings | Beginner |
 | **Example 2: Evaluate Pretrained Agent** | Evaluate a pre-trained reinforcement learning agent on wind farm scenarios | Intermediate |
 | **Example 3: Load Results from Pre-Evaluated Model** | Load and analyze results from previously evaluated models | Intermediate |
+| **Example 4: Change wind directions** | Changes the wind direction over time | Intermediate |
 
 ## Additional Examples
 
