@@ -11,8 +11,11 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 from IPython import display
 
-from dynamiks.views import XYView
+from dynamiks.views import XYView, EastNorthView
 from py_wake.wind_turbines import WindTurbines as WindTurbinesPW
+from dynamiks.utils.geometry import get_east_north_height
+import matplotlib.patheffects as path_effects
+from matplotlib.patches import Ellipse
 
 
 class WindFarmRenderer:
@@ -312,7 +315,14 @@ class WindFarmRenderer:
 
         return frame
 
-    def plot_farm(self, fs, fs_baseline=None, turbine=None, baseline: bool = False):
+    def plot_farm(
+        self,
+        fs,
+        fs_baseline=None,
+        turbine=None,
+        baseline: bool = False,
+        fix_turbines: bool = True,
+    ):
         """
         Plot the entire farm layout (legacy method for IPython notebooks).
 
@@ -324,9 +334,11 @@ class WindFarmRenderer:
         """
         if turbine is not None:
             self.init_render(fs, turbine)
-        self._render_farm(fs, fs_baseline, baseline)
+        self._render_farm(fs, fs_baseline, baseline, fix_turbines)
 
-    def _render_farm(self, fs, fs_baseline=None, baseline: bool = False):
+    def _render_farm(
+        self, fs, fs_baseline=None, baseline: bool = False, fix_turbines: bool = True
+    ):
         """
         Internal farm rendering for IPython notebooks.
 
@@ -334,32 +346,88 @@ class WindFarmRenderer:
             fs: Flow simulation object
             fs_baseline: Optional baseline flow simulation
             baseline: Whether to render baseline instead of agent
+            fix_turbines: Whether to fix turbine positions
         """
         plt.ion()
         ax1 = plt.gca()
 
         fs_use = fs_baseline if baseline else fs
-
-        uvw = fs_use.get_windspeed(self.view, include_wakes=True, xarray=True)
-
         wt = fs_use.windTurbines
-        x_turb, y_turb = fs_use.windTurbines.positions_xyz[:2]
-        yaw, tilt = wt.yaw_tilt()
 
-        plt.pcolormesh(uvw.x.values, uvw.y.values, uvw[0].T, shading="nearest")
-        WindTurbinesPW.plot_xy(
-            fs_use.windTurbines,
-            x_turb,
-            y_turb,
-            wd=fs_use.wind_direction,
-            ax=ax1,
-            yaw=yaw,
-            tilt=tilt,
-        )
+        if fix_turbines:
+            view = EastNorthView(z=70, x=self.a, y=self.b, adaptive=False)
+            X, Y = view.XY(
+                wind_direction=fs_use.wind_direction, center_offset=fs_use.center_offset
+            )
+            x_turb, y_turb = get_east_north_height(
+                xyz=wt.positions_xyz,
+                wind_direction=fs_use.wind_direction,
+                center_offset=fs_use.center_offset,
+            )[:2]
+            yaw, tilt = wt.yaw_tilt()
+            yaw_plot = yaw - fs_use.wind_direction + 90
+
+        else:
+            view = XYView(z=70, x=self.a, y=self.b, adaptive=False)
+            x_turb, y_turb = wt.positions_xyz[:2]
+            X, Y = view.XY()
+            yaw, tilt = wt.yaw_tilt()
+            yaw_plot = yaw
+
+        uvw = fs_use.get_windspeed(view, include_wakes=True, xarray=True)
+
+        ax1.pcolormesh(X, Y, uvw[0].T, shading="nearest")
+
+        # Plot turbines
+        D = wt.diameter()
+        R = D / 2
+
+        for ii, (x_, y_, r, yaw_, tilt_) in enumerate(
+            zip(x_turb, y_turb, R, yaw_plot, tilt)
+        ):
+            # Draw turbine as ellipse
+            circle = Ellipse(
+                (x_, y_),
+                2 * r * np.sin(np.deg2rad(tilt_)),
+                2 * r,
+                angle=yaw_,
+                ec="k",
+                fc="None",
+            )
+            ax1.add_artist(circle)
+            ax1.plot(x_, y_, ".", color="k")
+
+            # Add turbine label
+            text = ax1.annotate(
+                f"T {ii + 1}",
+                (x_ - r, y_ + r * 1.75),
+                fontsize=15,
+                color="white",
+            )
+            text.set_path_effects(
+                [
+                    path_effects.Stroke(linewidth=2, foreground="black"),
+                    path_effects.Normal(),
+                ]
+            )
+
+        ax1.set_xlim(min(self.a), max(self.a))
+        ax1.set_ylim(min(self.b), max(self.b))
+
+        # plt.pcolormesh(uvw.x.values, uvw.y.values, uvw[0].T, shading="nearest")
+        # WindTurbinesPW.plot_xy(
+        #     fs_use.windTurbines,
+        #     x_turb,
+        #     y_turb,
+        #     wd=fs_use.wind_direction,
+        #     ax=ax1,
+        #     yaw=yaw,
+        #     tilt=tilt,
+        # )
         ax1.set_title("Flow field at {} s".format(fs_use.time))
         ax1.set_aspect("equal", adjustable="box")
-        display.display(plt.gcf())
-        display.clear_output(wait=True)
+        # display.display(plt.gcf())
+        # display.clear_output(wait=True)
 
     def plot_frame(self, fs, fs_baseline=None, turbine=None, baseline: bool = False):
         """

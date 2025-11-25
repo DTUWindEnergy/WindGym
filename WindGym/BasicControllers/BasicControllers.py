@@ -19,16 +19,12 @@ def local_yaw_controller(fs, yaw_step=1):
     # Fist we get the current yaw offset, in relation to the "global wind"
     yaw_baseline = fs.windTurbines.yaw
 
-    # Then by taking the inverse tan of the wind speed components, we get the LOCAL wind direction
-    wind_dir_baseline = np.rad2deg(
-        np.arctan(
-            fs.windTurbines.rotor_avg_windspeed[:, 1]
-            / fs.windTurbines.rotor_avg_windspeed[:, 0]
-        )
+    wind_dir_baseline = fs.get_wind_direction(
+        xyz=fs.windTurbines.rotor_positions_xyz, include_wakes=True
     )
 
     # The desired yaw offset is the difference between the baseline yaw and the baseline wind direction
-    yaw_offset = wind_dir_baseline - yaw_baseline
+    yaw_offset = (fs.wind_direction - wind_dir_baseline) + yaw_baseline
 
     # We find the direction of the yaw_action, by taking the sign
     step_dir = np.sign(yaw_offset)
@@ -41,7 +37,7 @@ def local_yaw_controller(fs, yaw_step=1):
 
     yaw_action = step_dir * step_scale
 
-    new_yaw = yaw_baseline + yaw_action
+    new_yaw = yaw_baseline - yaw_action
 
     return new_yaw
 

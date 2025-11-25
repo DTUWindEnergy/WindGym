@@ -582,14 +582,15 @@ class WindFarmEnv(gym.Env):
         Does the measurement and saves it to the self.
         """
         # Get the observation of the environment
+        xyz_turbines = self.fs.windTurbines.rotor_positions_xyz
+
         self.current_ws = np.linalg.norm(
             self.fs.windTurbines.rotor_avg_windspeed, axis=1
         )
 
-        u_speed = self.fs.windTurbines.rotor_avg_windspeed[:, 0]
-        v_speed = self.fs.windTurbines.rotor_avg_windspeed[:, 1]
-
-        self.current_wd = np.rad2deg(np.arctan2(v_speed, u_speed)) + self.wd
+        self.current_wd = self.fs.get_wind_direction(
+            xyz=xyz_turbines, include_wakes=True
+        ).flatten()
 
         self.current_yaw = self.fs.windTurbines.yaw
         self.current_powers = self.fs.windTurbines.power()  # The Power pr turbine
@@ -758,6 +759,7 @@ class WindFarmEnv(gym.Env):
                 ),
                 addedTurbulenceModel=self.addedTurbulenceModel,
             )
+            self.wd = self.fs._wind_direction  # Update to match wd_list first value
         else:
             # --- STEADY pywake_steady backend ---
             if self.HTC_path is not None:
@@ -938,6 +940,8 @@ class WindFarmEnv(gym.Env):
             delta_wd = wd_new - wd_old
             self.fs.windTurbines.yaw += delta_wd
 
+            # Update the winddirection to match the flow sim
+            self.wd = self.fs.wind_direction
             # 3) Baseline, only if requested
             if include_baseline:
                 if apply_agent_action:
@@ -1243,10 +1247,12 @@ class WindFarmEnv(gym.Env):
         self.farm_measurements = None
         gc.collect()
 
-    def plot_farm(self, baseline=False):
+    def plot_farm(self, baseline=False, fix_turbines=False):
         """Plot the entire farm layout - delegates to renderer."""
         fs_baseline = self.fs_baseline if self.Baseline_comp else None
-        self.renderer.plot_farm(self.fs, fs_baseline, self.turbine, baseline)
+        self.renderer.plot_farm(
+            self.fs, fs_baseline, self.turbine, baseline, fix_turbines
+        )
 
     def _render_farm(self, baseline=False):
         """Internal farm rendering - delegates to renderer."""
