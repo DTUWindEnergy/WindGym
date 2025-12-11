@@ -15,31 +15,31 @@ Understanding their relationship and distinctions is crucial for effective use o
 
 `WindFarmEnv` is your go-to environment for general-purpose wind farm simulations. It's designed to be flexible, supporting various configurations and dynamic wind conditions, making it suitable for:
 
-- **Reinforcement Learning Training**: Agents can learn to adapt to changing wind conditions over long episodes.
-- **Stochastic Wind Sampling**: It can integrate with PyWake `Site` objects (`sample_site` parameter) to sample realistic wind speeds and directions based on wind resource distributions (e.g., Weibull for speed, frequency for direction). If `sample_site` is not provided, it samples uniformly from defined min/max ranges.
-- **Dynamic Changes**: While this version primarily uses steady wind within an episode, `WindFarmEnv`'s architecture allows for future extensions that could introduce wind changes mid-episode.
-- **Multi-Agent Foundation**: It serves as the base for the `WindFarmEnvMulti` environment (discussed later) for decentralized control problems.
+* **Reinforcement Learning Training**: Agents can learn to adapt to changing wind conditions over long episodes.
+* **Stochastic Wind Sampling**: It can integrate with PyWake `Site` objects (`sample_site` parameter) to sample realistic wind speeds and directions based on wind resource distributions (e.g., Weibull for speed, frequency for direction). If `sample_site` is not provided, it samples uniformly from defined min/max ranges.
+* **Dynamic Changes**: While this version primarily uses steady wind within an episode, `WindFarmEnv`'s architecture allows for future extensions that could introduce wind changes mid-episode.
+* **Multi-Agent Foundation**: It serves as the base for the `WindFarmEnvMulti` environment (discussed later) for decentralized control problems.
 
 ### `FarmEval`: The Evaluation-Focused Environment
 
 `FarmEval` is a direct subclass of `WindFarmEnv` (`class FarmEval(WindFarmEnv):`). It inherits all capabilities of `WindFarmEnv` but **overrides key behaviors** to facilitate precise and reproducible evaluations under specific, controlled conditions. Its main features include:
 
-- **Fixed Wind Conditions**: `FarmEval` allows you to _directly set_ the wind speed (`ws`), wind direction (`wd`), and turbulence intensity (`ti`) via `set_wind_vals()` _before_ calling `reset()`. This overrides any stochastic sampling, ensuring the environment always starts with the exact specified wind conditions.
-- **Evaluation Loop Compatibility**: It is specifically used by the `AgentEval` class (and its `eval_single_fast` function) for running standardized benchmarks, as demonstrated later in this notebook.
-- **Non-Terminating Episodes**: By default, `FarmEval` episodes are "infinite" (or very long, set by `time_max = 9999999`) unless `finite_episode=True` is explicitly set. This ensures that evaluation runs for a consistent duration without premature termination.
-- **Baseline Comparison**: It often enables the `Baseline_comp=True` flag by default or is configured to always run a parallel baseline simulation for direct comparison of agent performance.
+* **Fixed Wind Conditions**: `FarmEval` allows you to *directly set* the wind speed (`ws`), wind direction (`wd`), and turbulence intensity (`ti`) via `set_wind_vals()` *before* calling `reset()`. This overrides any stochastic sampling, ensuring the environment always starts with the exact specified wind conditions.
+* **Evaluation Loop Compatibility**: It is specifically used by the `AgentEval` class (and its `eval_single_fast` function) for running standardized benchmarks, as demonstrated later in this notebook.
+* **Non-Terminating Episodes**: By default, `FarmEval` episodes are "infinite" (or very long, set by `time_max = 9999999`) unless `finite_episode=True` is explicitly set. This ensures that evaluation runs for a consistent duration without premature termination.
+* **Baseline Comparison**: It often enables the `Baseline_comp=True` flag by default or is configured to always run a parallel baseline simulation for direct comparison of agent performance.
 
 ### Key Differences Summary
 
-| Feature                | `WindFarmEnv`                                      | `FarmEval`                                                 |
-| :--------------------- | :------------------------------------------------- | :--------------------------------------------------------- |
-| **Base Class**         | `gymnasium.Env`                                    | `WindFarmEnv`                                              |
-| **Primary Use**        | RL Training, General Simulation (stochastic wind)  | Fixed-condition Evaluation, Benchmarking                   |
-| **Wind Conditions**    | Randomly sampled (from ranges or `sample_site`)    | Explicitly set via `set_wind_vals()` (overrides sampling)  |
-| **Episode Length**     | Defined by `n_passthrough`, can terminate/truncate | Effectively 'infinite' by default (`time_max` overwritten) |
-| **`reset()` behavior** | Samples new wind unless overridden                 | Uses explicitly set wind conditions                        |
-| **Stochasticity**      | High (wind sampling, turbulence generation)        | Controlled (fixed wind for evaluation)                     |
-| **Parameter Setting**  | Parameters set during initialization (`__init__`)  | Parameters can be explicitly set/overridden via methods    |
+| Feature                  | `WindFarmEnv`                                        | `FarmEval`                                                 |
+| :----------------------- | :--------------------------------------------------- | :--------------------------------------------------------- |
+| **Base Class** | `gymnasium.Env`                                      | `WindFarmEnv`                                              |
+| **Primary Use** | RL Training, General Simulation (stochastic wind)    | Fixed-condition Evaluation, Benchmarking                   |
+| **Wind Conditions** | Randomly sampled (from ranges or `sample_site`)      | Explicitly set via `set_wind_vals()` (overrides sampling) |
+| **Episode Length** | Defined by `n_passthrough`, can terminate/truncate   | Effectively 'infinite' by default (`time_max` overwritten) |
+| **`reset()` behavior** | Samples new wind unless overridden                   | Uses explicitly set wind conditions                        |
+| **Stochasticity** | High (wind sampling, turbulence generation)          | Controlled (fixed wind for evaluation)                     |
+| **Parameter Setting** | Parameters set during initialization (`__init__`)    | Parameters can be explicitly set/overridden via methods    |
 
 ---
 
@@ -48,6 +48,7 @@ Now, let's start by setting up the necessary imports and a `config.yaml` file th
 ### Initial Setup: Imports and Configuration File
 
 We'll need common Python libraries and specific WindGym components. We'll also define a `config.yaml` file, which specifies various environment parameters like observation details, reward functions, and action methods. Ensure this `config.yaml` is saved in the same directory as this notebook.
+
 
 ```python
 import numpy as np
@@ -73,6 +74,7 @@ from py_wake.examples.data.hornsrev1 import V80, Hornsrev1Site # Hornsrev1Site f
 #### `config` Content
 
 This can either be specified as a `.yaml` file, or as a dictionary with the same content. This defines the detailed behavior of the WindGym environments.
+
 
 ```python
 config_dict = {
@@ -140,6 +142,7 @@ config_dict = {
 
 Let's demonstrate how to initialize and interact with the base `WindFarmEnv`. This environment is typically used for training Reinforcement Learning agents, where wind conditions might vary from episode to episode.
 
+
 ```python
 # Define turbine positions (e.g., two turbines placed along the x-axis)
 x_pos_base = np.array([0, 500])  # Meters
@@ -166,13 +169,19 @@ print(f"Initialized WindFarmEnv: Observation Space {env.observation_space}, Acti
 
     Initialized WindFarmEnv: Observation Space Box(-1.0, 1.0, (13,), float32), Action Space Box(-1.0, 1.0, (2,), float32)
 
+
 The plot can be visualized by balling the `.plot_farm()` command
+
 
 ```python
 env.plot_farm()
 ```
 
+
+    
 ![png](simulations_files/simulations_11_0.png)
+    
+
 
 ### Interacting with `WindFarmEnv`: `reset()` and `step()`
 
@@ -181,6 +190,7 @@ The standard Gymnasium API (`reset()` and `step()`) is used for interaction.
 #### Resetting the Environment
 
 `env.reset()` initializes a new episode. In `WindFarmEnv`, this involves sampling new global wind conditions (speed, direction, turbulence intensity) within the ranges defined in `config`, setting up a turbulence field, initializing turbine yaw angles, and running a "burn-in" period to stabilize the flow.
+
 
 ```python
 # Reset the environment to start a new episode
@@ -198,12 +208,13 @@ for key, value in info.items():
 print(f"\nInitial Wind Conditions for this episode: WS={info['Wind speed Global']:.2f} m/s, WD={info['Wind direction Global']:.2f} deg, TI={info['Turbulence intensity']:.2f}")
 ```
 
+    
     --- Initial State of WindFarmEnv ---
     Initial Observation (scaled between -1 and 1):
-     [-0.43978208  0.55598783  0.          0.         -0.18232864 -0.44562423
-      0.5533742   0.          0.         -0.20923835 -0.4427032   0.55468106
-     -0.1957835 ]
-
+     [-0.43336862  0.54059434  0.          0.         -0.15356982 -0.44537288
+      0.55579746  0.          0.         -0.20664841 -0.43937087  0.54819596
+     -0.18010914]
+    
     Initial Info Dictionary (contains raw values and metadata):
       yaw angles agent: shape=(2,), dtype=float64
       yaw angles measured: shape=(4,), dtype=float32
@@ -216,8 +227,8 @@ print(f"\nInitial Wind Conditions for this episode: WS={info['Wind speed Global'
       Wind direction at turbines measured: shape=(2,), dtype=float32
       Wind direction at farm measured: shape=(1,), dtype=float32
       Turbulence intensity: 0.13089117615922824
-      Power agent: 1596653.08341162
-      Power agent nowake: 1465319.5066567962
+      Power agent: 1612714.649794811
+      Power agent nowake: 1504017.1945817205
       Power pr turbine agent: shape=(2,), dtype=float64
       Turbine x positions: shape=(2,), dtype=float64
       Turbine y positions: shape=(2,), dtype=float64
@@ -226,12 +237,14 @@ print(f"\nInitial Wind Conditions for this episode: WS={info['Wind speed Global'
       Power baseline: 1596653.08341162
       Power pr turbine baseline: shape=(2,), dtype=float64
       Wind speed at turbines baseline: shape=(2,), dtype=float64
-
+    
     Initial Wind Conditions for this episode: WS=8.38 m/s, WD=279.51 deg, TI=0.13
+
 
 #### Taking Steps (`env.step()`)
 
 In each `step()`, your agent provides an `action` (a NumPy array scaled between -1 and 1), and the environment returns the `next_observation`, `reward`, `terminated` flag, `truncated` flag, and an updated `info` dictionary.
+
 
 ```python
 num_steps = 5 # Number of environment steps to simulate
@@ -259,51 +272,56 @@ for i in range(num_steps):
     print(f"Time: {info['time_array'][-1]:.2f} s")
 ```
 
+    
     Running 5 steps in WindFarmEnv with random actions...
-
+    
     --- Step 1 ---
-    Action (raw): [ 0.8504555  -0.06852277]
-    Reward: -0.0008
-    Farm Power (Agent): 1.86 MW
-    Farm Power (Baseline): 1.87 MW
-    Current Yaw Angles (Agent): [ 5.   -3.08]
+    Action (raw): [0.9438377  0.07123403]
+    Reward: 0.0303
+    Farm Power (Agent): 1.52 MW
+    Farm Power (Baseline): 1.67 MW
+    Current Yaw Angles (Agent): [5.   3.21]
     Time: 275.00 s
 
 
-
+    
     --- Step 2 ---
-    Action (raw): [-0.49940988 -0.8867711 ]
-    Reward: -0.0027
-    Farm Power (Agent): 1.70 MW
-    Farm Power (Baseline): 1.73 MW
-    Current Yaw Angles (Agent): [ 0.   -8.08]
+    Action (raw): [-0.3643834   0.25099716]
+    Reward: -0.0042
+    Farm Power (Agent): 1.71 MW
+    Farm Power (Baseline): 1.74 MW
+    Current Yaw Angles (Agent): [0.   8.21]
     Time: 280.00 s
-
+    
     --- Step 3 ---
-    Action (raw): [-0.8357171   0.28006923]
-    Reward: -0.0043
-    Farm Power (Agent): 1.81 MW
-    Farm Power (Baseline): 1.82 MW
-    Current Yaw Angles (Agent): [-5.   -3.08]
+    Action (raw): [-0.79487866  0.79252315]
+    Reward: -0.0437
+    Farm Power (Agent): 1.33 MW
+    Farm Power (Baseline): 1.57 MW
+    Current Yaw Angles (Agent): [-5.   13.21]
     Time: 285.00 s
 
 
-
+    
     --- Step 4 ---
-    Action (raw): [-0.05847819 -0.7088383 ]
-    Reward: -0.0063
-    Farm Power (Agent): 1.15 MW
-    Farm Power (Baseline): 1.17 MW
-    Current Yaw Angles (Agent): [-2.63 -8.08]
+    Action (raw): [-0.7023649  -0.97860783]
+    Reward: -0.0559
+    Farm Power (Agent): 1.55 MW
+    Farm Power (Baseline): 1.64 MW
+    Current Yaw Angles (Agent): [-10.     8.21]
     Time: 290.00 s
 
+
+    
     --- Step 5 ---
-    Action (raw): [0.51846343 0.46678016]
-    Reward: -0.0076
-    Farm Power (Agent): 1.19 MW
-    Farm Power (Baseline): 1.19 MW
-    Current Yaw Angles (Agent): [ 2.37 -3.08]
+    Action (raw): [-0.47541058 -0.1211104 ]
+    Reward: -0.0743
+    Farm Power (Agent): 1.37 MW
+    Farm Power (Baseline): 1.39 MW
+    Current Yaw Angles (Agent): [-15.     3.21]
     Time: 295.00 s
+
+
 
 ```python
 # Close the environment to free resources
@@ -312,12 +330,15 @@ env.close()
 print("WindFarmEnv closed.")
 ```
 
+    
     Closing WindFarmEnv...
     WindFarmEnv closed.
+
 
 ## 3. Running Simulations with `FarmEval`: Evaluation and Pre-built Agents
 
 `FarmEval` is ideal for reproducible evaluations under fixed wind conditions, which is crucial for benchmarking and comparing different agents. Here, we'll use it to evaluate a `PyWakeAgent`.
+
 
 ```python
 # Define turbine positions for a small farm for evaluation (e.g., three turbines in a row)
@@ -362,7 +383,7 @@ eval_results = eval_single_fast(
     ws=10.0,
     ti=0.07,
     wd=270.0,
-    t_sim=6,
+    t_sim=6,     
     save_figs=False,        # Set to True to generate frame-by-frame plots (can be very slow)
     debug=False,
     deterministic=True,     # Use deterministic policy for the agent
@@ -372,6 +393,7 @@ eval_results = eval_single_fast(
 
 ```
 
+    
     --- Running simulation with PyWakeAgent using eval_single_fast ---
 
 
@@ -390,7 +412,7 @@ eval_results = eval_single_fast(
          40     ws=10.0,
          41     ti=0.07,
          42     wd=270.0,
-         43     t_sim=6,
+         43     t_sim=6,     
          44     save_figs=False,        # Set to True to generate frame-by-frame plots (can be very slow)
          45     debug=False,
          46     deterministic=True,     # Use deterministic policy for the agent
@@ -400,14 +422,16 @@ eval_results = eval_single_fast(
 
     NameError: name 'eval_single_fast' is not defined
 
+
+
 ```python
 # Select a single wind speed, direction, and TI for plotting, assuming eval_results has these dimensions
 selected_data = eval_results.sel(ws=10.0, wd=270.0, TI=0.07, method='nearest')
 #print(selected_data['powerF_a'].head())
 
 # Access the underlying data for plotting, and use .squeeze() to remove singleton dimensions
-agent_power = selected_data['powerF_a'].squeeze().values
-baseline_power = selected_data['powerF_b'].squeeze().values
+agent_power = selected_data['powerF_a'].squeeze().values 
+baseline_power = selected_data['powerF_b'].squeeze().values 
 time_steps = selected_data['time'].values
 
 agent_yaw_all_turbines = selected_data['yaw_a'].squeeze().values
@@ -454,6 +478,7 @@ eval_env.close() # Important: close the evaluation environment to release resour
 print("FarmEval environment closed.")
 ```
 
+
     ---------------------------------------------------------------------------
 
     NameError                                 Traceback (most recent call last)
@@ -462,22 +487,22 @@ print("FarmEval environment closed.")
           1 # Select a single wind speed, direction, and TI for plotting, assuming eval_results has these dimensions
     ----> 2 selected_data = eval_results.sel(ws=10.0, wd=270.0, TI=0.07, method='nearest')
           3 #print(selected_data['powerF_a'].head())
-          4
+          4 
           5 # Access the underlying data for plotting, and use .squeeze() to remove singleton dimensions
-          6 agent_power = selected_data['powerF_a'].squeeze().values
+          6 agent_power = selected_data['powerF_a'].squeeze().values 
 
 
     NameError: name 'eval_results' is not defined
+
 
 ## 4. Multi-Agent Simulations (`WindFarmEnvMulti`)
 
 WindGym also supports multi-agent environments, where each turbine can be controlled by an independent agent. This is achieved using `WindFarmEnvMulti`, which wraps `WindFarmEnv` to conform to the [PettingZoo Parallel API](https://pettingzoo.farama.org/api/parallel/).
 
 In this setup:
-
-- Each turbine is considered a separate 'agent'.
-- `reset()` and `step()` methods return dictionaries where keys are agent IDs (e.g., `'turbine_0'`, `'turbine_1'`).
-- Actions provided to `step()` must also be a dictionary with agent IDs as keys.
+* Each turbine is considered a separate 'agent'.
+* `reset()` and `step()` methods return dictionaries where keys are agent IDs (e.g., `'turbine_0'`, `'turbine_1'`).
+* Actions provided to `step()` must also be a dictionary with agent IDs as keys.
 
 ### Multi-Agent Simulations (`WindFarmEnvMulti`)
 
@@ -485,11 +510,12 @@ WindGym extends its capabilities to **multi-agent environments**, allowing each 
 
 In this multi-agent paradigm:
 
-- Each individual wind turbine is treated as a distinct **'agent'**.
-- The `reset()` and `step()` methods of the environment return **dictionaries**. The keys of these dictionaries are **agent IDs** (e.g., `'turbine_0'`, `'turbine_1'`), and the values correspond to the observations, rewards, terminations, truncations, or information pertinent to that specific agent.
-- Similarly, actions provided to the `step()` method must also be a **dictionary**, mapping agent IDs to their respective actions.
+* Each individual wind turbine is treated as a distinct **'agent'**.
+* The `reset()` and `step()` methods of the environment return **dictionaries**. The keys of these dictionaries are **agent IDs** (e.g., `'turbine_0'`, `'turbine_1'`), and the values correspond to the observations, rewards, terminations, truncations, or information pertinent to that specific agent.
+* Similarly, actions provided to the `step()` method must also be a **dictionary**, mapping agent IDs to their respective actions.
 
 To illustrate this, let's set up a simple multi-agent simulation. We'll use a **leader-follower strategy** where one turbine acts randomly, and the others attempt to align their yaw angles with the leader's previous yaw. This demonstrates inter-agent dynamics within the simulation.
+
 
 ```python
 import numpy as np
@@ -503,13 +529,13 @@ warnings.filterwarnings('ignore')
 
 # Required imports from your environment
 from WindGym.utils.generate_layouts import generate_square_grid
-from WindGym.WindEnvMulti import WindFarmEnvMulti
+from WindGym import WindFarmEnvMulti
 from py_wake.examples.data.hornsrev1 import V80
 
 # --- Main Execution Block ---
 def main():
     """Initializes the environment, runs a simulation with random agents, and plots the results."""
-
+    
     config_dict = {
         "yaw_init": "Zeros",
         "BaseController": "Local",
@@ -573,7 +599,7 @@ def main():
 
     n_turbines = 3
     x_pos, y_pos = generate_square_grid(turbine=V80(), nx=n_turbines, ny=1, xDist=7, yDist=7)
-
+    
     env = WindFarmEnvMulti(
         turbine=V80(),
         x_pos=x_pos,
@@ -588,24 +614,24 @@ def main():
     # --- Simulation with Random Actions ---
     print("\\n--- Running simulation with random agents ---")
     observations, info = env.reset(seed=42)
-
+    
     # Data logging
     history = {
         'time': [0],
         'power': [env.fs.windTurbines.power().sum()],
         'yaws': {agent: [env.current_yaw[i]] for i, agent in enumerate(env.possible_agents)}
     }
-
+    
     terminated = truncated = False
     max_steps = 50
     step = 0
     while not (terminated or truncated) and step < max_steps:
         actions = {agent: env.action_space(agent).sample() for agent in env.possible_agents}
         observations, rewards, terminations, truncations, infos = env.step(actions)
-
+        
         terminated = any(terminations.values())
         truncated = any(truncations.values())
-
+        
         # Log data for plotting
         info = next(iter(infos.values()))
         # Calculate time manually from the step count and env's time delta (dt_env)
@@ -613,7 +639,7 @@ def main():
         history['power'].append(info['Power agent'])
         for i, agent_id in enumerate(env.possible_agents):
             history['yaws'][agent_id].append(env.current_yaw[i])
-
+        
         step += 1
 
     env.close()
@@ -640,7 +666,7 @@ def main():
     ax2.set_ylabel('Yaw Angle (degrees)')
     ax2.grid(True, linestyle='--', linewidth=0.5)
     ax2.legend(loc='best')
-
+    
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     plt.show()
 
@@ -648,16 +674,16 @@ if __name__ == "__main__":
     main()
 ```
 
-    ---------------------------------------------------------------------------
-
-    ModuleNotFoundError                       Traceback (most recent call last)
-
-    Cell In[10], line 12
-         10 # Required imports from your environment
-         11 from WindGym.utils.generate_layouts import generate_square_grid
-    ---> 12 from WindGym.WindEnvMulti import WindFarmEnvMulti
-         13 from py_wake.examples.data.hornsrev1 import V80
-         15 # --- Main Execution Block ---
+    Environment created successfully!
+    Agents: ['turbine_0', 'turbine_1', 'turbine_2']
+    \n--- Running simulation with random agents ---
 
 
-    ModuleNotFoundError: No module named 'WindGym.WindEnvMulti'
+    \nSimulation finished and environment closed.
+
+
+
+    
+![png](simulations_files/simulations_22_2.png)
+    
+

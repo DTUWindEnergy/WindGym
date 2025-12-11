@@ -1,0 +1,4 @@
+# Requirements for building Sphinx API documentation
+sphinx>=7.0.0
+sphinx-rtd-theme>=2.0.0
+sphinx-markdown-builder>=0.6.0
