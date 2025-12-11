@@ -12,6 +12,10 @@ const config = {
   onBrokenLinks: "throw",
   onBrokenMarkdownLinks: "warn",
   favicon: "img/favicon.ico",
+  // Use plain markdown format to avoid MDX parsing issues with auto-generated API docs
+  markdown: {
+    format: "md",
+  },
   // GitHub pages deployment config.
   organizationName: "DTU Wind Energy Systems",
   projectName: "WindGym",
@@ -28,7 +32,7 @@ const config = {
           routeBasePath: "/", // Serve docs from the root
           sidebarPath: require.resolve("./sidebars.js"),
           editUrl:
-            "https://gitlab.windenergy.dtu.dk/sys/windgym/dino_docs/-/edit/main/docusaurus-site",
+            "https://gitlab.windenergy.dtu.dk/sys/windgym/-/edit/main/Docs",
           // === TEMPORARILY REMOVE ALL remarkPlugins and rehypePlugins FOR TESTING ===
           // remarkPlugins: [], // No plugins for now
           // rehypePlugins: [], // No plugins for now
@@ -64,7 +68,7 @@ const config = {
           },
           {
             type: "doc",
-            docId: "api-reference",
+            docId: "api/index",
             position: "left",
             label: "API Reference",
           },
@@ -96,7 +100,7 @@ const config = {
               },
               {
                 label: "API Reference",
-                to: "/api-reference",
+                to: "/api/",
               },
               {
                 label: "Troubleshooting",

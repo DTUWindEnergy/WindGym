@@ -72,5 +72,5 @@ This page covers common issues and frequently asked questions about WindGym.
 
 - [Installation Guide](installation.md)
 - [Core Concepts](concepts.md)
-- [API Reference](api-reference.md)
+- [API Reference](api/index.md)
 - [Developer Guidelines](developer-guidelines.md)

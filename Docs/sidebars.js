@@ -22,14 +22,28 @@ const sidebars = {
       ],
     },
 
-    // Reference
+    // API Reference
     {
       type: "category",
-      label: "Reference",
+      label: "API Reference",
       collapsible: true,
       collapsed: false,
-      items: ["api-reference", "troubleshooting"],
+      link: {
+        type: "doc",
+        id: "api/index",
+      },
+      items: [
+        "api/modules/windgym",
+        "api/modules/core",
+        "api/modules/agents",
+        "api/modules/wrappers",
+        "api/modules/visualization",
+        "api/modules/utils",
+      ],
     },
+
+    // Other Reference
+    "troubleshooting",
 
     // Contributing
     "developer-guidelines",

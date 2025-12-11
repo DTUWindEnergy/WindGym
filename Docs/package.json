@@ -1,11 +1,13 @@
 {
-  "name": "docusaurus-site",
+  "name": "windgym-docs",
   "version": "0.0.0",
   "private": true,
   "scripts": {
     "start": "docusaurus start",
     "prebuild": "bash scripts/prebuild.sh",
     "build": "docusaurus build",
+    "build:api": "bash build-api-docs.sh",
+    "build:full": "npm run build:api && npm run build",
     "serve": "docusaurus serve",
     "swizzle": "docusaurus swizzle",
     "deploy": "docusaurus deploy",

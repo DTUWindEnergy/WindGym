@@ -164,3 +164,15 @@ cython_debug/
 #.idea/
 .ruff_cache
 WindGym/version.py
+
+
+# Docusaurus / Node.js
+Docs/node_modules/
+Docs/.docusaurus/
+Docs/build/
+Docs/.cache/
+Docs/package-lock.json
+
+# Sphinx build artifacts
+Docs/sphinx-source/_build/
+Docs/api-docs/
