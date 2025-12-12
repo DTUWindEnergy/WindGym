@@ -147,7 +147,7 @@ build_docs:
   script:
     - pixi install # Install all Python dependencies defined in dino_docs/pyproject.toml
     # Now that both Python (via pixi) and Node.js (via apt) are set up
-    - cd docusaurus-site # Navigate into the docusaurus-site directory
+    - cd Docs # Navigate into the Docs directory
     - npm install # Install Node.js dependencies for Docusaurus
     - npm run build # This will run prebuild.sh (which now finds python/jupyter from pixi env) and then the Docusaurus build
   cache:
@@ -160,7 +160,7 @@ build_docs:
         policy: pull # This job only PULLS the default env cache
   artifacts:
     paths:
-      - docusaurus-site/build/
+      - Docs/build/
     expire_in: 1 week
   tags:
     - linux
@@ -172,11 +172,10 @@ pages:
     - build_docs
   script:
     - mkdir public
-    - cp -r docusaurus-site/build/* public/
+    - cp -r Docs/build/* public/
   artifacts:
     paths:
       - public
   tags:
     - linux
   <<: *docs_rules
-
