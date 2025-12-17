@@ -458,6 +458,8 @@ class WindFarmEnv(gym.Env):
         farm = require_section("farm")
         self.yaw_min = require_key(farm, "yaw_min", "farm")
         self.yaw_max = require_key(farm, "yaw_max", "farm")
+        self.yaw_scaling_min = self.yaw_min
+        self.yaw_scaling_max = self.yaw_max
 
         # Wind section (required keys)
         wind = require_section("wind")
