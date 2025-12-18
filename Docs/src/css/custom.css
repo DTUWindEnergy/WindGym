@@ -39,3 +39,50 @@
 [data-theme='dark'] {
   --docusaurus-highlighted-code-line-bg: rgba(255, 255, 255, 0.1);
 }
+
+/* Improve the typography of the API documentation */
+.markdown {
+  font-family: sans-serif;
+  line-height: 1.6;
+}
+
+/* Style the headings */
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  font-weight: 600;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+}
+
+/* Style the code blocks */
+.markdown code {
+  font-family: "Courier New", Courier, monospace;
+  background-color: var(--ifm-code-background);
+  padding: 0.2em 0.4em;
+  border-radius: 3px;
+}
+
+/* Add a border and background to class and function definitions */
+.markdown h3,
+.markdown h4 {
+  background-color: var(--ifm-background-color-secondary);
+  padding: 0.5em;
+  border-left: 5px solid var(--ifm-color-emphasis-300);
+  box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+/* Improve the spacing of lists */
+.markdown ul,
+.markdown ol {
+  margin-left: 1.5em;
+  margin-bottom: 1em;
+}
+
+/* Add a hover effect to links */
+.markdown a:hover {
+  text-decoration: underline;
+}
