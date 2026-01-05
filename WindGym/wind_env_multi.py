@@ -51,9 +51,9 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
         HTC_path=None,
         reset_init=False,
         burn_in_passthroughs=2,
-        cleanup_on_time_limit: bool = True,  
-        wd_function=None,  
-        max_turb_move=2,  
+        cleanup_on_time_limit: bool = True,
+        wd_function=None,
+        max_turb_move=2,
     ):
         self.n_turb = len(x_pos)  # n_turb needed before possible_agents
         self.possible_agents = ["turbine_" + str(r) for r in range(self.n_turb)]
@@ -78,7 +78,7 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
             yaw_scaling_max=yaw_scaling_max,
             TurbBox=TurbBox,
             turbtype=turbtype,
-            backend=backend,  
+            backend=backend,
             config=config,
             Baseline_comp=Baseline_comp,
             yaw_init=yaw_init,
@@ -93,9 +93,9 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
             HTC_path=HTC_path,
             reset_init=reset_init,
             burn_in_passthroughs=burn_in_passthroughs,
-            cleanup_on_time_limit=cleanup_on_time_limit,  
-            wd_function=wd_function,  
-            max_turb_move=max_turb_move,  
+            cleanup_on_time_limit=cleanup_on_time_limit,
+            wd_function=wd_function,
+            max_turb_move=max_turb_move,
         )
 
         self.act_var = 1

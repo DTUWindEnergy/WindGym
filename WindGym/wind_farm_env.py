@@ -1178,17 +1178,17 @@ class WindFarmEnv(gym.Env):
 
     def _soft_cleanup(self) -> None:
         """
-        Clean up resources between episodes. 
+        Clean up resources between episodes.
         Closes connections and clears references but doesn't delete files.
         """
         # Close HAWC2 connections if they exist
         if self.HTC_path is not None:
-            if self.wts is not None and hasattr(self.wts, 'h2'):
+            if self.wts is not None and hasattr(self.wts, "h2"):
                 try:
                     self.wts.h2.close()
                 except Exception:
                     pass
-            if self.wts_baseline is not None and hasattr(self.wts_baseline, 'h2'):
+            if self.wts_baseline is not None and hasattr(self.wts_baseline, "h2"):
                 try:
                     self.wts_baseline.h2.close()
                 except Exception:
@@ -1211,9 +1211,13 @@ class WindFarmEnv(gym.Env):
         # Delete HAWC folders BEFORE clearing references (needs self.wts for paths)
         if self.HTC_path is not None:
             # Close connections first
-            if self.wts is not None and hasattr(self.wts, 'h2'):
+            if self.wts is not None and hasattr(self.wts, "h2"):
                 self.wts.h2.close()
-            if self.Baseline_comp and self.wts_baseline is not None and hasattr(self.wts_baseline, 'h2'):
+            if (
+                self.Baseline_comp
+                and self.wts_baseline is not None
+                and hasattr(self.wts_baseline, "h2")
+            ):
                 self.wts_baseline.h2.close()
             # Then delete folders
             self._deleteHAWCfolder()
