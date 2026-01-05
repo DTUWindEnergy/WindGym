@@ -42,6 +42,9 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 
 from WindGym.core.wind_probe import WindProbe
 
+# import logging
+# logger = logging.getLogger(__name__)
+
 
 CutOffFrqLio2021 = CutOffFrq(4)
 
@@ -1184,15 +1187,15 @@ class WindFarmEnv(gym.Env):
         # Close HAWC2 connections if they exist
         if self.HTC_path is not None:
             if self.wts is not None and hasattr(self.wts, "h2"):
-                try:
-                    self.wts.h2.close()
-                except Exception:
-                    pass
+                # try:
+                self.wts.h2.close()
+                # except Exception as e:
+                #     logger.warning(f"Failed to close wts.h2 connection: {e}")
             if self.wts_baseline is not None and hasattr(self.wts_baseline, "h2"):
-                try:
-                    self.wts_baseline.h2.close()
-                except Exception:
-                    pass
+                # try:
+                self.wts_baseline.h2.close()
+                # except Exception as e:
+                #     logger.warning(f"Failed to close wts_baseline.h2 connection: {e}")
 
         # Clear references
         self.fs_baseline = None
@@ -1371,7 +1374,7 @@ class WindFarmEnv(gym.Env):
 
     def __del__(self):
         """Destructor to ensure cleanup."""
-        try:
-            self._soft_cleanup()
-        except Exception:
-            pass  # Don't raise in destructor
+        # try:
+        self._soft_cleanup()
+        # except Exception as e:
+        #     logger.warning(f"Exception during WindFarmEnv cleanup: {e}")
