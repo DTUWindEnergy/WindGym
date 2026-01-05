@@ -283,7 +283,9 @@ class TurbulenceManager:
 
         # Calculate maximum distance between any turbines
 
-        diff = turbine_positions[:, np.newaxis, :] - turbine_positions[np.newaxis, :, :]  # (NT, NT, 2)
+        diff = (
+            turbine_positions[:, np.newaxis, :] - turbine_positions[np.newaxis, :, :]
+        )  # (NT, NT, 2)
         distances = np.linalg.norm(diff, axis=-1)  # (NT, NT)
         max_distance = distances.max()
 
