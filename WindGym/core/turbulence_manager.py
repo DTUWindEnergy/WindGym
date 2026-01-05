@@ -281,9 +281,13 @@ class TurbulenceManager:
         """
         n_turb = turbine_positions.shape[0]
 
-        # Calculate maximum distance from origin to any turbine
-        turbine_max_dist = np.sqrt(np.sum(turbine_positions**2, axis=1)).max()
-        t_inflow = turbine_max_dist / ws
+        # Calculate maximum distance between any turbines
+
+        diff = turbine_positions[:, np.newaxis, :] - turbine_positions[np.newaxis, :, :]  # (NT, NT, 2)
+        distances = np.linalg.norm(diff, axis=-1)  # (NT, NT)
+        max_distance = distances.max()
+
+        t_inflow = max_distance / ws
 
         # Time for flow to develop
         t_developed = math.ceil(t_inflow * burn_in_passthroughs)
