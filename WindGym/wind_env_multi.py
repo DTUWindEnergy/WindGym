@@ -36,6 +36,7 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
         yaw_scaling_max: float = 45,
         TurbBox="Default",
         turbtype="MannGenerate",
+        backend: str = "dynamiks",
         config=None,
         Baseline_comp=False,
         yaw_init=None,
@@ -50,6 +51,9 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
         HTC_path=None,
         reset_init=False,
         burn_in_passthroughs=2,
+        cleanup_on_time_limit: bool = True,
+        wd_function=None,
+        max_turb_move=2,
     ):
         self.n_turb = len(x_pos)  # n_turb needed before possible_agents
         self.possible_agents = ["turbine_" + str(r) for r in range(self.n_turb)]
@@ -74,6 +78,7 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
             yaw_scaling_max=yaw_scaling_max,
             TurbBox=TurbBox,
             turbtype=turbtype,
+            backend=backend,
             config=config,
             Baseline_comp=Baseline_comp,
             yaw_init=yaw_init,
@@ -88,6 +93,9 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
             HTC_path=HTC_path,
             reset_init=reset_init,
             burn_in_passthroughs=burn_in_passthroughs,
+            cleanup_on_time_limit=cleanup_on_time_limit,
+            wd_function=wd_function,
+            max_turb_move=max_turb_move,
         )
 
         self.act_var = 1
@@ -204,7 +212,7 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
         WindFarmEnv.reset(self, seed, options)
 
         # Then we unpack the observations and infos, and make them fit the parallel_env format.
-        self.agents = copy(self.possible_agents)
+        # self.agents = copy(self.possible_agents)
         self.timestep = 0
 
         # Get observations and infos
@@ -318,3 +326,10 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
     def action_space(self, agent):
         return Box(low=-1.0, high=1.0, shape=(self.act_var,), dtype=np.float32)
         # return self._action_spaces[agent]
+
+    def close(self):
+        """
+        Explicitly call WindFarmEnv.close() since MRO would otherwise
+        call ParallelEnv.close() which is a no-op.
+        """
+        WindFarmEnv.close(self)

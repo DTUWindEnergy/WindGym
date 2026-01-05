@@ -42,6 +42,9 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 
 from WindGym.core.wind_probe import WindProbe
 
+# import logging
+# logger = logging.getLogger(__name__)
+
 
 CutOffFrqLio2021 = CutOffFrq(4)
 
@@ -336,10 +339,8 @@ class WindFarmEnv(gym.Env):
         If the HTC path is given, then use hawc2 turbines, else use pywake turbines.
         Also is we have a baseline, then set that up also
         """
-        if self.wts is not None:
-            self.wts = None
-        if self.wts_baseline is not None:
-            self.wts_baseline = None
+        self.wts = None
+        self.wts_baseline = None
 
         if self.HTC_path is not None:  # pragma: no cover
             # TODO HTC stuff is not covered by the tests atm
@@ -674,6 +675,9 @@ class WindFarmEnv(gym.Env):
         - The measurements are filled up with the initial values.
 
         """
+        # Clean up previous episode resources FIRST
+        self._soft_cleanup()
+
         # Seed the RNG used by this Env (sets self.np_random)
         super().reset(seed=seed)
         self.timestep = 0
@@ -1175,6 +1179,62 @@ class WindFarmEnv(gym.Env):
         self.farm_measurements = None
         gc.collect()
 
+    def _soft_cleanup(self) -> None:
+        """
+        Clean up resources between episodes.
+        Closes connections and clears references but doesn't delete files.
+        """
+        # Close HAWC2 connections if they exist
+        if self.HTC_path is not None:
+            if self.wts is not None and hasattr(self.wts, "h2"):
+                # try:
+                self.wts.h2.close()
+                # except Exception as e:
+                #     logger.warning(f"Failed to close wts.h2 connection: {e}")
+            if self.wts_baseline is not None and hasattr(self.wts_baseline, "h2"):
+                # try:
+                self.wts_baseline.h2.close()
+                # except Exception as e:
+                #     logger.warning(f"Failed to close wts_baseline.h2 connection: {e}")
+
+        # Clear references
+        self.fs_baseline = None
+        self.site_base = None
+        self.wts_baseline = None
+        self.fs = None
+        self.site = None
+        self.wts = None
+        self.farm_measurements = None
+        gc.collect()
+
+    def _cleanup_resources(self) -> None:
+        """
+        Full cleanup including HAWC2 file deletion. Called on episode truncation.
+        """
+        # Delete HAWC folders BEFORE clearing references (needs self.wts for paths)
+        if self.HTC_path is not None:
+            # Close connections first
+            if self.wts is not None and hasattr(self.wts, "h2"):
+                self.wts.h2.close()
+            if (
+                self.Baseline_comp
+                and self.wts_baseline is not None
+                and hasattr(self.wts_baseline, "h2")
+            ):
+                self.wts_baseline.h2.close()
+            # Then delete folders
+            self._deleteHAWCfolder()
+
+        # Now clear all references
+        self.fs_baseline = None
+        self.site_base = None
+        self.wts_baseline = None
+        self.fs = None
+        self.site = None
+        self.wts = None
+        self.farm_measurements = None
+        gc.collect()
+
     def _deleteHAWCfolder(self):
         """
         This deletes the HAWC2 results folder from the directory.
@@ -1311,3 +1371,10 @@ class WindFarmEnv(gym.Env):
         if self.baseline_manager is not None:
             return self.baseline_manager._base_controller
         return None
+
+    def __del__(self):
+        """Destructor to ensure cleanup."""
+        # try:
+        self._soft_cleanup()
+        # except Exception as e:
+        #     logger.warning(f"Exception during WindFarmEnv cleanup: {e}")

@@ -195,8 +195,8 @@ class TurbulenceManager:
             raise RuntimeError("No turbulence files discovered for MannLoad")
 
         # Select random turbulence file
-        tf_file = self.np_random.choice(self.turbulence_files)
-        tf = MannTurbulenceField.from_netcdf(filename=tf_file)
+        self.tf_file = self.np_random.choice(self.turbulence_files)
+        tf = MannTurbulenceField.from_netcdf(filename=self.tf_file)
         tf.scale_TI(TI=ti, U=ws)
 
         added_turb_model = SynchronizedAutoScalingIsotropicMannTurbulence()

@@ -1,5 +1,6 @@
 test*.ipynb
 Hipersim*
+tf_files*
 openmdao_checks*
 # Byte-compiled / optimized / DLL files
 __pycache__/
