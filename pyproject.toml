@@ -1,34 +1,32 @@
 [build-system]
-requires = [
-    "setuptools>=60",
-    "setuptools-scm>=8.0"]
+requires = ["setuptools>=60", "setuptools-scm>=8.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "WindGym"
 authors = [
-  { name="Marcus Nilsen", email="manils@dtu.dk" },
-  { name="Julian Quick", email="juqu@dtu.dk" },
-  { name="Ernestas Simutis", email="ernim@dtu.dk" },
-  { name="Teodor Olof Benedict Åstrand", email="tobas@dtu.dk" },
+  { name = "Marcus Nilsen", email = "manils@dtu.dk" },
+  { name = "Julian Quick", email = "juqu@dtu.dk" },
+  { name = "Ernestas Simutis", email = "ernim@dtu.dk" },
+  { name = "Teodor Olof Benedict Åstrand", email = "tobas@dtu.dk" },
 ]
 description = "Wind farm reinforcement learning environment"
 readme = "README.md"
 version = "0.0.2"
 requires-python = ">=3.7, <3.12"
 classifiers = [
-    "Programming Language :: Python :: 3",
-    "Operating System :: OS Independent",
-    "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Operating System :: OS Independent",
+  "License :: OSI Approved :: MIT License",
 ]
 dependencies = [
   "gymnasium",
   "stable_baselines3",
   "hipersim>=0.1.7",
-  "dynamiks @ git+https://gitlab.windenergy.dtu.dk/DYNAMIKS/dynamiks.git@77f4f875c6401fde150e351a60143a5b522cf950",
+  "dynamiks @ git+https://gitlab.windenergy.dtu.dk/DYNAMIKS/dynamiks.git",
   "pettingzoo",
   "wetb",
-  "IPython"
+  "IPython",
 ]
 
 [project.urls]
@@ -50,10 +48,7 @@ testpaths = "tests"
 addopts = "--cov-report term-missing:skip-covered --cov=WindGym"
 
 [tool.coverage.run]
-omit = [
-        "tests/*",
-        "WindGym/version.py"
-       ]
+omit = ["tests/*", "WindGym/version.py"]
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
