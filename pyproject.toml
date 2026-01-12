@@ -23,7 +23,7 @@ dependencies = [
   "gymnasium",
   "stable_baselines3",
   "hipersim>=0.1.7",
-  "dynamiks @ git+https://gitlab.windenergy.dtu.dk/DYNAMIKS/dynamiks.git",
+  "dynamiks @ git+https://gitlab.windenergy.dtu.dk/DYNAMIKS/dynamiks.git@2f99b94358f1a1cb4cb0810aec90f41a346f55fc",
   "pettingzoo",
   "wetb",
   "IPython",
