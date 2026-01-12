@@ -267,7 +267,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/ac/25/58893afd4ef45f79e3d4db82742fa4ff874b936d67a83c92939053920ccd/cython-3.2.4-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/6f/3a/2121294941227c548d4b5f897a8a1b5f4c44a58f5437f239e6b86511d78e/dask-2025.12.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/0c/d5/c5db1ea3394c6e1732fb3286b3bd878b59507a8f77d32a2cebda7d7b7cd4/donfig-0.8.1.post1-py3-none-any.whl
-      - pypi: git+https://gitlab.windenergy.dtu.dk/DYNAMIKS/dynamiks.git#2f99b94358f1a1cb4cb0810aec90f41a346f55fc
+      - pypi: git+https://gitlab.windenergy.dtu.dk/DYNAMIKS/dynamiks.git?rev=2f99b94358f1a1cb4cb0810aec90f41a346f55fc#2f99b94358f1a1cb4cb0810aec90f41a346f55fc
       - pypi: https://files.pythonhosted.org/packages/c1/8b/5fe2cc11fee489817272089c4203e679c63b570a5aaeb18d852ae3cbba6a/et_xmlfile-2.0.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/b5/36/7fb70f04bf00bc646cd5bb45aa9eddb15e19437a28b8fb2b4a5249fac770/filelock-3.20.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/79/61/1ca198af22f7dd22c17ab86e9024ed3c06299cfdb08170640e9996d501a0/fonttools-4.61.1-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
@@ -584,7 +584,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/85/cc/8f06145ec3efa121c8b1b67f06a640386ddacd77ee3e574da582a21b14ee/cython-3.2.4-cp311-cp311-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/6f/3a/2121294941227c548d4b5f897a8a1b5f4c44a58f5437f239e6b86511d78e/dask-2025.12.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/0c/d5/c5db1ea3394c6e1732fb3286b3bd878b59507a8f77d32a2cebda7d7b7cd4/donfig-0.8.1.post1-py3-none-any.whl
-      - pypi: git+https://gitlab.windenergy.dtu.dk/DYNAMIKS/dynamiks.git#2f99b94358f1a1cb4cb0810aec90f41a346f55fc
+      - pypi: git+https://gitlab.windenergy.dtu.dk/DYNAMIKS/dynamiks.git?rev=2f99b94358f1a1cb4cb0810aec90f41a346f55fc#2f99b94358f1a1cb4cb0810aec90f41a346f55fc
       - pypi: https://files.pythonhosted.org/packages/c1/8b/5fe2cc11fee489817272089c4203e679c63b570a5aaeb18d852ae3cbba6a/et_xmlfile-2.0.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/b5/36/7fb70f04bf00bc646cd5bb45aa9eddb15e19437a28b8fb2b4a5249fac770/filelock-3.20.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/69/12/bf9f4eaa2fad039356cc627587e30ed008c03f1cebd3034376b5ee8d1d44/fonttools-4.61.1-cp311-cp311-macosx_10_9_universal2.whl
@@ -1639,7 +1639,7 @@ packages:
   - pytest ; extra == 'test'
   - cloudpickle ; extra == 'test'
   requires_python: '>=3.8'
-- pypi: git+https://gitlab.windenergy.dtu.dk/DYNAMIKS/dynamiks.git#2f99b94358f1a1cb4cb0810aec90f41a346f55fc
+- pypi: git+https://gitlab.windenergy.dtu.dk/DYNAMIKS/dynamiks.git?rev=2f99b94358f1a1cb4cb0810aec90f41a346f55fc#2f99b94358f1a1cb4cb0810aec90f41a346f55fc
   name: dynamiks
   version: 0.0.4.post1.dev55+g2f99b9435
   requires_dist:
@@ -6888,12 +6888,12 @@ packages:
 - pypi: ./
   name: windgym
   version: 0.0.2
-  sha256: a7b6754bbbfd992d692261d762b926c725f7ea405fa5635edb2e3240fe0c8a63
+  sha256: cc6e98bc56131b3bc48d361e3c7e52bbe00d4edfe316f0fc679a9483b7a7de11
   requires_dist:
   - gymnasium
   - stable-baselines3
   - hipersim>=0.1.7
-  - dynamiks @ git+https://gitlab.windenergy.dtu.dk/DYNAMIKS/dynamiks.git
+  - dynamiks @ git+https://gitlab.windenergy.dtu.dk/DYNAMIKS/dynamiks.git@2f99b94358f1a1cb4cb0810aec90f41a346f55fc
   - pettingzoo
   - wetb
   - ipython
