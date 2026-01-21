@@ -125,6 +125,9 @@ class TurbulenceManager:
         center = (turb_pos.max(0) + turb_pos.min(0)) / 2
         distances = np.sqrt(np.sum((turb_pos - center) ** 2, axis=1))
         max_dist = np.max(distances)
+        # If only 1 turbine, max_dist is half rotor diameter
+        max_dist = max(max_dist, rotor_diameter / 2)
+
         d_theta_lim = self.max_turb_move * 360 / (2 * np.pi * max_dist)
 
         # Create agent site
