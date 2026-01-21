@@ -1088,11 +1088,12 @@ class WindFarmEnv(gym.Env):
         self.old_yaws = copy.copy(self.fs.windTurbines.yaw)
 
         # This is the ammount of steps we need to do, to ensure we have the correct delay
-        steps_with_delay = (
+        # Cast to int because floor division with floats returns float (e.g., 0.0 // 10.0 = 0.0)
+        steps_with_delay = int(
             self.sim_steps_per_env_step
             + ((self.delay - self.dt_env) // self.dt_env) * self.sim_steps_per_env_step
         )
-        ignore_steps = steps_with_delay - self.sim_steps_per_env_step
+        ignore_steps = int(steps_with_delay - self.sim_steps_per_env_step)
 
         out = self._advance_and_measure(
             steps_with_delay,
