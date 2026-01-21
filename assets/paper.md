@@ -37,54 +37,63 @@ https://joss.theoj.org/papers/10.21105/joss.06746 -->
 
 **WindGym** is an open-source Python package for reinforcement-learning (RL) based control of wind farms. It provides both single-agent and multi-agent environments, following the Gymnasium API for centralized controllers and the PettingZoo API for multi-agent settings, enabling drop-in use with mainstream RL frameworks [@gymnasium; @pettingzoo]. WindGym is built on top of DYNAMIKS, a multi-fidelity flow simulation framework, which allows users to seamlessly adjust between computational speed and physical fidelity within a single interface [@dynamiks].
 
-WindGym lowers the barrier to reproducible research and benchmarking within the field of RL for wind farm control by standardizing interfaces and providing built-in examples, reward utilities, and tests. The package is MIT-licensed and comes with documentation, continuous integration, and ready-to-run training pipelines, making it straightforward for researchers to prototype, compare, and share RL-based wind farm control strategies.
+The goal of WindGym is to lower the barrier to reproducible research and benchmarking within the field of RL for wind farm control by standardizing interfaces and providing built-in examples, reward utilities, and tests. The package is MIT-licensed and comes with documentation, continuous integration, and ready-to-run training pipelines, making it straightforward for researchers to prototype, compare, and share RL-based wind farm control strategies.
 
 
 
 # Statement of need
 
-Wind energy is projected to play an increasingly important role in global energy production if the transition towards climate neutrality is to become true [@irena2022weto; @iea2021netzero]. Today, most wind turbines are placed closely together in wind farms to leverage shared infrastructure and reduce land use [@Vondelen2024]. However, this introduces what is known as the 'wake effect'. This occurs when an upstream turbine impedes the incoming flow, resulting in a decrease in wind speed and an increase in turbulence for the downstream turbines. This can result in decreased power output and increased structural loads [@Howland2020]. One way to mitigate this phenomenon is with wake steering, where turbines are intentionally misaligned with the wind to help steer the wake away from downstream turbines [@Annoni2018].
 
-Developing control algorithms for wind farms is not a trivial task. One area that has been gaining increased interest is to use RL to help learn a control strategy based on a simulated wind farm environment [@abkar2023reinforcement; @goccmen2025data]. However, even though interest in this field is increasing, much of the work remains fragmented, with many researchers using custom simulators or failing to publish their code bases.
+Wind energy is projected to play an increasingly important role in global energy production if the transition towards climate neutrality is to be realized [@irena2022weto; @iea2021netzero]. Today, most wind turbines are placed closely together in wind farms to leverage shared infrastructure and reduce land use [@Vondelen2024]. However, this introduces the wake effect, where an upstream turbine impedes the incoming flow, resulting in decreased wind speed and increased turbulence for downstream turbines. This can lead to decreased power output and increased structural loads [@Howland2020]. One way to mitigate this phenomenon is wake steering, where turbines are intentionally misaligned with the wind to help steer the wake away from downstream turbines [@Annoni2018].
 
-There already exist a lot of different options for simulating the behaviour of wind farms. These are typically divided into different levels of detail. For example, PyWake [@pywake] and Floris [@FLORIS] are able to simulate the steady-state flow over a full wind farm in the matter of milliseconds, but do not include the transient evolution and turbulent behavior of the wind. Alternatively, simulators such as FOXES [@foxes] and Floridyn [@floridyn] do include the transient evolution of the flow but do not account for the turbulent fluctuations of the wind. 
 
-Our RL environment is built on Dynamiks [@dynamiks], which is a multi-fidelity framework. This means that it is possible to interchange the fidelity levels in the simulation with only minor changes to the code, and keeping the underlying flowsimulations in a unified framework. 
+Developing control algorithms for wind farms is not a trivial task. One area that has been gaining increased interest is using RL to learn control strategies based on simulated wind farm environments [@abkar2023reinforcement; @goccmen2025data]. However, even though interest in this field is increasing, much of the work remains fragmented, with many researchers using custom simulators or failing to publish their code bases. WindGym addresses this gap by providing an RL-first framework that follows the de facto RL APIs, abstracts different wind-farm simulation back-ends within a unified interface, and includes examples and tests to support reproducibility. By lowering the barrier to entry, WindGym enables systematic comparisons across algorithms, reward definitions, and simulator fidelity levels.
 
-RL for wind farm control is a rapidly evolving field, but progress is hampered by a lack of standardized environments and reproducible benchmarks. WindGym addresses this gap by providing an RL-first framework that (i) follows the de facto RL APIs (Gymnasium for single-agent [@gymnasium] and PettingZoo for multi-agent [@pettingzoo]), (ii) abstracts different wind-farm simulation back-ends within a unified interface, and (iii) includes examples and tests to support reproducibility. By lowering the barrier to entry, WindGym enables systematic comparisons across algorithms, reward definitions, and simulator fidelity levels.
+
+# State of the Field
+
+Several options exist for simulating wind farm behaviour at different fidelity levels. PyWake [@pywake] and FLORIS [@FLORIS] simulate steady-state flow over a full wind farm in milliseconds but do not include transient evolution or turbulent behaviour. FOXES [@foxes] and Floridyn [@floridyn] include transient flow evolution but do not account for turbulent fluctuations. 
+
+When we began developing WindGym, no existing package combined dynamic wind farm simulation with standard RL interfaces. While WFCRL [@WFCRL] has since emerged, providing RL environments built on Fastfarm [@fastfarm] and Floris, WindGym offers a distinct advantage: it is built on DYNAMIKS [@dynamiks], a multi-fidelity framework that allows users to interchange fidelity levels within a single codebase. This means researchers can train agents using fast, low-fidelity simulations and validate them with higher-fidelity models without changing their RL setup. Additionally, WindGym provides both single-agent and multi-agent environments through Gymnasium and PettingZoo APIs, whereas WFCRL currently focuses on multi-agent scenarios.
+
+
+# Software Design
+
+WindGym's architecture prioritizes simplicity and modularity. The core design centres on a single main environment file (`WindFarmEnv`) that encapsulates all essential logic for state management, action processing, and reward computation. The multi-agent variant (`MultiAgentWindFarmEnv`) is implemented as a thin wrapper around this core, mapping the centralized interface to per-turbine observations and actions. This approach minimizes code duplication and ensures consistent behaviour across control paradigms.
+
+We deliberately adopted the Gymnasium and PettingZoo APIs as they represent the de facto standards in RL research. This decision lowers the barrier to entry for researchers already familiar with these interfaces and enables seamless integration with popular training libraries such as Stable-Baselines3 [@sb3] and CleanRL [@cleanrl].
+
+The simulation back-end is abstracted behind a clean interface, allowing users to swap between DYNAMIKS for dynamic simulations and PyWake for steady-state analysis without modifying their RL code. This modularity supports diverse research directions, whether investigating large-scale RL training, robust control under uncertainty, or algorithm comparisons across fidelity levels.
+
+Flexibility is maintained throughout: reward functions, observation spaces, and termination conditions are all configurable, enabling researchers to adapt the environment to their specific research questions rather than being constrained by rigid defaults.
+
+
 
 # Functionality
 
-<!-- - **APIs & variants**  
-  **Single-agent** follows the **Gymnasium** API (`reset/step`, `terminated/truncated`, `info`) for centralized controllers.  
-  **Multi-agent** follows **PettingZoo** (Parallel API for simultaneous actions; AEC supported when sequential updates are desired), mapping **each turbine to an agent** with its own observation/action space [@gymnasium; @pettingzoo-aec; @pettingzoo-parallel]. This lets researchers prototype centralized vs. decentralized control with minimal code changes.
 
-- **Physics back-ends**  
-  Plug-compatible back-ends: **DYNAMIKS** for dynamic, higher-fidelity flow; **PyWake** for fast, analytical wakes and plant-level studies [@dynamiks; @pywake].
+WindGym supports both centralized and decentralized control formulations. In the single-agent variant, a single controller issues actions for the entire farm following the Gymnasium API. In the multi-agent variant following the PettingZoo API, each turbine maps to its own agent with separate observation and action spaces, allowing researchers to switch between paradigms with minimal code changes.
 
-- **Reward utilities**  
-  Built-ins for **power-based**, **baseline-normalized**, and **delta-power** rewards, with optional penalties (e.g., yaw travel/load proxies). Users can supply custom reward callables.
+The package provides interchangeable physics back-ends: DYNAMIKS for dynamic, higher-fidelity transient simulations, and PyWake for fast, analytical wake models. These can be swapped without altering the RL setup, enabling researchers to trade off speed and fidelity as needed.
 
-- **Training & evaluation**  
-  Examples show end-to-end training (e.g., PPO) and evaluation/visualization; vectorized training is supported for throughput. WindGym integrates cleanly with standard RL codebases [@cleanrl; @ppo].
-
-- **Reproducibility & QA**  
-  Tests validate spaces, termination, and determinism toggles; CI and examples support consistent runs. -->
-
-WindGym is designed to make it easy to prototype and benchmark reinforcement learning methods for wind farm control. It supports both centralized and decentralized formulations. In the single-agent variant, the environment follows the Gymnasium API, where a single controller issues actions for the entire farm. In the multi-agent variant, the environment follows the PettingZoo API, mapping each turbine to its own agent with separate observation and action spaces, allowing researchers to switch between control paradigms with only minor code changes [@gymnasium; @pettingzoo].
-
-Behind the scenes, WindGym provides interchangeable physics back-ends. At present, it supports DYNAMIKS for dynamic, higher-fidelity transient simulations, and PyWake for fast, analytical wake models and farm-level studies [@dynamiks; @pywake]. These back-ends can be swapped without altering the RL setup, enabling researchers to trade off speed and fidelity as needed.
-
-Reward specification is another central feature. WindGym includes utilities for common formulations such as raw power, baseline-normalized power, and delta-power rewards, as well as optional penalty terms. At the same time, users can easily plug in their own reward functions.
-
-To lower the barrier to adoption, WindGym ships with examples that demonstrate end-to-end training and evaluation (e.g., PPO), along with visualization utilities for analyzing results. It integrates seamlessly with popular RL libraries [@cleanrl; @sb3], making it straightforward to slot into existing workflows.
+Reward specification is a central feature. WindGym includes utilities for common formulations such as raw power, baseline-normalized power, and delta-power rewards, as well as optional penalty terms. Users can also implement custom reward functions.
 
 Finally, reproducibility is a core concern. The environment is tested for consistency of observation and action spaces, correct termination behavior, and deterministic toggles. Continuous integration and curated examples help ensure that results can be reproduced across setups.
 
 The full documentation of the library is available at [https://sys.pages.windenergy.dtu.dk/windgym/](https://sys.pages.windenergy.dtu.dk/windgym/)
 
-<!-- # Acknowledgements
 
-This work was supported by the Department of Wind and Energy Systems at the Technical University of Denmark. We also acknowledge the development of DYNAMIKS, which was instrumental in building WindGym. -->
+# Research Impact Statement
+
+WindGym is still relatively new, but has gained traction within the wind energy research community, and as of January 2026, the repository has accumulated 48 stars on GitHub. To our knowledge, four research papers are currently in submission that utilize WindGym as their experimental platform, demonstrating its adoption for novel research contributions in RL-based wind farm control.
+
+The package is designed for community readiness: comprehensive documentation explains core concepts and usage patterns, worked examples demonstrate training and evaluation workflows, and an extensive test suite ensures reliability across updates. We actively encourage external contributions through our Github/GitLab repository. 
+
+# AI Usage Disclosure
+
+The WindGym codebase was initiated before the widespread adoption of large language models and coding assistants, with the foundational architecture developed without AI assistance. As these tools matured, they were incorporated into the development workflow in the following ways: refactoring existing code for improved consistency and maintainability, generating documentation content, and developing a substantial portion of the unit test suite. All AI-generated code was reviewed and validated by human developers before integration.
+
+For this paper, AI tools were used to provide feedback on clarity and wording during the drafting process. Grammarly was used for grammar and style checking. No content was generated wholesale by AI without human review and revision.
+
 
 # References
