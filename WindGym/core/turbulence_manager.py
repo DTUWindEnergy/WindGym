@@ -225,7 +225,9 @@ class TurbulenceManager:
         )
         tf.scale_TI(TI=ti, U=ws)
 
-        added_turb_model = SynchronizedAutoScalingIsotropicMannTurbulence()
+        added_turb_model = SynchronizedAutoScalingIsotropicMannTurbulence(
+            cache_field=False
+        )
         return tf, added_turb_model
 
     def _generate_mann_fixed(self, ws: float, ti: float) -> tuple:
@@ -242,7 +244,9 @@ class TurbulenceManager:
         )
         tf.scale_TI(TI=ti, U=ws)
 
-        added_turb_model = SynchronizedAutoScalingIsotropicMannTurbulence()
+        added_turb_model = SynchronizedAutoScalingIsotropicMannTurbulence(
+            cache_field=False
+        )
         return tf, added_turb_model
 
     def _generate_random(self, ws: float, ti: float) -> tuple:
@@ -250,7 +254,7 @@ class TurbulenceManager:
         tf_seed = self.np_random.integers(0, 100000)
         tf = RandomTurbulence(ti=ti, ws=ws, seed=tf_seed)
 
-        added_turb_model = AutoScalingIsotropicMannTurbulence()
+        added_turb_model = AutoScalingIsotropicMannTurbulence(cache_field=False)
         return tf, added_turb_model
 
     def _generate_none(self, ws: float) -> tuple:
