@@ -34,7 +34,6 @@ def mock_env():
 def test_initialization(MockPyWakeAgent, mock_env):
     """Test the initialization of the PowerWrapper."""
     n_envs = 3
-    print(help(PowerWrapper))
     wrapper = PowerWrapper(env=mock_env, n_envs=n_envs)
 
     # Assert PyWakeAgent was initialized correctly
@@ -45,10 +44,25 @@ def test_initialization(MockPyWakeAgent, mock_env):
         env=mock_env,
     )
 
-    # Assert wrapper attributes are set
+    # Assert wrapper attributes are set with correct types and values
     assert wrapper.n_envs == n_envs
+    assert isinstance(wrapper.n_envs, int)
     assert wrapper.current_step == 0
+    assert isinstance(wrapper.current_step, int)
     assert callable(wrapper.weight_function)
+
+    # Verify weight_function returns valid values
+    weight_at_step_0 = wrapper.weight_function(0)
+    weight_at_step_1000 = wrapper.weight_function(1000)
+    assert isinstance(
+        weight_at_step_0, (int, float)
+    ), "Weight function should return a number"
+    assert 0.0 <= weight_at_step_0 <= 1.0, "Weight should be between 0 and 1"
+    assert 0.0 <= weight_at_step_1000 <= 1.0, "Weight should be between 0 and 1"
+
+    # Verify the wrapper has access to required environment attributes
+    assert hasattr(wrapper, "env"), "Wrapper should have reference to environment"
+    assert wrapper.pywake_agent is not None, "PyWake agent should be initialized"
 
 
 @patch("WindGym.wrappers.power_wrapper.PyWakeAgent")

@@ -1,34 +1,11 @@
 import pytest
 import yaml
 from pathlib import Path
-import tempfile
-import os
 import numpy as np
 
-from WindGym import WindFarmEnv  # Assuming WindFarmEnv is accessible
-from py_wake.examples.data.hornsrev1 import V80  # A standard turbine for init
+from WindGym import WindFarmEnv
+from py_wake.examples.data.hornsrev1 import V80
 from WindGym.utils.generate_layouts import generate_square_grid
-
-
-# --- Factory for creating temporary YAML files ---
-@pytest.fixture
-def temp_yaml_file_factory():
-    created_files = []
-
-    def _create_temp_yaml(content_str, name_suffix=""):
-        tf = tempfile.NamedTemporaryFile(
-            mode="w", delete=False, suffix=f"_{name_suffix}.yaml", encoding="utf-8"
-        )
-        tf.write(content_str)
-        filepath = tf.name
-        tf.close()
-        created_files.append(filepath)
-        return filepath
-
-    yield _create_temp_yaml
-    for f_path in created_files:
-        if os.path.exists(f_path):
-            os.remove(f_path)
 
 
 # --- Helper to get a basic, mostly complete YAML string ---

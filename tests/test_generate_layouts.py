@@ -1,8 +1,12 @@
 # tests/test_generate_layouts.py
 import pytest
 import numpy as np
+
+# Use Agg backend for testing (no display needed)
+import matplotlib
+
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from unittest.mock import patch
 
 # Import the functions to be tested
 from WindGym.utils.generate_layouts import (
@@ -10,6 +14,8 @@ from WindGym.utils.generate_layouts import (
     generate_circle,
     generate_cirular_farm,
     generate_staggered_grid,
+    generate_right_triangle_grid,
+    generate_line_dots_multiple_thetas,
     plot_farm,
 )
 
@@ -218,25 +224,199 @@ class TestGenerateStaggeredGrid:
         np.testing.assert_allclose(y_pos, expected_y)
 
 
+class TestGenerateRightTriangleGrid:
+    """Tests for the generate_right_triangle_grid function."""
+
+    def test_basic_right_triangle(self, dummy_turbine):
+        """Test a simple 3x3 right triangle grid."""
+        nx, ny = 3, 3
+        x_dist, y_dist = 5, 5
+        D = dummy_turbine.diameter()
+
+        x_pos, y_pos = generate_right_triangle_grid(
+            dummy_turbine, nx, ny, x_dist, y_dist
+        )
+
+        # Triangle: col 0 has 1, col 1 has 2, col 2 has 3 -> total 6 turbines
+        assert len(x_pos) == 6
+        assert len(y_pos) == 6
+
+    def test_lower_left_orientation(self, dummy_turbine):
+        """Test lower_left orientation (default)."""
+        nx, ny = 3, 3
+        x_dist, y_dist = 5, 5
+
+        x_pos, y_pos = generate_right_triangle_grid(
+            dummy_turbine, nx, ny, x_dist, y_dist, orientation="lower_left"
+        )
+
+        # Lower-left orientation: first point at (0, 0)
+        assert x_pos[0] == 0
+        assert y_pos[0] == 0
+
+    def test_lower_right_orientation(self, dummy_turbine):
+        """Test lower_right orientation."""
+        nx, ny = 3, 3
+        x_dist, y_dist = 5, 5
+        D = dummy_turbine.diameter()
+
+        x_pos, y_pos = generate_right_triangle_grid(
+            dummy_turbine, nx, ny, x_dist, y_dist, orientation="lower_right"
+        )
+
+        # Lower-right: right angle at lower-right
+        max_x = (nx - 1) * x_dist * D
+        assert np.isclose(x_pos[0], max_x)
+
+    def test_upper_left_orientation(self, dummy_turbine):
+        """Test upper_left orientation."""
+        nx, ny = 3, 3
+        x_dist, y_dist = 5, 5
+        D = dummy_turbine.diameter()
+
+        x_pos, y_pos = generate_right_triangle_grid(
+            dummy_turbine, nx, ny, x_dist, y_dist, orientation="upper_left"
+        )
+
+        # Upper-left: right angle at upper-left
+        max_y = (ny - 1) * y_dist * D
+        assert x_pos[0] == 0
+        assert np.isclose(y_pos[0], max_y)
+
+    def test_upper_right_orientation(self, dummy_turbine):
+        """Test upper_right orientation."""
+        nx, ny = 3, 3
+        x_dist, y_dist = 5, 5
+        D = dummy_turbine.diameter()
+
+        x_pos, y_pos = generate_right_triangle_grid(
+            dummy_turbine, nx, ny, x_dist, y_dist, orientation="upper_right"
+        )
+
+        # Upper-right: right angle at upper-right
+        max_x = (nx - 1) * x_dist * D
+        max_y = (ny - 1) * y_dist * D
+        assert np.isclose(x_pos[0], max_x)
+        assert np.isclose(y_pos[0], max_y)
+
+    def test_invalid_orientation_raises_error(self, dummy_turbine):
+        """Test that invalid orientation raises ValueError."""
+        with pytest.raises(ValueError, match="orientation must be one of"):
+            generate_right_triangle_grid(
+                dummy_turbine, 3, 3, 5, 5, orientation="invalid"
+            )
+
+    def test_empty_grid_nx_zero(self, dummy_turbine):
+        """Test that nx=0 returns empty arrays."""
+        x_pos, y_pos = generate_right_triangle_grid(dummy_turbine, 0, 3, 5, 5)
+        assert len(x_pos) == 0
+        assert len(y_pos) == 0
+
+    def test_empty_grid_ny_zero(self, dummy_turbine):
+        """Test that ny=0 returns empty arrays."""
+        x_pos, y_pos = generate_right_triangle_grid(dummy_turbine, 3, 0, 5, 5)
+        assert len(x_pos) == 0
+        assert len(y_pos) == 0
+
+    def test_single_turbine(self, dummy_turbine):
+        """Test a 1x1 triangle (single turbine)."""
+        x_pos, y_pos = generate_right_triangle_grid(dummy_turbine, 1, 1, 5, 5)
+        assert len(x_pos) == 1
+        assert len(y_pos) == 1
+        assert x_pos[0] == 0
+        assert y_pos[0] == 0
+
+
+class TestGenerateLineDots:
+    """Tests for the generate_line_dots_multiple_thetas function."""
+
+    def test_single_line_horizontal(self, dummy_turbine):
+        """Test generating a horizontal line of points."""
+        X = 5
+        spacing = 2
+        thetas = [0]  # Horizontal
+
+        xs, ys = generate_line_dots_multiple_thetas(X, spacing, thetas, dummy_turbine)
+
+        # Should have 5 unique points
+        assert len(xs) == X
+        # All y values should be approximately 0 for horizontal line
+        np.testing.assert_allclose(ys, 0, atol=1e-10)
+
+    def test_single_line_vertical(self, dummy_turbine):
+        """Test generating a vertical line of points."""
+        X = 5
+        spacing = 2
+        thetas = [90]  # Vertical
+
+        xs, ys = generate_line_dots_multiple_thetas(X, spacing, thetas, dummy_turbine)
+
+        # Should have 5 unique points
+        assert len(xs) == X
+        # All x values should be approximately 0 for vertical line
+        np.testing.assert_allclose(xs, 0, atol=1e-10)
+
+    def test_multiple_angles_creates_unique_points(self, dummy_turbine):
+        """Test that multiple angles create more unique points."""
+        X = 5
+        spacing = 2
+
+        # Single angle
+        xs1, ys1 = generate_line_dots_multiple_thetas(X, spacing, [0], dummy_turbine)
+
+        # Two angles - should have more unique points
+        xs2, ys2 = generate_line_dots_multiple_thetas(
+            X, spacing, [0, 90], dummy_turbine
+        )
+
+        # Two perpendicular lines should create more points
+        assert len(xs2) > len(xs1)
+
+    def test_symmetric_angles(self, dummy_turbine):
+        """Test generating points with symmetric angles."""
+        X = 3
+        spacing = 2
+        thetas = [45, 135]  # Symmetric about vertical
+
+        xs, ys = generate_line_dots_multiple_thetas(X, spacing, thetas, dummy_turbine)
+
+        # Should have some unique points
+        assert len(xs) > 0
+        assert len(ys) > 0
+        assert len(xs) == len(ys)
+
+    def test_duplicate_points_removed(self, dummy_turbine):
+        """Test that overlapping points are deduplicated."""
+        X = 5
+        spacing = 2
+        # 0 and 180 degree lines should overlap (same line, opposite directions)
+        thetas = [0, 180]
+
+        xs, ys = generate_line_dots_multiple_thetas(X, spacing, thetas, dummy_turbine)
+
+        # Should only have X unique points since the lines overlap
+        assert len(xs) == X
+
+
 class TestPlotFarm:
     """Tests for the plot_farm utility function."""
 
-    @patch("matplotlib.pyplot.show")
-    def test_plot_farm_runs_without_error(self, mock_show, dummy_turbine):
+    def test_plot_farm_runs_without_error(self, dummy_turbine):
         """Check if plot_farm can be called without raising an exception."""
         x, y = generate_square_grid(dummy_turbine, 3, 3, 5, 5)
 
-        # Test with turbine object
+        # Test with turbine object - should not raise
         plot_farm(x, y, turbine=dummy_turbine)
-        plt.close()
+        plt.close("all")
 
         # Test with diameter D
         plot_farm(x, y, D=dummy_turbine.diameter())
-        plt.close()
+        plt.close("all")
 
-        # Test with no turbine or D
-        plt.close()
+    def test_plot_farm_without_turbine_or_D(self, dummy_turbine):
+        """Test plot_farm defaults to D=1.0 when neither turbine nor D provided."""
+        x, y = generate_square_grid(dummy_turbine, 2, 2, 5, 5)
 
-        # Assert that plt.show() was called, indicating the function ran to completion.
-        # This is a basic check. We won't check the plot's content.
-        assert mock_show.called, "plt.show() was not called by plot_farm"
+        # Should not raise an error
+        plot_farm(x, y)
+        plt.close("all")

@@ -177,3 +177,4 @@ Docs/package-lock.json
 # Sphinx build artifacts
 Docs/sphinx-source/_build/
 Docs/api-docs/
+/.claude

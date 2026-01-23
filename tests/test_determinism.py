@@ -70,6 +70,7 @@ def deterministic_env_config_path():
     os.remove(filepath)
 
 
+@pytest.mark.slow
 def test_step_determinism_basic(deterministic_env_config_path):
     """
     A minimal test to check if resetting with the same seed and applying
@@ -93,6 +94,7 @@ def test_step_determinism_basic(deterministic_env_config_path):
             turbtype="None",
             Baseline_comp=True,
             fill_window=5,
+            burn_in_passthroughs=0.0001,  # Minimal burn-in for faster tests
             reset_init=True,  # Ensure reset is called in __init__ which will call super().reset()
         )
 
@@ -138,6 +140,7 @@ def test_step_determinism_basic(deterministic_env_config_path):
             env.close()
 
 
+@pytest.mark.slow
 def test_step_determinism_with_noise(
     deterministic_env_config_path,
 ):  # Still uses the base YAML initially
@@ -173,6 +176,7 @@ def test_step_determinism_with_noise(
             turbtype="None",
             Baseline_comp=True,
             fill_window=5,
+            burn_in_passthroughs=0.0001,  # Minimal burn-in for faster tests
             reset_init=True,
         )
 

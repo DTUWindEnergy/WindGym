@@ -3,7 +3,6 @@
 import pytest
 import yaml
 from pathlib import Path
-import tempfile
 import os
 import numpy as np
 
@@ -13,28 +12,7 @@ from WindGym.utils.generate_layouts import generate_square_grid
 from py_wake.examples.data.hornsrev1 import V80
 
 
-# Fixture for temporary YAML files (can be shared or redefined)
-@pytest.fixture
-def temp_yaml_file_factory():
-    created_files = []
-
-    def _create_temp_yaml(content_str, name_suffix=""):
-        tf = tempfile.NamedTemporaryFile(
-            mode="w", delete=False, suffix=f"_{name_suffix}.yaml", encoding="utf-8"
-        )
-        tf.write(content_str)
-        filepath = tf.name
-        tf.close()
-        created_files.append(filepath)
-        return filepath
-
-    yield _create_temp_yaml
-    for f_path in created_files:
-        if os.path.exists(f_path):
-            os.remove(f_path)
-
-
-# Base YAML configuration parts (can be imported or defined here)
+# Base YAML configuration parts
 YAML_HEADER_MINIMAL = """
 yaw_init: "Zeros"
 noise: "None"
@@ -104,13 +82,6 @@ power_def:
     )
 
 
-# Mock for turbulence field if needed, or use "None" turbtype
-@pytest.fixture
-def mock_turbulence_env_setup(monkeypatch):
-    # For now, we'll rely on turbtype="None" in env constructor.
-    pass
-
-
 def run_env_and_get_reward(
     yaml_content, temp_yaml_file_factory, constructor_overrides=None
 ):
@@ -150,7 +121,7 @@ def run_env_and_get_reward(
             os.remove(yaml_filepath)
 
 
-def test_power_reward_baseline(temp_yaml_file_factory, mock_turbulence_env_setup):
+def test_power_reward_baseline(temp_yaml_file_factory):
     # Power_avg = 1, Power_scaling = 1.0, action_penalty = 0.0
     yaml_content = assemble_reward_test_yaml(power_reward_type="Baseline", power_avg=1)
 
@@ -185,7 +156,7 @@ def test_power_reward_baseline(temp_yaml_file_factory, mock_turbulence_env_setup
     ), f"Baseline reward mismatch. Got {reward}, expected {expected_reward}. AgentP: {agent_power}, BaseP: {baseline_power}"
 
 
-def test_power_reward_power_avg(temp_yaml_file_factory, mock_turbulence_env_setup):
+def test_power_reward_power_avg(temp_yaml_file_factory):
     # Power_avg = 1, Power_scaling = 1.0, action_penalty = 0.0
     yaml_content = assemble_reward_test_yaml(power_reward_type="Power_avg", power_avg=1)
     reward, info, env = run_env_and_get_reward(
@@ -212,7 +183,7 @@ def test_power_reward_power_avg(temp_yaml_file_factory, mock_turbulence_env_setu
     ), f"Power_avg reward mismatch. Got {reward}, expected {expected_reward}. AgentP sum: {agent_power_sum}"
 
 
-def test_power_reward_none(temp_yaml_file_factory, mock_turbulence_env_setup):
+def test_power_reward_none(temp_yaml_file_factory):
     # Power_scaling = 1.0, action_penalty = 0.0
     yaml_content = assemble_reward_test_yaml(power_reward_type="None")
     reward, info, env = run_env_and_get_reward(
@@ -226,7 +197,7 @@ def test_power_reward_none(temp_yaml_file_factory, mock_turbulence_env_setup):
     ), f"None reward mismatch. Got {reward}, expected {expected_reward}"
 
 
-def test_power_reward_power_diff(temp_yaml_file_factory, mock_turbulence_env_setup):
+def test_power_reward_power_diff(temp_yaml_file_factory):
     power_avg_val = 40  # Must be >= 40 for Power_diff
     yaml_content = assemble_reward_test_yaml(
         power_reward_type="Power_diff", power_avg=power_avg_val

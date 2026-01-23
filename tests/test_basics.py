@@ -1,14 +1,14 @@
-import pytest
-import numpy as np
 from pathlib import Path
-from py_wake.examples.data.hornsrev1 import V80
-from stable_baselines3 import PPO
-from WindGym import WindFarmEnv
-from WindGym import FarmEval, AgentEval, PyWakeAgent
+
+import numpy as np
+import pytest
 from dynamiks.sites.turbulence_fields import MannTurbulenceField
 from gymnasium.utils.env_checker import check_env
-from WindGym import AgentEvalFast
-from WindGym.Agents import RandomAgent, ConstantAgent, BaseAgent
+from py_wake.examples.data.hornsrev1 import V80
+from stable_baselines3 import PPO
+
+from WindGym import AgentEval, AgentEvalFast, FarmEval, PyWakeAgent, WindFarmEnv
+from WindGym.Agents import BaseAgent, ConstantAgent, RandomAgent
 from WindGym.utils.generate_layouts import generate_square_grid
 
 
@@ -72,7 +72,7 @@ def wind_farm_env(turbine, mann_turbulence_field, monkeypatch):
         n_passthrough=0.1,
         config=Path("examples/EnvConfigs/2turb.yaml"),
         turbtype="None",
-        burn_in_passthroughs=0.001,
+        burn_in_passthroughs=0.0001,  # Minimal burn-in for faster tests
     )
 
     yield env
@@ -261,79 +261,34 @@ def test_wind_conditions(wind_farm_env):
     assert len(info["Wind speed at turbines"]) == wind_farm_env.n_turb
 
 
-# def test_extreme_wind_conditions(wind_farm_env):
-#    """Test environment behavior at minimum and maximum wind speeds"""
-#    wind_farm_env.set_wind_vals(ws=wind_farm_env.ws_min, wd=270, ti=0.07)
-#    obs_min, _ = wind_farm_env.reset()
-#    assert not np.any(np.isnan(obs_min))
-#
-#    wind_farm_env.set_wind_vals(ws=wind_farm_env.ws_max, wd=270, ti=0.07)
-#    obs_max, _ = wind_farm_env.reset()
-#    assert not np.any(np.isnan(obs_max))
-
-
 def test_reward_functions(wind_farm_env):
     """Test different reward formulations behave as expected"""
-    wind_farm_env.reset()
+    wind_farm_env.reset(seed=42)  # Use fixed seed for reproducibility
 
-    # Test baseline reward
+    # Test baseline reward returns valid type
     if wind_farm_env.power_reward == "Baseline":
         _, reward, _, _, _ = wind_farm_env.step(
             np.zeros(wind_farm_env.action_space.shape)
         )
         assert isinstance(reward, (np.float32, float))
+        assert np.isfinite(reward), "Reward should be finite"
 
-    # Test action penalty
+    # Test that rewards are computed correctly regardless of action
+    # Note: The config uses action_penalty=0.0, so we can't test penalty effects.
+    # Instead, verify rewards are valid numbers for different actions.
     large_action = np.ones(wind_farm_env.action_space.shape)
     _, reward_large, _, _, _ = wind_farm_env.step(large_action)
+    assert isinstance(reward_large, (np.float32, float))
+    assert np.isfinite(reward_large), "Reward for large action should be finite"
+
     small_action = np.zeros(wind_farm_env.action_space.shape)
     _, reward_small, _, _, _ = wind_farm_env.step(small_action)
-    # assert reward_small > reward_large  # Smaller actions should get less penalty
+    assert isinstance(reward_small, (np.float32, float))
+    assert np.isfinite(reward_small), "Reward for small action should be finite"
 
-
-# def test_measurement_system(wind_farm_env):
-#    """Test that measurements include appropriate noise and history"""
-#    wind_farm_env.reset()
-#
-#    # Get measurements over several steps
-#    measurements = []
-#    for _ in range(10):
-#        obs, _, _, _, _ = wind_farm_env.step(np.zeros(wind_farm_env.action_space.shape))
-#        measurements.append(obs)
-#
-#    measurements = np.array(measurements)
-#
-#    # If noise is enabled, measurements should vary
-#    if wind_farm_env.noise:
-#        assert np.std(measurements, axis=0).any() > 0
-#
-#    # Check history length matches configuration
-#    assert len(wind_farm_env.farm_measurements.get_ws_history()) == \
-# @           min(10, wind_farm_env.farm_measurements.max_hist())
-
-# def test_wake_effects(wind_farm_env):
-#    """Test that downstream turbines experience wake effects"""
-#    wind_farm_env.reset()
-#
-#    # Get wind speeds at each turbine
-#    _, info = wind_farm_env.reset()
-#    turbine_speeds = info["Wind speed at turbines"]
-#
-#    # In aligned conditions, downstream turbines should see lower wind speeds
-#    downstream_mask = wind_farm_env.x_pos > wind_farm_env.x_pos.min()
-#    if any(downstream_mask):
-#        assert np.mean(turbine_speeds[downstream_mask]) < \
-#               np.mean(turbine_speeds[~downstream_mask])
-
-
-# def test_ppo_compatibility(wind_farm_env):
-#    """Test that environment works with PPO algorithm"""
-#    model = PPO("MlpPolicy", wind_farm_env, verbose=0)
-#    model.learn(total_timesteps=3)  # Just verify it runs without errors
-#
-#    obs, _ = wind_farm_env.reset()
-#    action, _ = model.predict(obs)
-#    assert wind_farm_env.action_space.contains(action)
+    # Only test penalty ordering if action_penalty is configured
+    if wind_farm_env.action_penalty > 0.001:
+        assert reward_small >= reward_large, "Smaller actions should get less penalty"
 
 
 def test_ppo_compatibility(wind_farm_env):
@@ -354,9 +309,7 @@ def test_ppo_compatibility(wind_farm_env):
     ), "PPO model's policy should have a value network (critic or value_net)."
 
     # 2. Explicitly call reset and capture initial state
-    print("\nStarting environment reset...")
     obs, info = wind_farm_env.reset()
-    print("Environment reset complete.")
 
     # Assert initial observation and info are valid
     assert isinstance(obs, np.ndarray), "Initial observation should be a numpy array."
@@ -370,10 +323,7 @@ def test_ppo_compatibility(wind_farm_env):
 
     # 3. Take a few steps manually
     num_steps_to_take = 2
-    print(f"Taking {num_steps_to_take} manual steps...")
     for i in range(num_steps_to_take):
-        print(f"Step {i + 1}/{num_steps_to_take}...")
-
         # Predict action from the model
         action, _ = model.predict(
             obs, deterministic=True
@@ -424,20 +374,9 @@ def test_ppo_compatibility(wind_farm_env):
 
         # Handle episode termination/truncation (and reset for next step if needed)
         if terminated or truncated:
-            print(
-                f"Episode terminated/truncated early at step {i + 1} during manual steps, resetting."
-            )
-            # For this minimal test, you might simply break here or ensure it handles a new reset
-            # For a proper RL loop, you'd always reset and continue
-            if (
-                i < num_steps_to_take - 1
-            ):  # Only reset if there are more steps planned in this loop
+            # Reset if there are more steps planned in this loop
+            if i < num_steps_to_take - 1:
                 obs, _ = wind_farm_env.reset()
-                print("Environment reset after termination/truncation.")
-            else:
-                print("Last planned step, not resetting.")
-
-    print("Manual stepping complete. Test PASSED (if no assertions failed).")
 
 
 def eval_pretrained_agent(base_example_data_path):
@@ -541,11 +480,44 @@ def test_set_windconditions_with_site(wind_farm_env):
     )
 
 
+@pytest.mark.slow
 def test_check_env(wind_farm_env):
-    """Test that the environment passes the gymnasium check"""
+    """
+    Test that the environment passes the gymnasium check_env validation.
+
+    check_env validates:
+    - Observation space bounds and types
+    - Action space bounds and types
+    - Reset returns valid observations
+    - Step returns valid observations, rewards, and info
+    - Episode termination/truncation handling
+    """
+    # Run the gymnasium check - this raises on failure
     check_env(wind_farm_env, skip_render_check=True)
 
+    # Additional validation that check_env doesn't cover
+    obs, info = wind_farm_env.reset()
 
+    # Verify observation is within declared bounds
+    assert wind_farm_env.observation_space.contains(
+        obs
+    ), f"Observation {obs} is outside declared observation space bounds"
+
+    # Verify action space is properly bounded
+    action = wind_farm_env.action_space.sample()
+    assert wind_farm_env.action_space.contains(
+        action
+    ), "Sampled action outside action space"
+
+    # Step and verify outputs
+    obs, reward, terminated, truncated, info = wind_farm_env.step(action)
+    assert wind_farm_env.observation_space.contains(
+        obs
+    ), "Post-step observation outside bounds"
+    assert np.isfinite(reward), f"Reward {reward} is not finite"
+
+
+@pytest.mark.slow
 def test_fast_eval():
     """
     Test the fast evaluation of the environment using a pre-trained agent.
@@ -570,7 +542,7 @@ def test_fast_eval():
     WD_SIM = 270  # Wind direction in degrees
     TI_SIM = 0.07  # Turbulence intensity
 
-    yaw_goal = np.zeros((n_turb))  # yaw angles in radians
+    yaw_goal = np.zeros(n_turb)  # yaw angles in radians
     yaw_goal[0] = -10
     yaw_goal[1] = 20
     model = ConstantAgent(yaw_angles=list(yaw_goal))  # yaw angles in degrees
@@ -610,10 +582,12 @@ def test_fast_eval():
     ), "The number of turbines is not as expected"
 
 
+@pytest.mark.slow
 def test_fast_eval_debug():
     """
     Test the fast evaluation of the environment using a pre-trained agent.
     This ensures that the environment can be evaluated quickly and efficiently.
+    Verifies that the PyWakeAgent produces valid outputs with debug mode enabled.
     """
     SEED = 1
     x_pos, y_pos = generate_square_grid(turbine=V80(), nx=2, ny=2, xDist=4, yDist=4)
@@ -629,6 +603,7 @@ def test_fast_eval_debug():
         n_passthrough=0.1,  # Very short episodes for fast tests
         burn_in_passthroughs=0.0001,
     )
+    n_turb = env.n_turb
 
     WS_SIM = 10  # Wind speed in m/s
     WD_SIM = 270  # Wind direction in degrees
@@ -650,12 +625,68 @@ def test_fast_eval_debug():
         save_figs=True,
     )
 
+    # Verify the dataset is valid and contains expected data
+    assert ds is not None, "Debug evaluation failed to return a dataset"
+    assert len(ds) > 0, "Debug evaluation dataset is empty"
+
+    # Verify wind conditions are correctly recorded
+    assert np.allclose(
+        ds.ws[0].values.flatten(), WS_SIM
+    ), "Wind speed did not initialize as expected"
+    assert np.allclose(
+        ds.TI[0].values.flatten(), TI_SIM
+    ), "Turbulence intensity did not initialize as expected"
+    assert np.allclose(
+        ds.wd[0].values.flatten(), WD_SIM
+    ), "Wind direction did not initialize as expected"
+
+    # Verify turbine count matches
+    assert (
+        ds.turb.values.size == n_turb
+    ), f"Expected {n_turb} turbines, got {ds.turb.values.size}"
+
+    # Verify power values are positive and realistic (not zero, not unreasonably high)
+    # V80 rated power is ~2MW, so 4 turbines should produce < 10MW total
+    final_power = ds.powerF_a[-1].values.flatten()[0]
+    assert final_power > 0, "Final power should be positive"
+    assert (
+        final_power < 10e6
+    ), f"Final power {final_power} exceeds realistic bounds for 4 V80 turbines"
+
+    # Verify yaw angles are within physical limits
+    final_yaws = ds.yaw_a[-1].values.flatten()
+    assert np.all(final_yaws >= env.yaw_min), "Yaw angles below minimum"
+    assert np.all(final_yaws <= env.yaw_max), "Yaw angles above maximum"
+
+    env.close()
+
 
 def test_env_features(wind_farm_env):
-    """Test some small features of the env"""
+    """Test various environment features and utility methods."""
+    import matplotlib
+
+    matplotlib.use("Agg")  # Non-interactive backend for testing
+    import matplotlib.pyplot as plt
+
+    # Test plot_frame can be called without crashing (returns None, just displays)
+    # Note: plot_frame displays plots but doesn't return the figure object
     wind_farm_env.plot_frame(baseline=False)
     wind_farm_env.plot_frame(baseline=True)
+    plt.close("all")  # Clean up any created figures
+
+    # Verify feature counts are consistent
+    num_raw = wind_farm_env._get_num_raw_features()
+    num_observed = wind_farm_env.farm_measurements.observed_variables()
+    assert num_raw > 0, "Number of raw features should be positive"
+    assert num_observed > 0, "Number of observed variables should be positive"
     assert (
-        wind_farm_env._get_num_raw_features()
-        <= wind_farm_env.farm_measurements.observed_variables()
-    ), "The number of raw features should be less than or equal to the number of features"
+        num_raw <= num_observed
+    ), "The number of raw features should be less than or equal to the number of observed variables"
+
+    # Verify environment core attributes are properly set
+    assert wind_farm_env.n_turb > 0, "Environment should have at least one turbine"
+    assert (
+        wind_farm_env.yaw_min < wind_farm_env.yaw_max
+    ), "Yaw limits should be properly ordered"
+    assert wind_farm_env.dt_sim > 0, "Simulation timestep should be positive"
+    assert wind_farm_env.dt_env > 0, "Environment timestep should be positive"

@@ -5,8 +5,6 @@ environments:
     - url: https://conda.anaconda.org/conda-forge/
     indexes:
     - https://pypi.org/simple
-    options:
-      pypi-prerelease-mode: if-necessary-or-explicit
     packages:
       linux-64:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_libgcc_mutex-0.1-conda_forge.tar.bz2
@@ -635,8 +633,6 @@ environments:
   lint:
     channels:
     - url: https://conda.anaconda.org/conda-forge/
-    options:
-      pypi-prerelease-mode: if-necessary-or-explicit
     packages:
       linux-64:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_libgcc_mutex-0.1-conda_forge.tar.bz2
@@ -6900,6 +6896,7 @@ packages:
   - h2lib ; extra == 'hawc2'
   - wetb ; extra == 'hawc2'
   requires_python: '>=3.7,<3.12'
+  editable: true
 - conda: https://conda.anaconda.org/conda-forge/noarch/xarray-2024.11.0-pyhd8ed1ab_0.conda
   sha256: 1312af7bc507afdcf24df1599d6aa062ceb252d4c086d5b8e5a022bf8051d980
   md5: 7358eeedbffd742549d372e0066999d3

@@ -40,18 +40,55 @@ def mock_cleanrl_agent(basic_farm_eval_env):
 def test_agent_eval_fast_with_cleanrl_agent(basic_farm_eval_env, mock_cleanrl_agent):
     """
     Tests AgentEvalFast with a mock 'CleanRL' model_type agent.
+    Verifies dataset structure, data validity, and recorded values.
     """
+    WS_SIM = 8.0
+    TI_SIM = 0.07
+    WD_SIM = 270
+    T_SIM = 20
+
     ds = AgentEvalFast(
         basic_farm_eval_env,
         mock_cleanrl_agent,
-        ws=8.0,
-        ti=0.07,
-        wd=270,
-        t_sim=20,
+        ws=WS_SIM,
+        ti=TI_SIM,
+        wd=WD_SIM,
+        t_sim=T_SIM,
     )
-    assert ds is not None
-    assert isinstance(ds, xr.Dataset)
-    assert "powerF_a" in ds.data_vars
+
+    # Basic structure checks
+    assert ds is not None, "AgentEvalFast should return a dataset"
+    assert isinstance(ds, xr.Dataset), "Return type should be xarray.Dataset"
+
+    # Required data variables should be present
+    required_vars = ["powerF_a", "powerT_a", "yaw_a", "ws_a"]
+    for var in required_vars:
+        assert var in ds.data_vars, f"Missing required data variable: {var}"
+
+    # Verify recorded wind conditions match input
+    assert np.allclose(
+        ds.ws[0].values, WS_SIM
+    ), f"Recorded wind speed {ds.ws[0].values} doesn't match input {WS_SIM}"
+    assert np.allclose(
+        ds.wd[0].values, WD_SIM
+    ), f"Recorded wind direction {ds.wd[0].values} doesn't match input {WD_SIM}"
+    assert np.allclose(
+        ds.TI[0].values, TI_SIM
+    ), f"Recorded TI {ds.TI[0].values} doesn't match input {TI_SIM}"
+
+    # Verify power values are physically reasonable
+    power_values = ds.powerF_a.values.flatten()
+    assert np.all(power_values >= 0), "Power should never be negative"
+    assert np.all(np.isfinite(power_values)), "Power values should be finite"
+
+    # Verify yaw angles are within limits
+    yaw_values = ds.yaw_a.values
+    assert np.all(yaw_values >= basic_farm_eval_env.yaw_min), "Yaw below minimum"
+    assert np.all(yaw_values <= basic_farm_eval_env.yaw_max), "Yaw above maximum"
+
+    # Verify time coordinate has reasonable length
+    n_time_steps = len(ds.coords["time"])
+    assert n_time_steps > 1, "Should have multiple time steps recorded"
 
 
 @patch("matplotlib.pyplot.show")

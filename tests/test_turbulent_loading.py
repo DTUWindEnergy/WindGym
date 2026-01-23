@@ -1,19 +1,20 @@
-import pytest
-import numpy as np
 import os
+import re
 import tempfile
 from pathlib import Path
-import yaml
+
+import numpy as np
+import pytest
 import xarray as xr
-import re
+import yaml
+from dynamiks.dwm.added_turbulence_models import (
+    AutoScalingIsotropicMannTurbulence,
+    SynchronizedAutoScalingIsotropicMannTurbulence,
+)
+from dynamiks.sites.turbulence_fields import MannTurbulenceField, RandomTurbulence
+from py_wake.examples.data.hornsrev1 import V80
 
 from WindGym import WindFarmEnv
-from py_wake.examples.data.hornsrev1 import V80
-from dynamiks.sites.turbulence_fields import MannTurbulenceField, RandomTurbulence
-from dynamiks.dwm.added_turbulence_models import (
-    SynchronizedAutoScalingIsotropicMannTurbulence,
-    AutoScalingIsotropicMannTurbulence,
-)
 from WindGym.utils.generate_layouts import generate_square_grid
 
 
@@ -189,7 +190,7 @@ class TestTurbulenceLoading:
             mocked_tf_instance = create_mock_mann_field_instance(
                 monkeypatch
             )  # Pass monkeypatch
-            setattr(mocked_tf_instance, "mocked_filename", filename)
+            mocked_tf_instance.mocked_filename = filename
             return mocked_tf_instance
 
         monkeypatch.setattr(MannTurbulenceField, "from_netcdf", mock_from_netcdf)
@@ -235,7 +236,7 @@ class TestTurbulenceLoading:
             mocked_tf_instance = create_mock_mann_field_instance(
                 monkeypatch
             )  # Pass monkeypatch
-            setattr(mocked_tf_instance, "mocked_filename", filename)
+            mocked_tf_instance.mocked_filename = filename
             return mocked_tf_instance
 
         monkeypatch.setattr(MannTurbulenceField, "from_netcdf", mock_from_netcdf)

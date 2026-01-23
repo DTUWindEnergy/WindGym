@@ -4,6 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "WindGym"
+dynamic = ["version"]
 authors = [
   { name = "Marcus Nilsen", email = "manils@dtu.dk" },
   { name = "Julian Quick", email = "juqu@dtu.dk" },
@@ -12,8 +13,7 @@ authors = [
 ]
 description = "Wind farm reinforcement learning environment"
 readme = "README.md"
-version = "0.0.2"
-requires-python = ">=3.7, <3.12"
+requires-python = ">=3.9, <3.14"
 classifiers = [
   "Programming Language :: Python :: 3",
   "Operating System :: OS Independent",
@@ -46,9 +46,21 @@ version_scheme = "no-guess-dev"
 [tool.pytest.ini_options]
 testpaths = "tests"
 addopts = "--cov-report term-missing:skip-covered --cov=WindGym"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests requiring full environment setup",
+    "unit: marks fast isolated unit tests (<5s)",
+]
 
 [tool.coverage.run]
 omit = ["tests/*", "WindGym/version.py"]
+
+[tool.ruff]
+target-version = "py39"
+
+[tool.ruff.lint]
+# Match original pre-commit config: only ignore F401 (unused imports) and F841 (unused variables)
+extend-ignore = ["F401", "F841"]
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
@@ -64,6 +76,7 @@ netcdf4 = "*"
 numpy = "<2"
 pytest = ">=8.3.4,<9"
 pytest-cov = ">=6.0.0,<7"
+pytest-xdist = ">=3.5.0,<4"
 gymnasium = ">=1.0.0,<2"
 xarray = ">=2022.0.0,<2025"
 pytz = ">=2025.1,<2026"
@@ -72,14 +85,15 @@ wandb = ">=0.20.1,<0.21"
 tensorboard = ">=2.19.0,<3"
 tyro = ">=0.9.26,<0.10"
 pip = ">=25.1.1,<26"
-nodejs = ">=24.4.1,<24.10"
 
 [tool.pixi.tasks]
 install = { cmd = "pip install -e ." }
 test = { depends-on = ["install"], cmd = "pytest" }
+test-fast = { depends-on = ["install"], cmd = "pytest -m 'not slow' -n auto" }
+test-slow = { depends-on = ["install"], cmd = "pytest -m slow" }
 
 [tool.pixi.feature.lint.dependencies]
-python = ">=3.7,<3.12"
+python = ">=3.9,<3.14"
 pre-commit = ">=4.0.1,<5"
 
 

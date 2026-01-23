@@ -5,13 +5,17 @@ This module handles baseline controller setup, management, and execution
 for comparing agent performance against baseline control strategies.
 """
 
-from typing import Optional, Callable
+from typing import Optional, Callable, TYPE_CHECKING
 import numpy as np
 
 from dynamiks.wind_turbines import PyWakeWindTurbines
 from dynamiks.wind_turbines.hawc2_windturbine import HAWC2WindTurbines
 from ..BasicControllers import local_yaw_controller, global_yaw_controller
-from ..Agents import PyWakeAgent
+
+# Use TYPE_CHECKING to avoid circular import at runtime
+# PyWakeAgent is imported lazily in _setup_pywake_baseline
+if TYPE_CHECKING:
+    from ..Agents.PyWakeAgent import PyWakeAgent
 
 
 class BaselineManager:
@@ -67,7 +71,7 @@ class BaselineManager:
         self._base_controller: Optional[Callable] = None
 
         # PyWake agent (if using PyWake baseline)
-        self.pywake_agent: Optional[PyWakeAgent] = None
+        self.pywake_agent: Optional["PyWakeAgent"] = None
         self.py_agent_mode: Optional[str] = None
         self.pywake_wd: Optional[float] = None
         self.pywake_ws: Optional[float] = None
@@ -110,6 +114,9 @@ class BaselineManager:
         Args:
             base: Full baseline controller string (e.g., "PyWake_oracle")
         """
+        # Lazy import to avoid circular dependency
+        from ..Agents.PyWakeAgent import PyWakeAgent
+
         mode = base.split("_", 1)[1] if "_" in base else "oracle"
         if mode not in {"oracle", "local"}:
             raise ValueError(f"PyWake mode must be 'oracle' or 'local', got '{mode}'")

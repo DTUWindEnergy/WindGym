@@ -242,9 +242,12 @@ class PyWakeAgent(BaseAgent):
         )
         return power
 
-    def plot_flow(self):
+    def plot_flow(self, show=True):
         """
         Plot the flowfield of the wind farm.
+
+        Args:
+            show: If True, display the plot. If False, create but don't display.
         """
         if self.optimized is False:
             self.optimize()
@@ -260,7 +263,8 @@ class PyWakeAgent(BaseAgent):
         simulationResult.flow_map().plot_wake_map()
         plt.xlabel("x [m]")
         plt.ylabel("y [m]")
-        plt.show()
+        if show:
+            plt.show()
 
 
 def yaw_optimizer_srf_vect(

@@ -109,20 +109,39 @@ def test_step_workflow_runs_without_crashing_and_logs_plausible_data(test_config
     env.step(action)
 
     # ==========================================================================
-    # 3. ASSERT: Check for plausible data, not specific values.
+    # 3. ASSERT: Check for plausible data with realistic physical bounds.
     # ==========================================================================
+    # Wind speed bounds: 0-50 m/s covers all realistic atmospheric conditions
+    # (hurricane-force winds are ~70 m/s, but turbines cut out much earlier)
+    MAX_REALISTIC_WIND_SPEED = 50.0  # m/s - well above cut-out speed (~25 m/s)
+    MIN_WIND_SPEED = 0.0
 
     # --- Check Farm-Level Buffer ---
+    # Buffer length == 3: fill_window=2 entries from reset + 1 entry from step
     farm_hf_buffer = env.farm_measurements.farm_mes.ws_hf_buffer
     assert len(farm_hf_buffer) == 3, "Farm buffer was not populated correctly."
     last_farm_ws = farm_hf_buffer[-1]
 
-    # Sanity checks: Is it a valid number? Is it non-negative?
+    # Sanity checks with realistic physical bounds
     assert isinstance(last_farm_ws, float), "Farm buffer logged a non-float value."
     assert not np.isnan(last_farm_ws), "Farm buffer logged a NaN value."
-    assert last_farm_ws >= 0, "Farm buffer logged a negative wind speed."
+    assert MIN_WIND_SPEED <= last_farm_ws <= MAX_REALISTIC_WIND_SPEED, (
+        f"Farm wind speed {last_farm_ws} m/s is outside realistic bounds "
+        f"[{MIN_WIND_SPEED}, {MAX_REALISTIC_WIND_SPEED}]"
+    )
+
+    # Verify wind speed is in reasonable range considering wake effects
+    # Wake effects can reduce wind speed by 30-40% at downstream turbines
+    # The farm-level average may show significant reduction
+    expected_ws = 8.0  # From TEST_CONFIG
+    # Allow 50% deviation to account for wake effects on farm-average
+    assert abs(last_farm_ws - expected_ws) < expected_ws * 0.5, (
+        f"Farm wind speed {last_farm_ws} differs too much from configured {expected_ws} "
+        f"(tolerance: {expected_ws * 0.5})"
+    )
 
     # --- Check Turbine-Specific Buffers ---
+    # Buffer length == 3: fill_window=2 entries from reset + 1 entry from step
     for i in range(env.n_turb):
         turb_hf_buffer = env.farm_measurements.turb_mes[i].ws_hf_buffer
         assert (
@@ -134,6 +153,16 @@ def test_step_workflow_runs_without_crashing_and_logs_plausible_data(test_config
             last_turb_ws, float
         ), f"Turbine {i} buffer logged a non-float value."
         assert not np.isnan(last_turb_ws), f"Turbine {i} buffer logged a NaN value."
-        assert last_turb_ws >= 0, f"Turbine {i} buffer logged a negative wind speed."
+        assert MIN_WIND_SPEED <= last_turb_ws <= MAX_REALISTIC_WIND_SPEED, (
+            f"Turbine {i} wind speed {last_turb_ws} m/s is outside realistic bounds "
+            f"[{MIN_WIND_SPEED}, {MAX_REALISTIC_WIND_SPEED}]"
+        )
+
+        # Turbine wind speed should be in reasonable range of farm wind speed
+        # (wake effects can reduce speed, but not by more than ~50%)
+        assert last_turb_ws >= last_farm_ws * 0.5, (
+            f"Turbine {i} wind speed {last_turb_ws} is unrealistically low "
+            f"compared to farm speed {last_farm_ws}"
+        )
 
     env.close()

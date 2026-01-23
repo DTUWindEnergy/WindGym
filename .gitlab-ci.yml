@@ -103,14 +103,14 @@ pre_commit:
     - linux
   <<: *default_rules
 
-test_linux:
+test:
   stage: test
   needs:
     - pre_commit
   before_script:
     - apt-get update && apt-get install -y git
   script:
-    - pixi run pytest -v --cov=windgym --cov-report=html:htmlcov --cov-report=term
+    - pixi run pytest -v -n auto --cov=windgym --cov-report=html:htmlcov --cov-report=term
   cache:
       - key:
           files:
@@ -118,12 +118,7 @@ test_linux:
           prefix: pixi-default-${CI_COMMIT_REF_SLUG}
         paths:
           - .pixi/
-        policy: pull-push # This job just downloads the cache
-  # cache:
-  #   - key: pixi-$CI_COMMIT_REF_SLUG  # Reuse the same pixi cache from pre_commit
-  #     paths:
-  #       - .pixi/
-  #     policy: pull  # Only pull, don't push (pre_commit already builds it)
+        policy: pull-push
   artifacts:
     paths:
       - ./htmlcov

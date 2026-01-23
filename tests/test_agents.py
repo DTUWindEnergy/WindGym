@@ -1,15 +1,22 @@
-from WindGym import FarmEval
-from WindGym.utils.generate_layouts import generate_square_grid
-from WindGym.Agents import PyWakeAgent
-from WindGym.Agents import RandomAgent, ConstantAgent, BaseAgent, GreedyAgent
 from pathlib import Path
+
 import numpy as np
-from py_wake.examples.data.lillgrund import LillgrundSite
+import pytest
 from py_wake.deflection_models.jimenez import JimenezWakeDeflection
 from py_wake.examples.data.hornsrev1 import V80
+from py_wake.examples.data.lillgrund import LillgrundSite
 from py_wake.literature.gaussian_models import Blondel_Cathelain_2020
 from py_wake.turbulence_models import CrespoHernandez
-import pytest
+
+from WindGym import FarmEval
+from WindGym.Agents import (
+    BaseAgent,
+    ConstantAgent,
+    GreedyAgent,
+    PyWakeAgent,
+    RandomAgent,
+)
+from WindGym.utils.generate_layouts import generate_square_grid
 
 
 @pytest.fixture
@@ -24,6 +31,7 @@ def example_config_path(base_example_data_path, request):
     return base_example_data_path / request.param
 
 
+@pytest.mark.slow
 def test_power_optimization():
     # Initialize parameters
     x_pos = [0, 500]
@@ -59,7 +67,7 @@ def test_power_optimization():
         TI=TI,
         look_up=True,
     )
-    agent.plot_flow()  # runs optimize
+    agent.plot_flow(show=False)  # runs optimize
     agent_power = compute_power(agent.optimized_yaws)
 
     # Assert optimization improved power
@@ -155,7 +163,7 @@ def test_greedy_agent_global_controller(base_example_data_path):
     env.close()
 
 
-def test_bese_agent(base_example_data_path):
+def test_base_agent(base_example_data_path):
     base_agent = BaseAgent()
     assert base_agent.predict() is None
 
@@ -176,4 +184,16 @@ def test_random_agent(base_example_data_path):
         burn_in_passthroughs=0.0001,
     )
     random_agent = RandomAgent(env=env)
-    random_agent.predict()
+    action, state = random_agent.predict()
+
+    assert (
+        state is None
+    ), "RandomAgent's predict method should return None for the state."
+    assert isinstance(action, np.ndarray), "Action should be a numpy array."
+    assert (
+        action.shape == env.action_space.shape
+    ), f"Action shape mismatch. Expected {env.action_space.shape}, got {action.shape}."
+    assert np.all(action >= -1) and np.all(
+        action <= 1
+    ), "Action values should be scaled between -1 and 1."
+    env.close()
