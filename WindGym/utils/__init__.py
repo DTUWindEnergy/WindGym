@@ -4,6 +4,8 @@ from __future__ import annotations
 import numpy as np
 from numpy.typing import NDArray
 
+from .test_env import test_env  # noqa: F401
+
 
 def scale_val(
     val: NDArray[np.floating], min_val: float, max_val: float
