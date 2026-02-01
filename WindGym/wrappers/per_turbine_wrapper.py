@@ -49,9 +49,13 @@ class PerTurbineObservationWrapper(gym.Wrapper):
         self._rotor_diameter = env.D
 
         # Observation dimension per turbine
-        self._obs_dim_per_turbine = len(
-            env.farm_measurements.turb_mes[0].get_measurements()
-        )
+        # Use config-based calculation if available (avoids requiring reset)
+        if hasattr(env, "get_obs_dim_per_turbine"):
+            self._obs_dim_per_turbine = env.get_obs_dim_per_turbine()
+        else:
+            self._obs_dim_per_turbine = len(
+                env.farm_measurements.turb_mes[0].get_measurements()
+            )
 
         # Action dimension per turbine
         self._action_dim_per_turbine = 1  # Usually just yaw

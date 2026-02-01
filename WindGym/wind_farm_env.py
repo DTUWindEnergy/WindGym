@@ -576,6 +576,10 @@ class WindFarmEnv(gym.Env):
             low=-1, high=1, shape=((self.n_turb * self.act_var),), dtype=np.float32
         )
 
+    def get_obs_dim_per_turbine(self) -> int:
+        """Get observation dimension per turbine"""
+        return self.farm_measurements.turb_mes[0].observed_variables()
+
     def init_render(self):
         """Initialize rendering - delegates to renderer."""
         self.renderer.init_render(self.fs, self.turbine)
