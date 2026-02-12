@@ -244,6 +244,54 @@ def generate_line_dots_multiple_thetas(X, spacing, thetas, turbine):
     return xs, ys
 
 
+def generate_diamond_grid(turbine, n, xDist, yDist):
+    """
+    Create a diamond-shaped grid of turbines.
+
+    The diamond has a single turbine at the top and bottom, widening to
+    a maximum width of *n* turbines at the middle row. The total number
+    of rows is ``2*n - 1``.
+
+    Parameters
+    ----------
+    turbine : WindTurbine
+        The wind turbine object.
+    n : int
+        Half-width of the diamond (number of turbines in the widest row).
+    xDist : float
+        Distance between turbines in the x-direction, in rotor diameters.
+    yDist : float
+        Distance between turbines in the y-direction, in rotor diameters.
+
+    Returns
+    -------
+    np.ndarray, np.ndarray
+        Arrays of x and y positions.
+    """
+    if n <= 0:
+        return np.array([]), np.array([])
+
+    D = turbine.diameter()
+    x_spacing = xDist * D
+    y_spacing = yDist * D
+
+    x_list = []
+    y_list = []
+
+    # 2*n - 1 rows: row 0 has 1 turbine, row n-1 has n, row 2*n-2 has 1
+    num_rows = 2 * n - 1
+    for row in range(num_rows):
+        # Number of turbines in this row
+        count = n - abs(row - (n - 1))
+        # Center the row horizontally
+        x_offset = -(count - 1) / 2.0 * x_spacing
+        for col in range(count):
+            x_list.append(x_offset + col * x_spacing)
+            y_list.append(row * y_spacing)
+
+    return np.array(x_list), np.array(y_list)
+
+
 def plot_farm(x, y, turbine=None, D=None):
     """
     Plots the turbines in the farm layout, and their minimum distance to the closest turbine
