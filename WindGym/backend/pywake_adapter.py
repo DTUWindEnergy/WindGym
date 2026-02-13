@@ -214,6 +214,20 @@ class PyWakeFlowSimulationAdapter:
         self.time += self.dt
         self._compute_steady_state()
 
+    def get_wind_direction(self, xyz=None, include_wakes=True):
+        """Return the wind direction at given positions.
+
+        In steady-state PyWake the inflow direction is spatially uniform,
+        so this returns the global wind direction for every queried point.
+        """
+        if xyz is None:
+            return np.array([self.wind_direction])
+        xyz = np.asarray(xyz)
+        if xyz.ndim == 1:
+            return np.array([self.wind_direction])
+        n_points = xyz.shape[1]
+        return np.full(n_points, self.wind_direction, dtype=float)
+
     def get_windspeed(self, view, include_wakes=True, xarray=True):
         """Return an xarray-like UVW grid with u=WS, v=w=0 for plotting."""
         # view.x, view.y are 1D arrays

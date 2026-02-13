@@ -130,6 +130,7 @@ See the [examples directory](examples/) for complete demonstrations:
 
 | Example | Description |
 |---------|-------------|
+| [Quick start](examples/Quick%201%20Start.ipynb) | Quick start example |
 | [Example 1](examples/Example%201%20Make%20environment.ipynb) | Create and configure environments |
 | [Example 2](examples/Example%202%20Evaluate%20pretrained%20agent.ipynb) | Evaluate pre-trained RL agents |
 | [Example 3](examples/Example%203%20load%20results%20from%20pre%20evaluated%20model.ipynb) | Analyze evaluation results |

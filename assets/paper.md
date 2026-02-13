@@ -78,12 +78,32 @@ Reward specification is a central feature. WindGym includes utilities for common
 
 Finally, reproducibility is a core concern. The environment is tested for consistency of observation and action spaces, correct termination behavior, and deterministic toggles. Continuous integration and curated examples help ensure that results can be reproduced across setups.
 
+WindGym includes predefined example environment presets that bundle turbine layouts, physics back-end, and configuration into a single function call. The following minimal example creates a three-turbine row, runs one episode with random actions, and prints the cumulative reward:
+
+```python
+from WindGym.presets import three_turbine_row
+import numpy as np
+
+env = three_turbine_row()          # V80 turbines
+obs, info = env.reset()
+total_reward = 0.0
+for _ in range(50):
+    action = env.action_space.sample()
+    obs, reward, terminated, truncated, info = env.step(action)
+    total_reward += reward
+    if terminated or truncated:
+        break
+env.close()
+```
+
+Additional presets (`two_by_two_grid`, `nine_turbine_grid`) and a companion Quick Start notebook are included in the repository.
+
 The full documentation of the library is available at [https://sys.pages.windenergy.dtu.dk/windgym/](https://sys.pages.windenergy.dtu.dk/windgym/)
 
 
 # Research Impact Statement
 
-WindGym is still relatively new, but has gained traction within the wind energy research community, and as of January 2026, the repository has accumulated 48 stars on GitHub. To our knowledge, four research papers are currently in submission that utilize WindGym as their experimental platform, demonstrating its adoption for novel research contributions in RL-based wind farm control.
+WindGym is still relatively new, but has gained traction within the wind energy research community, and as of January 2026, the repository has accumulated over 50 stars on GitHub. To our knowledge, four research papers are currently in submission that utilize WindGym as their experimental platform, demonstrating its adoption for novel research contributions in RL-based wind farm control.
 
 The package is designed for community readiness: comprehensive documentation explains core concepts and usage patterns, worked examples demonstrate training and evaluation workflows, and an extensive test suite ensures reliability across updates. We actively encourage external contributions through our Github/GitLab repository. 
 

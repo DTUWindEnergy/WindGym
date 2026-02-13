@@ -4,6 +4,7 @@ from .Agents import PyWakeAgent
 from .farm_eval import FarmEval
 from .wind_env_multi import WindFarmEnvMulti
 from .wind_farm_env import WindFarmEnv
+from . import presets
 
 try:
     from .version import version as __version__

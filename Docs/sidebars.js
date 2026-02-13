@@ -6,6 +6,7 @@ const sidebars = {
     // Getting Started
     "index",
     "installation",
+    "quick-start",
 
     // Core Documentation
     {
