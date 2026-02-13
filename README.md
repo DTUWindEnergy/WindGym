@@ -16,7 +16,7 @@
     <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"/>
   </a>
   <a href="https://www.python.org/downloads/">
-    <img src="https://img.shields.io/badge/python-3.7--3.11-blue.svg" alt="Python 3.7-3.11"/>
+    <img src="https://img.shields.io/badge/python-3.10--3.14-blue.svg" alt="Python 3.10-3.14"/>
   </a>
   <a href="https://pixi.sh">
     <img src="https://img.shields.io/badge/package%20manager-pixi-blue" alt="Pixi"/>

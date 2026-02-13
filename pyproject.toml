@@ -13,20 +13,28 @@ authors = [
 ]
 description = "Wind farm reinforcement learning environment"
 readme = "README.md"
-requires-python = ">=3.9, <3.14"
+requires-python = ">=3.10, <3.14"
 classifiers = [
   "Programming Language :: Python :: 3",
   "Operating System :: OS Independent",
   "License :: OSI Approved :: MIT License",
 ]
 dependencies = [
-  "gymnasium",
+  "gymnasium>=1.0.0",
   "stable_baselines3",
   "hipersim>=0.1.7",
-  "dynamiks @ git+https://gitlab.windenergy.dtu.dk/DYNAMIKS/dynamiks.git@2f99b94358f1a1cb4cb0810aec90f41a346f55fc",
+  "dynamiks==0.0.7",
   "pettingzoo",
   "wetb",
   "IPython",
+  "numpy",
+  "h5py",
+  "netcdf4",
+  "xarray>=2022.0.0,<2025",
+  "wandb",
+  "tensorboard",
+  "tyro",
+  "wetb",
 ]
 
 [project.urls]
@@ -34,7 +42,15 @@ dependencies = [
 "Bug Tracker" = "https://gitlab.windenergy.dtu.dk/sys/windgym/-/issues"
 
 [project.optional-dependencies]
-hawc2 = ["h2lib", "wetb"]
+hawc2 = [
+  "h2lib",
+  ]
+dev = [
+  "pytest>=8.3.4",
+  "pytest-cov>=6.0.0",
+  "pytest-xdist>=3.5.0",
+  "jupyter",
+]
 
 [tool.setuptools]
 packages = ["WindGym"]
@@ -73,7 +89,7 @@ WindGym = { path = ".", editable = true }
 hdf5 = "*"
 h5py = "*"
 netcdf4 = "*"
-numpy = "<2"
+numpy = "*"
 pytest = ">=8.3.4,<9"
 pytest-cov = ">=6.0.0,<7"
 pytest-xdist = ">=3.5.0,<4"
@@ -93,7 +109,7 @@ test-fast = { depends-on = ["install"], cmd = "pytest -m 'not slow' -n auto" }
 test-slow = { depends-on = ["install"], cmd = "pytest -m slow" }
 
 [tool.pixi.feature.lint.dependencies]
-python = ">=3.9,<3.14"
+python = ">=3.10,<3.14"
 pre-commit = ">=4.0.1,<5"
 
 

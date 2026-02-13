@@ -223,84 +223,86 @@ def test_agent_eval_fast_with_hawc2(
     Tests the full AgentEvalFast workflow with a mocked HAWC2 environment.
     This covers the `elif env.HTC_path is not None:` block in `AgentEvalFast`.
     """
-    # 1. ARRANGE
-    dummy_time = np.arange(10)
-    dummy_data = np.zeros((10, 113))
-    mock_gtsdf_load.return_value = (dummy_time, dummy_data, {})
+    with patch("dynamiks.flow_simulation.FlowSimulation.step"):
+        # 1. ARRANGE
+        dummy_time = np.arange(10)
+        dummy_data = np.zeros((10, 113))
+        mock_gtsdf_load.return_value = (dummy_time, dummy_data, {})
 
-    x_pos, y_pos = generate_square_grid(V80(), nx=2, ny=1, xDist=7, yDist=7)
+        x_pos, y_pos = generate_square_grid(V80(), nx=2, ny=1, xDist=7, yDist=7)
 
-    env = FarmEval(
-        turbine=V80(),
-        x_pos=x_pos,
-        y_pos=y_pos,
-        config=hawc2_env_config_yaml,
-        HTC_path=temp_htc_file,
-        reset_init=True,
-        turbtype="None",
-    )
-    model = ConstantAgent(yaw_angles=[10.0, 5.0])
+        env = FarmEval(
+            turbine=V80(),
+            x_pos=x_pos,
+            y_pos=y_pos,
+            config=hawc2_env_config_yaml,
+            HTC_path=temp_htc_file,
+            reset_init=True,
+            turbtype="None",
+        )
+        model = ConstantAgent(yaw_angles=[10.0, 5.0])
 
-    # 2. ACT
-    AgentEvalFast(
-        env,
-        model,
-        model_step=1,
-        ws=10,
-        ti=0.07,
-        wd=270,
-        t_sim=10,
-        return_loads=True,  # This is crucial to trigger the HAWC2 logic
-        cleanup=True,
-    )
+        # 2. ACT
+        AgentEvalFast(
+            env,
+            model,
+            model_step=1,
+            ws=10,
+            ti=0.07,
+            wd=270,
+            t_sim=10,
+            return_loads=True,  # This is crucial to trigger the HAWC2 logic
+            cleanup=True,
+        )
 
-    # 3. ASSERT
-    # Assert on the `env.wts` object that was used inside AgentEvalFast.
-    # The cleanup logic does not delete `env.wts`, so it's still accessible.
-    env.wts.h2.write_output.assert_called_once()
-    mock_gtsdf_load.assert_called()
-    env.wts.h2.close.assert_called_once()
+        # 3. ASSERT
+        # Assert on the `env.wts` object that was used inside AgentEvalFast.
+        # The cleanup logic does not delete `env.wts`, so it's still accessible.
+        env.wts.h2.write_output.assert_called_once()
+        mock_gtsdf_load.assert_called()
+        env.wts.h2.close.assert_called_once()
 
-    # Assert that the baseline turbine's resources were also closed.
-    env.wts_baseline.h2.close.assert_called_once()
+        # Assert that the baseline turbine's resources were also closed.
+        env.wts_baseline.h2.close.assert_called_once()
 
-    # Assert that the temporary folders were removed.
-    mock_rmtree.assert_called()
+        # Assert that the temporary folders were removed.
+        mock_rmtree.assert_called()
 
-    env.close()
+        env.close()
 
 
 def test_cleanup_on_truncation(
     hawc2_env_config_yaml, temp_htc_file, mock_hawc2_wind_turbines
 ):
     """Tests that the environment cleans up HAWC2 files when an episode is truncated."""
-    # 1. ARRANGE
-    x_pos, y_pos = generate_square_grid(V80(), nx=2, ny=1, xDist=7, yDist=7)
+    with patch("dynamiks.flow_simulation.FlowSimulation.step"):
+        # 1. ARRANGE
+        x_pos, y_pos = generate_square_grid(V80(), nx=2, ny=1, xDist=7, yDist=7)
 
-    env = WindFarmEnv(
-        turbine=V80(),
-        x_pos=x_pos,
-        y_pos=y_pos,
-        config=hawc2_env_config_yaml,
-        HTC_path=temp_htc_file,
-        reset_init=True,
-        n_passthrough=0.1,
-        burn_in_passthroughs=0.1,
-        turbtype="None",
-    )
-    mock_h2_instance = env.wts.h2
+        env = WindFarmEnv(
+            turbine=V80(),
+            x_pos=x_pos,
+            y_pos=y_pos,
+            config=hawc2_env_config_yaml,
+            HTC_path=temp_htc_file,
+            reset_init=True,
+            n_passthrough=0.1,
+            burn_in_passthroughs=0.1,
+            turbtype="None",
+        )
+        mock_h2_instance = env.wts.h2
 
-    with patch.object(
-        env, "_deleteHAWCfolder", wraps=env._deleteHAWCfolder
-    ) as spy_delete:
-        with patch("shutil.rmtree"):
-            # 2. ACT
-            terminated, truncated = False, False
-            while not (terminated or truncated):
-                _, _, terminated, truncated, _ = env.step(env.action_space.sample())
+        with patch.object(
+            env, "_deleteHAWCfolder", wraps=env._deleteHAWCfolder
+        ) as spy_delete:
+            with patch("shutil.rmtree"):
+                # 2. ACT
+                terminated, truncated = False, False
+                while not (terminated or truncated):
+                    _, _, terminated, truncated, _ = env.step(env.action_space.sample())
 
-            # 3. ASSERT
-            mock_h2_instance.close.assert_called_once()
-            spy_delete.assert_called_once()
+                # 3. ASSERT
+                mock_h2_instance.close.assert_called_once()
+                spy_delete.assert_called_once()
 
-    env.close()
+        env.close()
