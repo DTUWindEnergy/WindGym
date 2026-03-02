@@ -304,3 +304,150 @@ def test_track_power_not_implemented():
         NotImplementedError, match="Power tracking reward is not yet implemented"
     ):
         RewardCalculator(power_reward_type="Baseline", track_power=True)
+
+
+# ── Wake_recovery tests ──────────────────────────────────────────────
+
+
+def test_wake_recovery_reward():
+    """Test basic Wake_recovery reward correctness."""
+    rc = RewardCalculator(power_reward_type="Wake_recovery", power_scaling=1.0)
+
+    # P_agent=105, P_greedy=100, P_freestream=120
+    # gain = 105 - 100 = 5
+    # headroom = max(120 - 100, 0.02 * 120) = max(20, 2.4) = 20
+    # reward = 5 / 20 = 0.25
+    farm_deque = deque([105.0, 105.0, 105.0])
+    baseline_deque = deque([100.0, 100.0, 100.0])
+    nowake_deque = deque([120.0, 120.0, 120.0])
+
+    reward = rc.calculate_power_reward(
+        farm_power_deque=farm_deque,
+        baseline_power_deque=baseline_deque,
+        nowake_power_deque=nowake_deque,
+    )
+    assert abs(reward - 0.25) < 1e-6, f"Expected 0.25, got {reward}"
+
+
+def test_wake_recovery_tau_floor():
+    """Test that tau floor activates when freestream ~ greedy."""
+    rc = RewardCalculator(
+        power_reward_type="Wake_recovery", power_scaling=1.0, tau=0.02
+    )
+
+    # P_agent=101, P_greedy=100, P_freestream=100.5
+    # gain = 101 - 100 = 1
+    # headroom = max(100.5 - 100, 0.02 * 100.5) = max(0.5, 2.01) = 2.01
+    # reward = 1 / 2.01
+    farm_deque = deque([101.0, 101.0])
+    baseline_deque = deque([100.0, 100.0])
+    nowake_deque = deque([100.5, 100.5])
+
+    reward = rc.calculate_power_reward(
+        farm_power_deque=farm_deque,
+        baseline_power_deque=baseline_deque,
+        nowake_power_deque=nowake_deque,
+    )
+    expected = 1.0 / (0.02 * 100.5)
+    assert abs(reward - expected) < 1e-6, f"Expected {expected}, got {reward}"
+
+
+def test_wake_recovery_negative_gain():
+    """Test that agent worse than baseline gives negative reward."""
+    rc = RewardCalculator(power_reward_type="Wake_recovery", power_scaling=1.0)
+
+    # P_agent=95, P_greedy=100, P_freestream=120
+    # gain = 95 - 100 = -5
+    # headroom = max(20, 2.4) = 20
+    # reward = -5 / 20 = -0.25
+    farm_deque = deque([95.0, 95.0])
+    baseline_deque = deque([100.0, 100.0])
+    nowake_deque = deque([120.0, 120.0])
+
+    reward = rc.calculate_power_reward(
+        farm_power_deque=farm_deque,
+        baseline_power_deque=baseline_deque,
+        nowake_power_deque=nowake_deque,
+    )
+    assert abs(reward - (-0.25)) < 1e-6, f"Expected -0.25, got {reward}"
+
+
+def test_wake_recovery_missing_baseline():
+    """Test ValueError without baseline deque."""
+    rc = RewardCalculator(power_reward_type="Wake_recovery", power_scaling=1.0)
+
+    farm_deque = deque([100.0])
+    nowake_deque = deque([120.0])
+
+    with pytest.raises(ValueError, match="baseline_power_deque required"):
+        rc.calculate_power_reward(
+            farm_power_deque=farm_deque,
+            baseline_power_deque=None,
+            nowake_power_deque=nowake_deque,
+        )
+
+
+def test_wake_recovery_missing_nowake():
+    """Test ValueError without nowake deque."""
+    rc = RewardCalculator(power_reward_type="Wake_recovery", power_scaling=1.0)
+
+    farm_deque = deque([100.0])
+    baseline_deque = deque([100.0])
+
+    with pytest.raises(ValueError, match="nowake_power_deque required"):
+        rc.calculate_power_reward(
+            farm_power_deque=farm_deque,
+            baseline_power_deque=baseline_deque,
+            nowake_power_deque=None,
+        )
+
+
+def test_wake_recovery_init():
+    """Test constructor with custom tau and default tau."""
+    # Default tau
+    rc = RewardCalculator(power_reward_type="Wake_recovery")
+    assert rc.tau == 0.02
+
+    # Custom tau
+    rc = RewardCalculator(power_reward_type="Wake_recovery", tau=0.05)
+    assert rc.tau == 0.05
+
+
+def test_total_reward_wake_recovery():
+    """Test integration of Wake_recovery with scaling + action penalty."""
+    rc = RewardCalculator(
+        power_reward_type="Wake_recovery",
+        power_scaling=2.0,
+        action_penalty=0.1,
+        action_penalty_type="change",
+        tau=0.02,
+    )
+
+    # P_agent=105, P_greedy=100, P_freestream=120
+    # power_reward = 5/20 = 0.25
+    # scaled = 0.25 * 2.0 = 0.5
+    farm_deque = deque([105.0, 105.0, 105.0])
+    baseline_deque = deque([100.0, 100.0, 100.0])
+    nowake_deque = deque([120.0, 120.0, 120.0])
+
+    old_yaws = np.array([0.0, 5.0])
+    new_yaws = np.array([2.0, 7.0])
+    yaw_max = 30.0
+
+    total_reward, breakdown = rc.calculate_total_reward(
+        farm_power_deque=farm_deque,
+        baseline_power_deque=baseline_deque,
+        nowake_power_deque=nowake_deque,
+        old_yaws=old_yaws,
+        new_yaws=new_yaws,
+        yaw_max=yaw_max,
+    )
+
+    # power_reward = 0.25
+    assert abs(breakdown["power_reward"] - 0.25) < 1e-6
+    # scaled = 0.5
+    assert abs(breakdown["scaled_power_reward"] - 0.5) < 1e-6
+    # action_penalty = 0.1 * mean(|2|, |2|) = 0.1 * 2.0 = 0.2
+    assert abs(breakdown["action_penalty"] - 0.2) < 1e-6
+    # total = 0.5 - 0.2 = 0.3
+    assert abs(total_reward - 0.3) < 1e-6

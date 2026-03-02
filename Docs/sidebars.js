@@ -16,6 +16,7 @@ const sidebars = {
       collapsed: false,
       items: [
         "concepts",
+        "rewards",
         "simulations",
         "agents",
         "evaluations",

@@ -62,16 +62,13 @@ Agents interact with the environment by providing actions that modify the wind t
 
 ## 4. Rewards
 
-The reward function guides the agent's learning process. WindGym provides flexible reward mechanisms:
+The reward function guides the agent's learning process. WindGym computes rewards as:
 
-- **`power_reward`**: Defines how the power production contributes to the reward:
-  - `"Baseline"`: The reward is based on the percentage increase in power production compared to a baseline wind farm (e.g., a farm with no yaw control).
-  - `"Power_avg"`: The reward is proportional to the average power output of the farm, normalized by the number of turbines and their rated power.
-  - `"Power_diff"`: The reward is based on the difference between the most recent average power and an older average power, encouraging continuous improvement.
-  - `"None"`: No power-related reward.
-- **`Power_scaling`**: A multiplier applied to the power reward component.
-- **`action_penalty`**: Penalizes the agent for taking actions, encouraging smoother and more stable control. The penalty type can be based on the "Change" in yaw or the "Total" yaw.
-- **`Track_power`**: (Currently not implemented) Intended for rewarding the agent for tracking a specific power setpoint.
+`total_reward = (power_reward × Power_scaling) − action_penalty`
+
+WindGym supports five power reward types: **Baseline**, **Wake_recovery**, **Power_avg**, **Power_diff**, and **None**. Each uses a different formula to quantify how well the agent is controlling the farm. An optional action penalty can be added to discourage excessive yaw adjustments.
+
+For detailed formulas, configuration options, and guidance on choosing a reward function, see the dedicated **[Rewards](rewards.md)** page.
 
 ---
 

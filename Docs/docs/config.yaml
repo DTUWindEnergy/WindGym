@@ -15,7 +15,8 @@ act_pen:
 power_def:
   Power_scaling: 1000000000.0 # Scaling factor for the power reward
   Power_avg: 50               # Number of steps to average power for reward calculation
-  Power_reward: "Baseline"    # Type of power reward: "Baseline", "Power_avg", "Power_diff", "None"
+  Power_reward: "Baseline"    # Type of power reward: "Baseline", "Wake_recovery", "Power_avg", "Power_diff", "None"
+  # tau: 0.02                 # Minimum headroom floor for Wake_recovery reward (default: 0.02)
 
 # --- Measurement Level Settings (Which measurements are included) ---
 mes_level:

@@ -228,6 +228,7 @@ class WindFarmEnv(gym.Env):
             action_penalty=self.action_penalty,
             action_penalty_type=self.action_penalty_type,
             power_window_size=self.power_avg,
+            tau=self.tau,
         )
 
         # Initialize the wind manager
@@ -255,7 +256,7 @@ class WindFarmEnv(gym.Env):
 
         # If we need to have a "baseline" farm, then we need to set up the baseline controller
         # This could be moved to the Power_reward check, but I have a feeling this will be expanded in the future, when we include damage.
-        if self.power_reward == "Baseline" or Baseline_comp:
+        if self.power_reward in ("Baseline", "Wake_recovery") or Baseline_comp:
             self.Baseline_comp = True
         else:
             self.Baseline_comp = False
@@ -487,6 +488,7 @@ class WindFarmEnv(gym.Env):
         self.Power_scaling = self.power_def.get("Power_scaling")
         self.power_avg = self.power_def.get("Power_avg")
         self.power_reward = self.power_def.get("Power_reward")
+        self.tau = self.power_def.get("tau", 0.02)
 
         # Initialize probe manager
         probes_config = config.get("probes", [])
@@ -555,6 +557,7 @@ class WindFarmEnv(gym.Env):
         # Deques that holds the power output of the farm and the baseline farm. This is used for the power reward
         self.farm_pow_deq = deque(maxlen=self.power_avg)
         self.base_pow_deq = deque(maxlen=self.power_avg)
+        self.nowake_pow_deq = deque(maxlen=self.power_avg)
         self.power_len = self.power_avg
 
         for i, tm in enumerate(self.farm_measurements.turb_mes):
@@ -878,6 +881,9 @@ class WindFarmEnv(gym.Env):
             self.farm_pow_deq.append(out["mean_power"].sum())
             if self.Baseline_comp:
                 self.base_pow_deq.append(out["baseline_power_mean"].sum())
+                self.nowake_pow_deq.append(
+                    self.fs_baseline.windTurbines.power(include_wakes=False).sum()
+                )
 
         # 5) Get observation and info
         observation = self._get_obs()
@@ -1117,6 +1123,9 @@ class WindFarmEnv(gym.Env):
         self.farm_pow_deq.append(out["mean_power"].sum())
         if self.Baseline_comp:
             self.base_pow_deq.append(out["baseline_power_mean"].sum())
+            self.nowake_pow_deq.append(
+                self.fs_baseline.windTurbines.power(include_wakes=False).sum()
+            )
 
         if np.any(np.isnan(self.farm_pow_deq)):
             raise Exception("NaN Power")
@@ -1142,6 +1151,7 @@ class WindFarmEnv(gym.Env):
             baseline_power_deque=self.base_pow_deq if self.Baseline_comp else None,
             rated_power=self.rated_power,
             n_turbines=self.n_turb,
+            nowake_power_deque=self.nowake_pow_deq if self.Baseline_comp else None,
         )[0]  # [0] gets just the reward value, not the breakdown
 
         # If we are at the end of the simulation, we truncate the agents.

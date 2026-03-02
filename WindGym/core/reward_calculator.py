@@ -31,6 +31,7 @@ class RewardCalculator:
         action_penalty: float = 0.0,
         action_penalty_type: Optional[str] = None,
         power_window_size: Optional[int] = None,
+        tau: float = 0.02,
     ):
         """
         Initialize the reward calculator.
@@ -49,13 +50,20 @@ class RewardCalculator:
         self.action_penalty = action_penalty
         self.action_penalty_type = action_penalty_type
         self._power_window_size = power_window_size
+        self.tau = tau
 
         # Validate configuration
         self._validate_config()
 
     def _validate_config(self):
         """Validate reward calculator configuration."""
-        valid_power_rewards = {"Baseline", "Power_avg", "Power_diff", "None"}
+        valid_power_rewards = {
+            "Baseline",
+            "Power_avg",
+            "Power_diff",
+            "Wake_recovery",
+            "None",
+        }
         if self.power_reward_type not in valid_power_rewards:
             raise ValueError(
                 "The Power_reward must be either Baseline, Power_avg, None or Power_diff"
@@ -89,6 +97,7 @@ class RewardCalculator:
         baseline_power_deque: Optional[object] = None,
         rated_power: Optional[float] = None,
         n_turbines: int = 1,
+        nowake_power_deque: Optional[object] = None,
     ) -> float:
         """
         Calculate the power production reward.
@@ -113,6 +122,19 @@ class RewardCalculator:
             if rated_power is None:
                 raise ValueError("rated_power required for Power_avg reward type")
             return self._power_reward_avg(farm_power_deque, rated_power, n_turbines)
+
+        elif self.power_reward_type == "Wake_recovery":
+            if baseline_power_deque is None:
+                raise ValueError(
+                    "baseline_power_deque required for Wake_recovery reward type"
+                )
+            if nowake_power_deque is None:
+                raise ValueError(
+                    "nowake_power_deque required for Wake_recovery reward type"
+                )
+            return self._power_reward_wake_recovery(
+                farm_power_deque, baseline_power_deque, nowake_power_deque
+            )
 
         elif self.power_reward_type == "Power_diff":
             return self._power_reward_diff(farm_power_deque, n_turbines)
@@ -148,6 +170,24 @@ class RewardCalculator:
 
         reward = power_agent_avg / power_baseline_avg - 1
         return reward
+
+    def _power_reward_wake_recovery(
+        self, farm_power_deque, baseline_power_deque, nowake_power_deque
+    ) -> float:
+        P_agent = np.mean(farm_power_deque)
+        P_greedy = np.mean(baseline_power_deque)
+        P_freestream = np.mean(nowake_power_deque)
+
+        gain = P_agent - P_greedy
+        headroom = max(P_freestream - P_greedy, self.tau * P_freestream)
+
+        if headroom <= 0:
+            raise ValueError(
+                f"Wake_recovery headroom is non-positive ({headroom}). "
+                f"P_freestream={P_freestream}, P_greedy={P_greedy}, tau={self.tau}"
+            )
+
+        return gain / headroom
 
     def _power_reward_avg(
         self, farm_power_deque, rated_power: float, n_turbines: int
@@ -255,6 +295,7 @@ class RewardCalculator:
         baseline_power_deque: Optional[object] = None,
         rated_power: Optional[float] = None,
         n_turbines: int = 1,
+        nowake_power_deque: Optional[object] = None,
     ) -> tuple[float, dict]:
         """
         Calculate total reward including power reward and action penalty.
@@ -280,6 +321,7 @@ class RewardCalculator:
             baseline_power_deque=baseline_power_deque,
             rated_power=rated_power,
             n_turbines=n_turbines,
+            nowake_power_deque=nowake_power_deque,
         )
 
         # Apply power scaling
