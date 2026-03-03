@@ -36,8 +36,8 @@ where `P_agent` and `P_baseline` are the windowed average power of the agent and
 ```yaml
 power_def:
   Power_reward: "Baseline"
-  Power_scaling: 1000000000.0
-  Power_avg: 50
+  Power_scaling: 1.0
+  Power_avg: 10
 ```
 
 ### 1.2 Wake_recovery
@@ -75,7 +75,7 @@ where:
 power_def:
   Power_reward: "Wake_recovery"
   Power_scaling: 1.0
-  Power_avg: 50
+  Power_avg: 10
   tau: 0.02
 ```
 
@@ -96,14 +96,14 @@ where `P_agent` is the average farm power, `n_turbines` is the number of turbine
 - Range is `[0, 1]` under normal conditions
 - `1` means every turbine is producing at rated capacity
 
-**When to use:** When you want a simple, absolute power metric that does not depend on a baseline simulation. Useful for quick experiments or when baseline comparison is not available.
+**When to use:** When you want a simple, absolute power metric that does not depend on a baseline simulation. Useful as this is significantly faster to run, as there is now no baseline farm.
 
 **Config example:**
 ```yaml
 power_def:
   Power_reward: "Power_avg"
   Power_scaling: 1.0
-  Power_avg: 50
+  Power_avg: 10
 ```
 
 ### 1.4 Power_diff
@@ -159,7 +159,7 @@ The raw power reward is multiplied by a scaling factor before being combined wit
 `scaled_power_reward = power_reward × Power_scaling`
 
 - **Config key:** `Power_scaling` (inside `power_def`)
-- **Typical values:** For `Baseline` rewards, a large value like `1e9` is common because the raw ratio difference is very small (e.g., 0.01 = 1% improvement). For `Wake_recovery` or `Power_avg`, values closer to `1.0` are typical since those rewards are already in a reasonable range.
+- **Typical values:** All reward types are scaled to be resonable values, so no real scaling should be needed, besides `1.0`.
 
 ---
 
@@ -201,7 +201,7 @@ act_pen:
 ```
 
 :::note
-If `action_penalty` is less than `0.001`, the penalty calculation is skipped entirely for performance.
+If `action_penalty` is less than `0.001`, the penalty calculation is skipped entirely.
 :::
 
 ---
@@ -220,7 +220,7 @@ The `calculate_total_reward()` method also returns a breakdown dictionary with k
 
 | Reward Type | Needs Baseline? | Typical Range | Best For |
 |:--|:--|:--|:--|
-| **Baseline** | Yes | −0.1 to +0.1 (before scaling) | Wake steering research, comparing to greedy |
+| **Baseline** | Yes | −0.5 to +0.5 (Layout dependent) | Wake steering research, comparing to greedy |
 | **Wake_recovery** | Yes | 0 to 1 | Condition-invariant training across wind speeds |
 | **Power_avg** | No | 0 to 1 | Simple experiments, no baseline available |
 | **Power_diff** | No | Varies | Curriculum learning, self-improvement |
@@ -241,7 +241,7 @@ Below is a full configuration showing both `power_def` and `act_pen` sections:
 ```yaml
 # --- Power Definition & Reward Settings ---
 power_def:
-  Power_scaling: 1000000000.0  # Scale factor (large for Baseline due to small ratios)
+  Power_scaling: 1.0           # Scale factor
   Power_avg: 50                # Steps to average for reward calculation
   Power_reward: "Baseline"     # "Baseline", "Wake_recovery", "Power_avg", "Power_diff", "None"
   # tau: 0.02                  # Headroom floor for Wake_recovery (default: 0.02)
