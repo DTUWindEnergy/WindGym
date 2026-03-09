@@ -16,8 +16,8 @@ farm:
 
 #Wind conditions
 wind:
-  ws_min: 7
-  ws_max: 15
+  ws_min: 10
+  ws_max: 12
   TI_min: 0.02
   TI_max: 0.15
   wd_min: 255

@@ -41,6 +41,11 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
         Baseline_comp=False,
         yaw_init=None,
         render_mode=None,
+        fix_turbines=False,
+        show_indices=True,
+        fontsize=15,
+        axes_lw=1.0,
+        colorbar_vmax_step=2.0,
         seed=None,
         dt_sim=1,  # Simulation timestep in seconds
         dt_env=1,  # Environment timestep in seconds
@@ -83,6 +88,11 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
             Baseline_comp=Baseline_comp,
             yaw_init=yaw_init,
             render_mode=render_mode,
+            fix_turbines=fix_turbines,
+            show_indices=show_indices,
+            fontsize=fontsize,
+            axes_lw=axes_lw,
+            colorbar_vmax_step=colorbar_vmax_step,
             seed=seed,
             dt_sim=dt_sim,
             dt_env=dt_env,
@@ -110,8 +120,22 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
 
         self.timestep = 0
 
-    def render(self):
-        return WindFarmEnv.render(self)
+    def render(
+        self,
+        fix_turbines=False,
+        show_indices=None,
+        fontsize=None,
+        axes_lw=None,
+        colorbar_vmax_step=None,
+    ):
+        return WindFarmEnv.render(
+            self,
+            fix_turbines=fix_turbines,
+            show_indices=show_indices,
+            fontsize=fontsize,
+            axes_lw=axes_lw,
+            colorbar_vmax_step=colorbar_vmax_step,
+        )
 
     def _get_obs_multi(self):
         """

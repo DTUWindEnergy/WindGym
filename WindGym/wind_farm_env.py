@@ -83,6 +83,11 @@ class WindFarmEnv(gym.Env):
         Baseline_comp=False,
         yaw_init=None,
         render_mode=None,
+        fix_turbines=False,
+        show_indices=True,
+        fontsize=15,
+        axes_lw=1.5,
+        colorbar_vmax_step=2.0,
         seed=None,
         dt_sim=1,  # Simulation timestep in seconds
         dt_env=1,  # Environment timestep in seconds
@@ -252,7 +257,14 @@ class WindFarmEnv(gym.Env):
         self.TF_files = self.turbulence_manager.turbulence_files
 
         # Initialize the renderer
-        self.renderer = WindFarmRenderer(render_mode=render_mode)
+        self.renderer = WindFarmRenderer(
+            render_mode=render_mode,
+            fix_turbines=fix_turbines,
+            show_indices=show_indices,
+            fontsize=fontsize,
+            axes_lw=axes_lw,
+            colorbar_vmax_step=colorbar_vmax_step,
+        )
 
         # If we need to have a "baseline" farm, then we need to set up the baseline controller
         # This could be moved to the Power_reward check, but I have a feeling this will be expanded in the future, when we include damage.
@@ -1291,18 +1303,53 @@ class WindFarmEnv(gym.Env):
             )
             shutil.rmtree(htc_folder_baseline)
 
-    def render(self):
-        """Render method required by Gymnasium API - delegates to renderer."""
+    def render(
+        self,
+        fix_turbines=False,
+        show_indices=None,
+        fontsize=None,
+        axes_lw=None,
+        colorbar_vmax_step=None,
+    ):
+        """Render the current environment state.
+
+        Args:
+            fix_turbines (bool): If True, the farm layout is fixed and the wind
+                direction rotates (EastNorthView). If False (default), the wind
+                always points right and the farm rotates with it (XYView).
+            show_indices (bool): Whether to annotate turbines with their index
+                numbers. Defaults to True (set at renderer construction).
+            fontsize (int): Font size used for all text in the plot.
+                Defaults to 15 (set at renderer construction).
+            axes_lw (float): Line width for turbine/wake outline elements.
+                Defaults to 1.0 (set at renderer construction).
+            colorbar_vmax_step (float): Step size for the colorbar tick spacing.
+                Defaults to 2.0 (set at renderer construction).
+
+        Returns:
+            np.ndarray | None: RGB array when render_mode='rgb_array',
+                otherwise None (frame is displayed directly for 'human' mode).
+        """
         fs_baseline = self.fs_baseline if self.Baseline_comp else None
         probes = self.probes if hasattr(self, "probes") else None
-        return self.renderer.render(self.fs, fs_baseline, probes, self.turbine)
+        if show_indices is not None:
+            self.renderer.show_indices = show_indices
+        if fontsize is not None:
+            self.renderer.fontsize = fontsize
+        if axes_lw is not None:
+            self.renderer.axes_lw = axes_lw
+        if colorbar_vmax_step is not None:
+            self.renderer.colorbar_vmax_step = colorbar_vmax_step
+        return self.renderer.render(
+            self.fs, fs_baseline, probes, self.turbine, fix_turbines
+        )
 
     def _render_frame_for_human(self, baseline=False):
         """Render the environment and return an RGB frame - delegates to renderer."""
         fs_baseline = self.fs_baseline if self.Baseline_comp else None
         probes = self.probes if hasattr(self, "probes") else None
-        return self.renderer._render_frame_for_human(
-            self.fs, fs_baseline, probes, baseline, self.turbine
+        return self.renderer._render_frame(
+            self.fs, fs_baseline, probes=probes, baseline=baseline, turbine=self.turbine
         )
 
     def _render_frame(self, baseline=False):

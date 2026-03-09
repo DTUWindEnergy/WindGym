@@ -15,6 +15,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from dynamiks.views import XYView, EastNorthView
 from py_wake.examples.data.hornsrev1 import V80
 
 from WindGym import WindFarmEnv
@@ -69,8 +70,6 @@ class TestRendererInitialization:
     def test_renderer_init_none_mode(self, renderer_none):
         """Test renderer initializes with None mode."""
         assert renderer_none.render_mode is None
-        assert renderer_none.figure is None
-        assert renderer_none.ax is None
         assert renderer_none.view is None
 
     def test_renderer_init_rgb_mode(self, renderer_rgb):
@@ -120,13 +119,11 @@ class TestRendererRenderMethod:
 class TestRendererInitRender:
     """Tests for init_render method."""
 
-    def test_init_render_creates_figure(self, env_with_rendering):
-        """Test that init_render creates matplotlib objects."""
+    def test_init_render_creates_view(self, env_with_rendering):
+        """Test that init_render creates the view and grid extents."""
         renderer = WindFarmRenderer(render_mode="rgb_array")
         renderer.init_render(env_with_rendering.fs, env_with_rendering.turbine)
 
-        assert renderer.figure is not None
-        assert renderer.ax is not None
         assert renderer.view is not None
         assert renderer.a is not None
         assert renderer.b is not None
@@ -156,12 +153,12 @@ class TestRendererFrameRendering:
 
         plt.close("all")
 
-    def test_render_frame_for_human_returns_rgb(self, env_with_rendering):
-        """Test that _render_frame_for_human returns valid RGB array."""
+    def test_render_frame_with_probes_returns_rgb(self, env_with_rendering):
+        """Test that _render_frame with probes returns valid RGB array."""
         renderer = WindFarmRenderer(render_mode="human")
         renderer.init_render(env_with_rendering.fs, env_with_rendering.turbine)
 
-        frame = renderer._render_frame_for_human(
+        frame = renderer._render_frame(
             env_with_rendering.fs,
             turbine=env_with_rendering.turbine,
         )
@@ -229,20 +226,14 @@ class TestRendererClose:
     """Tests for renderer close method."""
 
     def test_close_clears_objects(self, env_with_rendering):
-        """Test that close clears matplotlib objects."""
+        """Test that close clears the view."""
         renderer = WindFarmRenderer(render_mode="rgb_array")
         renderer.init_render(env_with_rendering.fs, env_with_rendering.turbine)
 
-        # Objects should be set
-        assert renderer.figure is not None
-        assert renderer.ax is not None
         assert renderer.view is not None
 
         renderer.close()
 
-        # Objects should be cleared
-        assert renderer.figure is None
-        assert renderer.ax is None
         assert renderer.view is None
 
 
@@ -268,6 +259,94 @@ class TestRendererWithBaseline:
         plt.close("all")
 
 
+class TestEnvRenderArguments:
+    """Tests for env.render() argument forwarding and defaults."""
+
+    def test_fix_turbines_default_is_false(self, env_with_rendering):
+        """env.render() should default to fix_turbines=False."""
+        result = env_with_rendering.render()
+        assert isinstance(result, np.ndarray)
+        plt.close("all")
+
+    def test_fix_turbines_true_returns_array(self, env_with_rendering):
+        """env.render(fix_turbines=True) should produce a valid RGB array."""
+        result = env_with_rendering.render(fix_turbines=True)
+        assert isinstance(result, np.ndarray)
+        assert result.ndim == 3
+        assert result.shape[2] == 3
+        plt.close("all")
+
+    def test_fix_turbines_false_returns_array(self, env_with_rendering):
+        """env.render(fix_turbines=False) should produce a valid RGB array."""
+        result = env_with_rendering.render(fix_turbines=False)
+        assert isinstance(result, np.ndarray)
+        assert result.ndim == 3
+        assert result.shape[2] == 3
+        plt.close("all")
+
+    def test_show_indices_updates_renderer(self, env_with_rendering):
+        """env.render(show_indices=...) should update renderer.show_indices."""
+        env_with_rendering.render(show_indices=False)
+        assert env_with_rendering.renderer.show_indices is False
+        env_with_rendering.render(show_indices=True)
+        assert env_with_rendering.renderer.show_indices is True
+        plt.close("all")
+
+    def test_fontsize_updates_renderer(self, env_with_rendering):
+        """env.render(fontsize=...) should update renderer.fontsize."""
+        env_with_rendering.render(fontsize=20)
+        assert env_with_rendering.renderer.fontsize == 20
+        plt.close("all")
+
+    def test_axes_lw_updates_renderer(self, env_with_rendering):
+        """env.render(axes_lw=...) should update renderer.axes_lw."""
+        env_with_rendering.render(axes_lw=2.5)
+        assert env_with_rendering.renderer.axes_lw == 2.5
+        plt.close("all")
+
+    def test_colorbar_vmax_step_updates_renderer(self, env_with_rendering):
+        """env.render(colorbar_vmax_step=...) should update renderer.colorbar_vmax_step."""
+        env_with_rendering.render(colorbar_vmax_step=5.0)
+        assert env_with_rendering.renderer.colorbar_vmax_step == 5.0
+        plt.close("all")
+
+    def test_unset_args_do_not_change_renderer_defaults(self, env_with_rendering):
+        """Calling render() without optional args should leave renderer state unchanged."""
+        renderer = env_with_rendering.renderer
+        original = (
+            renderer.show_indices,
+            renderer.fontsize,
+            renderer.axes_lw,
+            renderer.colorbar_vmax_step,
+        )
+        env_with_rendering.render()
+        assert (
+            renderer.show_indices,
+            renderer.fontsize,
+            renderer.axes_lw,
+            renderer.colorbar_vmax_step,
+        ) == original
+        plt.close("all")
+
+
+class TestFixTurbinesView:
+    """Tests that fix_turbines selects the correct view type in _build_view."""
+
+    def test_fix_turbines_false_uses_xyview(self, env_with_rendering):
+        """fix_turbines=False should build an XYView."""
+        renderer = WindFarmRenderer(render_mode="rgb_array")
+        renderer.init_render(env_with_rendering.fs, env_with_rendering.turbine)
+        view, *_ = renderer._build_view(env_with_rendering.fs, fix_turbines=False)
+        assert isinstance(view, XYView)
+
+    def test_fix_turbines_true_uses_eastnorthview(self, env_with_rendering):
+        """fix_turbines=True should build an EastNorthView."""
+        renderer = WindFarmRenderer(render_mode="rgb_array")
+        renderer.init_render(env_with_rendering.fs, env_with_rendering.turbine)
+        view, *_ = renderer._build_view(env_with_rendering.fs, fix_turbines=True)
+        assert isinstance(view, EastNorthView)
+
+
 class TestRendererEdgeCases:
     """Tests for edge cases and special conditions."""
 
@@ -279,7 +358,6 @@ class TestRendererEdgeCases:
         frame = renderer._render_frame(
             env_with_rendering.fs,
             turbine=env_with_rendering.turbine,
-            ws=10.0,  # Explicit wind speed for color scale
         )
 
         assert isinstance(frame, np.ndarray)

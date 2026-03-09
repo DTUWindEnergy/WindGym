@@ -9,10 +9,8 @@ from typing import Optional
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
-from IPython import display
 
 from dynamiks.views import XYView, EastNorthView
-from py_wake.wind_turbines import WindTurbines as WindTurbinesPW
 from dynamiks.utils.geometry import get_east_north_height
 import matplotlib.patheffects as path_effects
 from matplotlib.patches import Ellipse
@@ -30,88 +28,197 @@ class WindFarmRenderer:
     Also provides utility methods for plotting farm layouts and frames.
     """
 
-    def __init__(self, render_mode: Optional[str] = None):
-        """
-        Initialize the renderer.
-
-        Args:
-            render_mode: Rendering mode ("human", "rgb_array", or None)
-        """
+    def __init__(
+        self,
+        render_mode: Optional[str] = None,
+        fix_turbines: bool = False,
+        show_indices: bool = True,
+        fontsize: int = 15,
+        axes_lw: float = 1.0,
+        colorbar_vmax_step: float = 2.0,
+    ):
         self.render_mode = render_mode
+        self.fix_turbines = fix_turbines
+        self.show_indices = show_indices
+        self.fontsize = fontsize
+        self.axes_lw = axes_lw
+        self.colorbar_vmax_step = colorbar_vmax_step
 
         # Rendering objects (initialized lazily)
-        self.figure = None
-        self.ax = None
         self.view = None
         self.a = None  # x-axis linspace
         self.b = None  # y-axis linspace
 
     def init_render(self, fs, turbine):
         """
-        Initialize rendering objects.
-
-        This creates the matplotlib figure, axis, and XYView for rendering.
-        Should be called after the flow simulation is created.
+        Initialize the grid extents and XYView used by all render methods.
 
         Args:
             fs: Flow simulation object
             turbine: Turbine object (for hub_height)
         """
-        plt.ion()
         x_turb, y_turb = fs.windTurbines.positions_xyz[:2]
 
-        self.figure, self.ax = plt.subplots(figsize=(10, 4))
         self.a = np.linspace(-200 + min(x_turb), 1000 + max(x_turb), 250)
         self.b = np.linspace(-200 + min(y_turb), 200 + max(y_turb), 250)
 
-        self.view = XYView(
-            z=turbine.hub_height(), x=self.a, y=self.b, ax=self.ax, adaptive=False
-        )
+        self.view = XYView(z=turbine.hub_height(), x=self.a, y=self.b, adaptive=False)
 
-        plt.close()
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
 
-    def render(self, fs, fs_baseline=None, probes=None, turbine=None):
+    def _ensure_initialized(self, fs, turbine):
+        """Initialize view lazily, raising if turbine is not available."""
+        if self.view is None:
+            if turbine is None:
+                raise RuntimeError(
+                    "Renderer not initialized and turbine not provided. "
+                    "Call init_render() first or pass turbine."
+                )
+            self.init_render(fs, turbine)
+
+    @staticmethod
+    def _resolve_fs(fs, fs_baseline, baseline):
+        """Return the appropriate flow simulation based on the baseline flag."""
+        return fs_baseline if baseline else fs
+
+    @staticmethod
+    def _draw_turbines(
+        ax, x_turb, y_turb, R, yaw_plot, tilt, fontsize=15, show_indices=True
+    ):
+        """Draw turbines as ellipses on ax, with optional index labels."""
+        for ii, (x_, y_, r, yaw_, tilt_) in enumerate(
+            zip(x_turb, y_turb, R, yaw_plot, tilt)
+        ):
+            ax.add_artist(
+                Ellipse(
+                    (x_, y_),
+                    2 * r * np.sin(np.deg2rad(tilt_)),
+                    2 * r,
+                    angle=yaw_,
+                    ec="k",
+                    fc="None",
+                )
+            )
+            ax.plot(x_, y_, ".", color="k")
+            if show_indices:
+                text = ax.annotate(
+                    f"T {ii + 1}",
+                    (x_ - r, y_ + r * 1.75),
+                    fontsize=fontsize,
+                    color="white",
+                )
+                text.set_path_effects(
+                    [
+                        path_effects.Stroke(linewidth=2, foreground="black"),
+                        path_effects.Normal(),
+                    ]
+                )
+
+    @staticmethod
+    def _probe_xy(probe, fs, fix_turbines):
+        """Return the (x, y) position of a probe in the current plot frame."""
+        px, py, pz = probe.position
+        if fix_turbines:
+            ep, np_ = get_east_north_height(
+                xyz=np.array([[px], [py], [pz]]),
+                wind_direction=fs.wind_direction,
+                center_offset=fs.center_offset,
+            )[:2]
+            return float(ep[0]), float(np_[0])
+        return px, py
+
+    @staticmethod
+    def _fig_to_rgb(fig):
+        """Render a matplotlib figure to an RGB numpy array and close it."""
+        canvas = FigureCanvas(fig)
+        canvas.draw()
+        buf = canvas.buffer_rgba()
+        frame = np.asarray(buf)[:, :, :3]
+        plt.close(fig)
+        return frame
+
+    def _build_view(self, fs, fix_turbines):
         """
-        Main render method - routes to appropriate rendering function.
+        Build a view and return coordinate arrays for the given flow simulation.
+
+        Args:
+            fs: Flow simulation object
+            fix_turbines: If True use EastNorthView; otherwise use XYView.
+
+        Returns:
+            view, X, Y, x_turb, y_turb, yaw, tilt, yaw_plot
+        """
+        wt = fs.windTurbines
+        yaw, tilt = wt.yaw_tilt()
+
+        if fix_turbines:
+            view = EastNorthView(z=self.view.z, x=self.a, y=self.b, adaptive=False)
+            X, Y = view.XY(
+                wind_direction=fs.wind_direction, center_offset=fs.center_offset
+            )
+            x_turb, y_turb = get_east_north_height(
+                xyz=wt.positions_xyz,
+                wind_direction=fs.wind_direction,
+                center_offset=fs.center_offset,
+            )[:2]
+            yaw_plot = yaw - fs.wind_direction + 90
+        else:
+            view = XYView(z=self.view.z, x=self.a, y=self.b, adaptive=False)
+            X, Y = view.XY()
+            x_turb, y_turb, _ = wt.positions_xyz
+            yaw_plot = yaw
+
+        return view, X, Y, x_turb, y_turb, yaw, tilt, yaw_plot
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def render(
+        self, fs, fs_baseline=None, probes=None, turbine=None, fix_turbines=False
+    ):
+        """
+        Main render method.
 
         Args:
             fs: Flow simulation object
             fs_baseline: Optional baseline flow simulation
             probes: Optional list of wind probes
             turbine: Turbine object for lazy initialization
+            fix_turbines: If True use EastNorthView (farm fixed, wind rotates)
 
         Returns:
             RGB array if render_mode is "rgb_array", None otherwise
         """
-        if self.render_mode == "rgb_array":
-            # Return the RGB frame (for recording, saving, etc.)
-            return self._render_frame(fs, fs_baseline, probes, turbine=turbine)
-        elif self.render_mode == "human":
-            # Show the frame in a window (will initialize lazily if needed)
-            frame = self._render_frame_for_human(
-                fs, fs_baseline, probes, turbine=turbine
-            )
-            plt.imshow(frame)
-            plt.axis("off")
-            plt.title("Wind Farm Environment - Render")
-            plt.show(block=False)
-            plt.pause(0.001)  # Pause to allow window to update
-            return None
-        else:
+        if self.render_mode is None:
             return None
 
-    def _render_frame_for_human(
+        frame = self._render_frame(
+            fs, fs_baseline, probes=probes, turbine=turbine, fix_turbines=fix_turbines
+        )
+
+        if self.render_mode == "human":
+            plt.imshow(frame)
+            plt.axis("off")
+            plt.show(block=False)
+            plt.pause(0.001)
+            return None
+
+        return frame  # "rgb_array"
+
+    def _render_frame(
         self,
         fs,
         fs_baseline=None,
         probes=None,
         baseline: bool = False,
         turbine=None,
+        fix_turbines: bool = False,
     ):
         """
-        Render the environment for human viewing with full details.
-
-        Includes wind speed heatmap, turbines, and optional probes with arrows.
+        Render the current environment state and return an RGB array.
 
         Args:
             fs: Flow simulation object
@@ -119,66 +226,86 @@ class WindFarmRenderer:
             probes: Optional list of wind probes
             baseline: Whether to render baseline instead of agent
             turbine: Turbine object (for view if not initialized)
+            ws: Approximate free-stream wind speed used to set colorbar vmax
+            fix_turbines: If True use EastNorthView (farm fixed, wind rotates)
 
         Returns:
-            np.ndarray: RGB frame
+            np.ndarray: RGB frame (H x W x 3)
         """
-        plt.ioff()  # Non-interactive mode
-        fig, ax1 = plt.subplots(figsize=(18, 6))
+        self._ensure_initialized(fs, turbine)
 
-        fs_use = fs_baseline if baseline else fs
-
-        # Ensure view is initialized
-        if self.view is None and turbine is not None:
-            self.init_render(fs, turbine)
-
-        uvw = fs_use.get_windspeed(self.view, include_wakes=True, xarray=True)
-
-        wt = fs_use.windTurbines
-        x_turb, y_turb = fs_use.windTurbines.positions_xyz[:2]
-        yaw, tilt = wt.yaw_tilt()
-
-        mesh = ax1.pcolormesh(
-            uvw.x.values, uvw.y.values, uvw[0].T, shading="nearest", cmap="viridis"
+        plt.ioff()
+        fig_h = 6
+        data_aspect = (max(self.a) - min(self.a)) / (max(self.b) - min(self.b))
+        fig, ax = plt.subplots(
+            figsize=(fig_h * data_aspect + 1.5, fig_h), layout="constrained"
         )
-        plt.colorbar(mesh, ax=ax1, label="Wind Speed (m/s)")
 
-        WindTurbinesPW.plot_xy(
-            fs_use.windTurbines,
+        fs_use = self._resolve_fs(fs, fs_baseline, baseline)
+        wt = fs_use.windTurbines
+
+        view, X, Y, x_turb, y_turb, _, tilt, yaw_plot = self._build_view(
+            fs_use, fix_turbines
+        )
+        uvw = fs_use.get_windspeed(view, include_wakes=True, xarray=True)
+
+        raw = float(uvw[0].max())
+        vmax = np.ceil(raw / self.colorbar_vmax_step) * self.colorbar_vmax_step
+        mesh = ax.pcolormesh(
+            X,
+            Y,
+            uvw[0].T,
+            shading="nearest",
+            cmap="viridis",
+            vmin=3.0,
+            vmax=vmax,
+        )
+        cbar = plt.colorbar(mesh, ax=ax, label="Wind Speed (m/s)")
+        cbar.ax.tick_params(labelsize=self.fontsize)
+        cbar.set_label("Wind Speed (m/s)", fontsize=self.fontsize)
+
+        self._draw_turbines(
+            ax,
             x_turb,
             y_turb,
-            types=fs_use.windTurbines.types,
-            wd=fs_use.wind_direction,
-            ax=ax1,
-            yaw=yaw,
-            tilt=tilt,
+            wt.diameter() / 2,
+            yaw_plot,
+            tilt,
+            fontsize=self.fontsize,
+            show_indices=self.show_indices,
         )
-        ax1.set_aspect("equal", adjustable="datalim")
 
-        # Plot probes with color depending on probe type
-        if probes is not None and len(probes) > 0:
+        ax.set_xlim(min(self.a), max(self.a))
+        ax.set_ylim(min(self.b), max(self.b))
+        ax.set_title(f"Flow field at {fs_use.time:.1f} s", fontsize=self.fontsize)
+        ax.tick_params(
+            axis="both",
+            which="major",
+            labelsize=self.fontsize,
+            width=self.axes_lw,
+            length=6,
+        )
+        for spine in ax.spines.values():
+            spine.set_linewidth(self.axes_lw)
+        ax.set_xlabel("x (m)", fontsize=self.fontsize)
+        ax.set_ylabel("y (m)", fontsize=self.fontsize)
+
+        if probes:
             for probe in probes:
-                x, y, _ = probe.position
+                x, y = self._probe_xy(probe, fs_use, fix_turbines)
+
                 probe_type = probe.probe_type.upper()
-
-                # Determine color and label
                 if probe_type == "WS":
-                    color = "red"
-                    label = "WS Probe"
-                    value = float(probe.read())
-                    text = f"{value:.2f} m/s"
+                    color, label = "red", "WS Probe"
+                    text = f"{float(probe.read()):.2f} m/s"
                 elif probe_type == "TI":
-                    color = "blue"
-                    label = "TI Probe"
-                    value = float(probe.read())
-                    text = f"{value:.2f} TI"
+                    color, label = "blue", "TI Probe"
+                    text = f"{float(probe.read()):.2f} TI"
                 else:
-                    color = "gray"
-                    label = "Unknown"
-                    text = "N/A"
+                    color, label, text = "gray", "Unknown", "N/A"
 
-                ax1.scatter(x, y, color=color, s=25, marker="o", label=label)
-                ax1.text(
+                ax.scatter(x, y, color=color, s=25, marker="o", label=label)
+                ax.text(
                     x + 5,
                     y + 5,
                     text,
@@ -188,17 +315,15 @@ class WindFarmRenderer:
                 )
 
                 speed = float(probe.read())
-                arrow_length = speed * 5
-                # Draw inflow direction arrow
                 inflow_angle = probe.get_inflow_angle_to_turbine()
-                dx = arrow_length * np.cos(inflow_angle)
-                dy = arrow_length * np.sin(inflow_angle)
-
-                ax1.arrow(
+                if fix_turbines:
+                    inflow_angle += np.pi + np.deg2rad(90 - fs_use.wind_direction)
+                arrow_length = speed * 5
+                ax.arrow(
                     x,
                     y,
-                    dx,
-                    dy,
+                    arrow_length * np.cos(inflow_angle),
+                    arrow_length * np.sin(inflow_angle),
                     width=1.5,
                     head_width=5.0,
                     head_length=7.0,
@@ -208,112 +333,79 @@ class WindFarmRenderer:
                     length_includes_head=True,
                 )
 
-            ax1.set_title(f"Flow field at {fs_use.time} s")
-
-            # Avoid duplicate legend entries
-            handles, labels_list = ax1.get_legend_handles_labels()
+            handles, labels_list = ax.get_legend_handles_labels()
             if labels_list.count("Probe") > 1:
                 unique = dict(zip(labels_list, handles))
-                ax1.legend(unique.values(), unique.keys())
+                ax.legend(unique.values(), unique.keys())
 
-        canvas = FigureCanvas(fig)
-        canvas.draw()
-        buf = canvas.buffer_rgba()
-        frame = np.asarray(buf)[:, :, :3]  # Get RGB only
+        return self._fig_to_rgb(fig)
 
-        plt.close(fig)  # Avoid memory leaks
-        return frame
-
-    def _render_frame(
-        self,
-        fs,
-        fs_baseline=None,
-        probes=None,
-        baseline: bool = False,
-        turbine=None,
-        ws=None,
-    ):
+    def get_flow_field(self, fs, probes=None, turbine=None, fix_turbines=False):
         """
-        Render the current environment state and return RGB array.
+        Return raw flow field data for custom plotting.
 
-        Simpler rendering compared to _render_frame_for_human,
-        reuses the figure and axis from init_render.
+        Instead of rendering to pixels, this gives you the underlying arrays
+        so you can build your own matplotlib figures with full control over
+        colorbars, probe overlays, annotations, etc.
 
         Args:
             fs: Flow simulation object
-            fs_baseline: Optional baseline flow simulation
-            probes: Optional list of wind probes (not used in this method)
-            baseline: Whether to render baseline instead of agent
-            turbine: Turbine object (for view if not initialized)
-            ws: Wind speed (for color scale)
+            probes: Optional list of wind probes
+            turbine: Turbine object (only needed if view not yet initialized)
+            fix_turbines: If True, use EastNorthView so the farm layout stays
+                fixed on screen and the wind/wake pattern rotates with changing
+                wind direction. If False (default), use XYView (raw simulation
+                coordinates) where the farm rotates and wind always comes from
+                the left.
 
         Returns:
-            np.ndarray: RGB frame
+            dict with keys:
+                uvw       - xarray DataArray (shape [3, nx, ny]), wind speed components
+                x         - 2D np.ndarray, x-axis grid coordinates [m]
+                y         - 2D np.ndarray, y-axis grid coordinates [m]
+                x_turb    - 1D np.ndarray, turbine x positions [m]
+                y_turb    - 1D np.ndarray, turbine y positions [m]
+                wd        - float, wind direction [deg]
+                yaw       - 1D np.ndarray, turbine yaw angles [deg] (plot-frame)
+                time      - float, simulation time [s]
+                probes              - list of probe objects (same as input), or []
+                probe_inflow_angles - list of floats, inflow angle [rad] per probe (plot-frame corrected)
+                wind_turbines       - WindTurbines instance
         """
-        # Ensure render objects are initialized
-        if self.view is None:
-            if turbine is None:
-                raise RuntimeError(
-                    "Renderer not initialized and turbine not provided. "
-                    "Call init_render() first."
-                )
-            self.init_render(fs, turbine)
+        self._ensure_initialized(fs, turbine)
 
-        # Use the figure and axis created during initialization
-        fig = self.figure
-        ax = self.ax
-        ax.cla()  # Clear the axis for the new frame
-
-        fs_use = fs_baseline if baseline else fs
-
-        # Define a temporary view for this frame's plot
-        temp_view = XYView(
-            z=turbine.hub_height() if turbine else self.view.z,
-            x=self.a,
-            y=self.b,
-            ax=ax,
-            adaptive=False,
+        view, X, Y, x_turb, y_turb, yaw, tilt, yaw_plot = self._build_view(
+            fs, fix_turbines
         )
-        uvw = fs_use.get_windspeed(temp_view, include_wakes=True, xarray=True)
+        uvw = fs.get_windspeed(view, include_wakes=True, xarray=True)
 
-        # Plot the wind speed heatmap
-        vmax = (ws + 2) if ws is not None else None
-        ax.pcolormesh(
-            uvw.x.values,
-            uvw.y.values,
-            uvw[0].T,
-            shading="auto",
-            cmap="viridis",
-            vmin=3,
-            vmax=vmax,
-        )
+        probe_list = probes or []
+        probe_positions = [self._probe_xy(p, fs, fix_turbines) for p in probe_list]
+        probe_inflow_angles = []
+        for p in probe_list:
+            angle = p.get_inflow_angle_to_turbine()
+            if fix_turbines:
+                angle += np.pi + np.deg2rad(90 - fs.wind_direction)
+            probe_inflow_angles.append(angle)
 
-        # Get turbine coordinates
-        x_turb, y_turb, _ = fs_use.windTurbines.positions_xyz
-
-        # Plot the turbines
-        WindTurbinesPW.plot_xy(
-            fs_use.windTurbines,
-            x_turb,
-            y_turb,
-            wd=fs_use.wind_direction,
-            yaw=fs_use.windTurbines.yaw,
-            ax=ax,
-        )
-
-        ax.set_title(f"Flow Field at Time: {fs_use.time:.1f} s")
-        ax.set_xlabel("x [m]")
-        ax.set_ylabel("y [m]")
-        ax.set_aspect("equal", adjustable="box")
-        fig.tight_layout()
-
-        # Capture canvas to NumPy array
-        canvas = FigureCanvas(fig)
-        canvas.draw()
-        buf = canvas.buffer_rgba()
-        frame = np.asarray(buf)[:, :, :3]  # RGB only
-
-        return frame
+        return {
+            "uvw": uvw,
+            "x": X,
+            "y": Y,
+            "x_turb": x_turb,
+            "y_turb": y_turb,
+            "wd": fs.wind_direction,
+            "yaw": yaw,
+            "yaw_plot": yaw_plot,
+            "tilt": tilt,
+            "diameter": fs.windTurbines.diameter(),
+            "time": fs.time,
+            "probes": probe_list,
+            "probe_positions": probe_positions,
+            "probe_inflow_angles": probe_inflow_angles,
+            "wind_turbines": fs.windTurbines,
+            "fix_turbines": fix_turbines,
+        }
 
     def plot_farm(
         self,
@@ -351,83 +443,30 @@ class WindFarmRenderer:
         plt.ion()
         ax1 = plt.gca()
 
-        fs_use = fs_baseline if baseline else fs
-        wt = fs_use.windTurbines
+        fs_use = self._resolve_fs(fs, fs_baseline, baseline)
 
-        if fix_turbines:
-            view = EastNorthView(z=70, x=self.a, y=self.b, adaptive=False)
-            X, Y = view.XY(
-                wind_direction=fs_use.wind_direction, center_offset=fs_use.center_offset
-            )
-            x_turb, y_turb = get_east_north_height(
-                xyz=wt.positions_xyz,
-                wind_direction=fs_use.wind_direction,
-                center_offset=fs_use.center_offset,
-            )[:2]
-            yaw, tilt = wt.yaw_tilt()
-            yaw_plot = yaw - fs_use.wind_direction + 90
-
-        else:
-            view = XYView(z=70, x=self.a, y=self.b, adaptive=False)
-            x_turb, y_turb = wt.positions_xyz[:2]
-            X, Y = view.XY()
-            yaw, tilt = wt.yaw_tilt()
-            yaw_plot = yaw
-
+        view, X, Y, x_turb, y_turb, _, tilt, yaw_plot = self._build_view(
+            fs_use, fix_turbines
+        )
         uvw = fs_use.get_windspeed(view, include_wakes=True, xarray=True)
 
         ax1.pcolormesh(X, Y, uvw[0].T, shading="nearest")
 
-        # Plot turbines
-        D = wt.diameter()
-        R = D / 2
-
-        for ii, (x_, y_, r, yaw_, tilt_) in enumerate(
-            zip(x_turb, y_turb, R, yaw_plot, tilt)
-        ):
-            # Draw turbine as ellipse
-            circle = Ellipse(
-                (x_, y_),
-                2 * r * np.sin(np.deg2rad(tilt_)),
-                2 * r,
-                angle=yaw_,
-                ec="k",
-                fc="None",
-            )
-            ax1.add_artist(circle)
-            ax1.plot(x_, y_, ".", color="k")
-
-            # Add turbine label
-            text = ax1.annotate(
-                f"T {ii + 1}",
-                (x_ - r, y_ + r * 1.75),
-                fontsize=15,
-                color="white",
-            )
-            text.set_path_effects(
-                [
-                    path_effects.Stroke(linewidth=2, foreground="black"),
-                    path_effects.Normal(),
-                ]
-            )
+        wt = fs_use.windTurbines
+        self._draw_turbines(
+            ax1,
+            x_turb,
+            y_turb,
+            wt.diameter() / 2,
+            yaw_plot,
+            tilt,
+            show_indices=self.show_indices,
+        )
 
         ax1.set_xlim(min(self.a), max(self.a))
         ax1.set_ylim(min(self.b), max(self.b))
-
-        # plt.pcolormesh(uvw.x.values, uvw.y.values, uvw[0].T, shading="nearest")
-        # WindTurbinesPW.plot_xy(
-        #     fs_use.windTurbines,
-        #     x_turb,
-        #     y_turb,
-        #     wd=fs_use.wind_direction,
-        #     ax=ax1,
-        #     yaw=yaw,
-        #     tilt=tilt,
-        # )
         ax1.set_title("Flow field at {} s".format(fs_use.time))
         ax1.set_aspect("equal", adjustable="box")
-        # display.display(plt.gcf())
-        # display.clear_output(wait=True)
 
     def plot_frame(self, fs, fs_baseline=None, turbine=None, baseline: bool = False):
         """
@@ -446,6 +485,4 @@ class WindFarmRenderer:
     def close(self):
         """Close any open matplotlib figures."""
         plt.close()
-        self.figure = None
-        self.ax = None
         self.view = None

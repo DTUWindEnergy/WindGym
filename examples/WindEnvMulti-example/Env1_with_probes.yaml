@@ -20,8 +20,8 @@ wind:
   ws_max: 15
   TI_min: 0.02
   TI_max: 0.15
-  wd_min: 255
-  wd_max: 285
+  wd_min: 300
+  wd_max: 300
 
 #Penalty parameters
 act_pen:
