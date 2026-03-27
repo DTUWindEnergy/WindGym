@@ -9,8 +9,8 @@ Before you begin, ensure you have the following installed on your system:
 - **Git**: You'll need Git to clone the WindGym and its dependency repositories.
   - [Download Git](https://git-scm.com/downloads)
 - **Pixi**: This is a modern package manager that WindGym uses to manage its Python and other dependencies in an isolated environment.
-  - [Install Pixi](https://pixi.sh/latest/#installation)
-- **Python (3.7 to 3.11)**: Pixi will handle the specific Python version for you, but it's good to be aware of the compatible range.
+  - [Install Pixi](https://pixi.sh/latest/#installation): `curl -fsSL https://pixi.sh/install.sh | bash`
+- **Python (3.10 to 3.13)**: Pixi will handle the specific Python version for you, but it's good to be aware of the compatible range.
 
 ## 2. Core WindGym Installation
 

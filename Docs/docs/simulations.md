@@ -211,9 +211,9 @@ print(f"\nInitial Wind Conditions for this episode: WS={info['Wind speed Global'
     
     --- Initial State of WindFarmEnv ---
     Initial Observation (scaled between -1 and 1):
-     [-0.43336862  0.54059434  0.          0.         -0.15356982 -0.44537288
-      0.55579746  0.          0.         -0.20664841 -0.43937087  0.54819596
-     -0.18010914]
+     [-0.43336862  0.54059434  0.          0.         -0.15356982 -0.44510204
+      0.554945    0.          0.         -0.20546204 -0.43923533  0.54776967
+     -0.1795159 ]
     
     Initial Info Dictionary (contains raw values and metadata):
       yaw angles agent: shape=(2,), dtype=float64
@@ -227,14 +227,14 @@ print(f"\nInitial Wind Conditions for this episode: WS={info['Wind speed Global'
       Wind direction at turbines measured: shape=(2,), dtype=float32
       Wind direction at farm measured: shape=(1,), dtype=float32
       Turbulence intensity: 0.13089117615922824
-      Power agent: 1612714.649794811
+      Power agent: 1616019.3006770485
       Power agent nowake: 1504017.1945817205
       Power pr turbine agent: shape=(2,), dtype=float64
       Turbine x positions: shape=(2,), dtype=float64
       Turbine y positions: shape=(2,), dtype=float64
       Turbulence intensity at turbines: shape=(2,), dtype=float32
       yaw angles base: shape=(2,), dtype=float64
-      Power baseline: 1596653.08341162
+      Power baseline: 1595288.747944936
       Power pr turbine baseline: shape=(2,), dtype=float64
       Wind speed at turbines baseline: shape=(2,), dtype=float64
     
@@ -274,51 +274,51 @@ for i in range(num_steps):
 
     
     Running 5 steps in WindFarmEnv with random actions...
+
+
     
     --- Step 1 ---
-    Action (raw): [0.9438377  0.07123403]
-    Reward: 0.0303
+    Action (raw): [-0.5806839   0.24554811]
+    Reward: 0.0313
     Farm Power (Agent): 1.52 MW
     Farm Power (Baseline): 1.67 MW
-    Current Yaw Angles (Agent): [5.   3.21]
+    Current Yaw Angles (Agent): [-5.  5.]
     Time: 275.00 s
 
 
     
     --- Step 2 ---
-    Action (raw): [-0.3643834   0.25099716]
-    Reward: -0.0042
-    Farm Power (Agent): 1.71 MW
+    Action (raw): [-0.87201315 -0.9934843 ]
+    Reward: -0.0045
+    Farm Power (Agent): 1.70 MW
     Farm Power (Baseline): 1.74 MW
-    Current Yaw Angles (Agent): [0.   8.21]
+    Current Yaw Angles (Agent): [-10.   0.]
     Time: 280.00 s
     
     --- Step 3 ---
-    Action (raw): [-0.79487866  0.79252315]
-    Reward: -0.0437
-    Farm Power (Agent): 1.33 MW
+    Action (raw): [0.41638982 0.15865052]
+    Reward: -0.0410
+    Farm Power (Agent): 1.38 MW
     Farm Power (Baseline): 1.57 MW
-    Current Yaw Angles (Agent): [-5.   13.21]
+    Current Yaw Angles (Agent): [-5.  5.]
     Time: 285.00 s
 
 
     
     --- Step 4 ---
-    Action (raw): [-0.7023649  -0.97860783]
-    Reward: -0.0559
-    Farm Power (Agent): 1.55 MW
-    Farm Power (Baseline): 1.64 MW
-    Current Yaw Angles (Agent): [-10.     8.21]
+    Action (raw): [ 0.23826106 -0.7188845 ]
+    Reward: -0.0460
+    Farm Power (Agent): 1.62 MW
+    Farm Power (Baseline): 1.65 MW
+    Current Yaw Angles (Agent): [0. 0.]
     Time: 290.00 s
-
-
     
     --- Step 5 ---
-    Action (raw): [-0.47541058 -0.1211104 ]
-    Reward: -0.0743
-    Farm Power (Agent): 1.37 MW
+    Action (raw): [-0.27921307 -0.82324696]
+    Reward: -0.0568
+    Farm Power (Agent): 1.42 MW
     Farm Power (Baseline): 1.39 MW
-    Current Yaw Angles (Agent): [-15.     3.21]
+    Current Yaw Angles (Agent): [-5. -5.]
     Time: 295.00 s
 
 
@@ -374,10 +374,10 @@ pywake_agent = PyWakeAgent(
     env=eval_env # Pass the environment object to the agent for context
 )
 
-print("\n--- Running simulation with PyWakeAgent using eval_single_fast ---")
-# eval_single_fast runs a full episode with the specified agent and returns an xarray Dataset
+print("\n--- Running simulation with PyWakeAgent using AgentEvalFast ---")
+# AgentEvalFast runs a full episode with the specified agent and returns an xarray Dataset
 # t_sim specifies the total simulation time in seconds
-eval_results = eval_single_fast(
+eval_results = AgentEvalFast(
     env=eval_env,
     model=pywake_agent,
     ws=10.0,
@@ -394,33 +394,7 @@ eval_results = eval_single_fast(
 ```
 
     
-    --- Running simulation with PyWakeAgent using eval_single_fast ---
-
-
-
-    ---------------------------------------------------------------------------
-
-    NameError                                 Traceback (most recent call last)
-
-    Cell In[8], line 37
-         34 print("\n--- Running simulation with PyWakeAgent using eval_single_fast ---")
-         35 # eval_single_fast runs a full episode with the specified agent and returns an xarray Dataset
-         36 # t_sim specifies the total simulation time in seconds
-    ---> 37 eval_results = eval_single_fast(
-         38     env=eval_env,
-         39     model=pywake_agent,
-         40     ws=10.0,
-         41     ti=0.07,
-         42     wd=270.0,
-         43     t_sim=6,     
-         44     save_figs=False,        # Set to True to generate frame-by-frame plots (can be very slow)
-         45     debug=False,
-         46     deterministic=True,     # Use deterministic policy for the agent
-         47     name="PyWake_3Turbines_Test"
-         48 )
-
-
-    NameError: name 'eval_single_fast' is not defined
+    --- Running simulation with PyWakeAgent using AgentEvalFast ---
 
 
 
@@ -479,20 +453,14 @@ print("FarmEval environment closed.")
 ```
 
 
-    ---------------------------------------------------------------------------
-
-    NameError                                 Traceback (most recent call last)
-
-    Cell In[9], line 2
-          1 # Select a single wind speed, direction, and TI for plotting, assuming eval_results has these dimensions
-    ----> 2 selected_data = eval_results.sel(ws=10.0, wd=270.0, TI=0.07, method='nearest')
-          3 #print(selected_data['powerF_a'].head())
-          4 
-          5 # Access the underlying data for plotting, and use .squeeze() to remove singleton dimensions
-          6 agent_power = selected_data['powerF_a'].squeeze().values 
+    
+![png](simulations_files/simulations_19_0.png)
+    
 
 
-    NameError: name 'eval_results' is not defined
+    
+    Closing FarmEval environment...
+    FarmEval environment closed.
 
 
 ## 4. Multi-Agent Simulations (`WindFarmEnvMulti`)

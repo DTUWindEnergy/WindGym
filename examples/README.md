@@ -37,5 +37,5 @@ The `noise_examples/` directory contains examples for working with noisy observa
 ## Need Help?
 
 - Check the [full documentation](https://sys.pages.windenergy.dtu.dk/windgym/)
-- Review the [troubleshooting guide](../docusaurus-site/docs/troubleshooting.md)
+- Review the [troubleshooting guide](https://sys.pages.windenergy.dtu.dk/windgym/troubleshooting)
 - Open an issue on [GitLab](https://gitlab.windenergy.dtu.dk/sys/windgym/-/issues)

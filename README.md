@@ -51,6 +51,9 @@ WindGym provides a dynamic wind farm environment for developing and evaluating r
 ### Installation
 
 ```bash
+# Install pixi (if not already installed)
+curl -fsSL https://pixi.sh/install.sh | bash
+
 git clone https://gitlab.windenergy.dtu.dk/sys/windgym.git
 cd windgym
 pixi install

@@ -58,8 +58,8 @@
   margin-bottom: 0.5em;
 }
 
-/* Style the code blocks */
-.markdown code {
+/* Style inline code only (not fenced code blocks) */
+.markdown :not(pre) > code {
   font-family: "Courier New", Courier, monospace;
   background-color: var(--ifm-code-background);
   padding: 0.2em 0.4em;
