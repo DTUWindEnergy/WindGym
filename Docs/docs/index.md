@@ -31,10 +31,11 @@ The core of WindGym is built upon **Dynamiks** and **PyWake**, leveraging their 
 To begin using WindGym, we recommend the following steps:
 
 1.  **Installation**: Follow the instructions in the [Installation Guide](installation.md) to set up your WindGym environment.
-2.  **Basic Concepts**: Familiarize yourself with the fundamental concepts of the WindGym environment in the [Core Concepts](concepts.md) section.
-3.  **Running Simulations**: Learn how to run your first simulation with different environments and agents in the [Simulation Guide](simulations.md).
-4.  **Developing Agents**: Dive into creating and training your own custom agents using our [Agent Development](agents.md) guide.
-5.  **Evaluation**: Understand how to rigorously evaluate and compare the performance of different agents using the [Evaluation Framework](evaluations.md).
+2.  **Theory**: Understand the [physics models](theory.md) behind the simulations.
+3.  **Basic Concepts**: Familiarize yourself with the fundamental concepts of the WindGym environment in the [Core Concepts](concepts.md) section.
+4.  **Running Simulations**: Learn how to run your first simulation with different environments and agents in the [Simulation Guide](simulations.md).
+5.  **Developing Agents**: Dive into creating and training your own custom agents using our [Agent Development](agents.md) guide.
+6.  **Evaluation**: Understand how to rigorously evaluate and compare the performance of different agents using the [Evaluation Framework](evaluations.md).
 
 ---
 

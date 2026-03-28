@@ -52,7 +52,7 @@ Developing control algorithms for wind farms is not a trivial task. One area tha
 
 # State of the Field
 
-When we began developing WindGym, no existing package combined dynamic wind farm simulation with standard RL interfaces. The package *wind-farm-env* [@Neustroev2022] existed as the only existing open source option, but it is built on Floris [@FLORIS], with no obvious way of implementing transient wake behaviour. Since then, *WFCRL* [@WFCRL] has emerged, providing RL environments built on Fastfarm [@fastfarm] and Floris. We belive that WindGym offers a distinct advantage. Because it is built on DYNAMIKS [@dynamiks], a multi-fidelity framework that allows users to interchange fidelity levels within a single codebase, researchers can train agents using fast, low-fidelity simulations and validate them with higher-fidelity models without changing their RL setup. Additionally, WindGym provides both single-agent and multi-agent environments through Gymnasium and PettingZoo APIs, whereas *WFCRL* currently focuses on multi-agent scenarios.
+When we began developing WindGym, no existing package combined dynamic wind farm simulation with standard RL interfaces. The package *wind-farm-env* [@Neustroev2022] existed as the only existing open source option, but it is built on Floris [@FLORIS], with no obvious way of implementing transient wake behaviour. Since then, *WFCRL* [@WFCRL] has emerged, providing RL environments built on Fastfarm [@fastfarm] and Floris. We believe that WindGym offers a distinct advantage. Because it is built on DYNAMIKS [@dynamiks], a multi-fidelity framework that allows users to interchange fidelity levels within a single codebase, researchers can train agents using fast, low-fidelity simulations and validate them with higher-fidelity models without changing their RL setup. Additionally, WindGym provides both single-agent and multi-agent environments through Gymnasium and PettingZoo APIs, whereas *WFCRL* currently focuses on multi-agent scenarios.
 
 
 # Software Design
@@ -96,6 +96,8 @@ for _ in range(50):
 env.close()
 ```
 
+![Simulated wind speed flow field from a three-turbine row environment, showing wake interactions between V80 turbines at hub height. Wind flows from left to right; the velocity deficit behind each turbine illustrates the cascading wake effect that WindGym environments capture.\label{fig:flowfield}](flowfield.png)
+
 Additional presets (`two_by_two_grid`, `nine_turbine_grid`) and a companion Quick Start notebook are included in the repository.
 
 The full documentation of the library is available at [https://sys.pages.windenergy.dtu.dk/windgym/](https://sys.pages.windenergy.dtu.dk/windgym/)
@@ -103,9 +105,9 @@ The full documentation of the library is available at [https://sys.pages.windene
 
 # Research Impact Statement
 
-WindGym is still relatively new, but has gained traction within the wind energy research community, and as of January 2026, the repository has accumulated over 50 stars on GitHub. To our knowledge, four research papers are currently in submission that utilize WindGym as their experimental platform, demonstrating its adoption for novel research contributions in RL-based wind farm control.
+WindGym is designed to serve as a shared experimental platform for the wind energy RL community. To our knowledge, four research papers currently utilize WindGym as their experimental environment, demonstrating its adoption for novel contributions in RL-based wind farm control. The package integrates with the widely adopted Gymnasium and PettingZoo APIs, enabling direct compatibility with mainstream RL training libraries such as Stable-Baselines3 [@sb3] and CleanRL [@cleanrl], which lowers the barrier for researchers to adopt WindGym in their existing workflows.
 
-The package is designed for community readiness: comprehensive documentation explains core concepts and usage patterns, worked examples demonstrate training and evaluation workflows, and an extensive test suite ensures reliability across updates. We actively encourage external contributions through our Github/GitLab repository. 
+The package is designed for community readiness: comprehensive documentation explains core concepts and usage patterns, worked examples demonstrate training and evaluation workflows, and an extensive test suite ensures reliability across updates. WindGym is developed and maintained at the Technical University of Denmark (DTU) and is openly available through both GitHub and GitLab, where we actively encourage external contributions.
 
 # AI Usage Disclosure
 

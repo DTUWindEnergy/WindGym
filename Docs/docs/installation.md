@@ -6,64 +6,63 @@ This guide will help you set up your environment to run the **WindGym** simulati
 
 Before you begin, ensure you have the following installed on your system:
 
-- **Git**: You'll need Git to clone the WindGym and its dependency repositories.
+- **Git**: You'll need Git to clone the WindGym repository.
   - [Download Git](https://git-scm.com/downloads)
-- **Pixi**: This is a modern package manager that WindGym uses to manage its Python and other dependencies in an isolated environment.
-  - [Install Pixi](https://pixi.sh/latest/#installation): `curl -fsSL https://pixi.sh/install.sh | bash`
-- **Python (3.10 to 3.13)**: Pixi will handle the specific Python version for you, but it's good to be aware of the compatible range.
+- **Python (3.10 to 3.13)**: Required for running WindGym.
 
-## 2. Core WindGym Installation
-
-First, clone the main WindGym repository. Navigate to your desired working directory and run:
+## 2. Clone the Repository
 
 ```bash
 git clone https://gitlab.windenergy.dtu.dk/sys/windgym.git
 cd windgym
 ```
 
-This command creates a new directory named `windgym`, which contains the core Python package.
+## 3. Install WindGym
 
-Next, use `pixi` to create and activate an isolated Python environment and install all of **WindGym's** core dependencies:
+### Option A — pip
+
+The simplest way to install WindGym is with pip:
+
+```bash
+pip install -e .
+```
+
+### Option B — pixi
+
+[Pixi](https://pixi.sh) is a modern package manager that automatically manages Python and all dependencies in an isolated environment. To install pixi:
+
+**Linux / macOS:**
+
+```bash
+curl -fsSL https://pixi.sh/install.sh | bash
+```
+
+**Windows (PowerShell):**
+
+```powershell
+powershell -c "irm https://pixi.sh/install.ps1 | iex"
+```
+
+For more options, see the [pixi installation docs](https://pixi.sh/latest/#installation).
+
+Then install and activate WindGym:
 
 ```bash
 pixi install
-```
-
-This process reads the `pyproject.toml` file, resolves all Python dependencies (including `WindGym` itself in editable mode, `dynamiks` from GitLab, `gymnasium`, `stable_baselines3`, `pytest`, `xarray`, etc.), and sets up a dedicated virtual environment. This might take a few minutes on the first run.
-
-## 3. Activate the Environment
-
-After `pixi install` completes, you need to activate the environment to use WindGym's tools.
-
-To activate the WindGym Python environment in your current terminal session:
-
-```bash
 pixi shell
 ```
 
-You should see `(WindGym)` (or a similar prefix) appear in your terminal prompt, indicating that the environment is active and all of WindGym's Python dependencies are available.
+This reads the `pyproject.toml` file, resolves all dependencies (including `WindGym` itself in editable mode, `dynamiks`, `gymnasium`, `stable_baselines3`, `xarray`, etc.), and sets up a dedicated environment. This might take a few minutes on the first run.
 
-**Remember:** You'll need to run `pixi shell` whenever you open a new terminal session and want to execute WindGym code. Alternatively, you can directly run tasks defined in `pyproject.toml` using `pixi run <task_name>` (e.g., `pixi run test` to run tests).
+You should see `(WindGym)` (or a similar prefix) appear in your terminal prompt, indicating the environment is active. You'll need to run `pixi shell` whenever you open a new terminal session. Alternatively, use `pixi run <task_name>` (e.g., `pixi run test`) to run tasks directly.
 
 ## 4. Verify Your Installation
-
-Once the environment is set up, you can quickly verify the installation by importing a core WindGym component. From within the `WindGym` directory (after running `pixi shell`), try this:
 
 ```bash
 python -c "from WindGym.Wind_Farm_Env import WindFarmEnv; print('WindGym installed successfully!')"
 ```
 
-If you see "WindGym installed successfully!", your basic WindGym environment is ready for you to use!
-
-## 5. Pixi free installation
-
-If you do not wish to use pixi, you can also install the package locally with pip using
-
-```bash
-git clone https://gitlab.windenergy.dtu.dk/sys/windgym.git
-cd windgym
-pip install -e .
-```
+If you see "WindGym installed successfully!", your WindGym environment is ready!
 
 ## Next Steps
 

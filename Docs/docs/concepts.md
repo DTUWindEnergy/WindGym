@@ -8,7 +8,7 @@ This section introduces the fundamental concepts and components of the WindGym e
 
 The `WindFarmEnv` is the primary Gymnasium (formerly Gym) environment in WindGym. It simulates a wind farm and provides the interface for agents to interact with it. Key aspects include:
 
-- **Turbines**: WindGym supports various wind turbine models, from simplified PyWake models to high-fidelity HAWC2 models for more detailed load and power calculations.
+- **Turbines**: WindGym supports various wind turbine models, from simplified PyWake models to high-fidelity HAWC2 models for more detailed load and power calculations. For details on the underlying physics models, see the [Theory](./theory.md) page.
 - **Farm Layout**: You define the `x_pos` and `y_pos` for each turbine, allowing for flexible wind farm configurations (e.g., inline, staggered, circular).
 - **Wind Conditions**:
   - **Wind Speed (`ws`)**: The ambient wind speed entering the farm.
