@@ -1,4 +1,4 @@
-# filename: examples/noise_examples/train_adversary.py (Rewritten)
+# filename: examples/measurement_error/train_adversary.py (Rewritten)
 
 import os
 import time

@@ -1,4 +1,4 @@
-# filename: examples/noise_examples/train_self_play.py
+# filename: examples/measurement_error/train_self_play.py
 
 import os
 import time

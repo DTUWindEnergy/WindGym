@@ -151,7 +151,7 @@ See the [examples directory](examples/) for complete demonstrations:
 | [Example 2](examples/Example%202%20Evaluate%20pretrained%20agent.ipynb) | Evaluate pre-trained RL agents |
 | [Example 3](examples/Example%203%20load%20results%20from%20pre%20evaluated%20model.ipynb) | Analyze evaluation results |
 | [Agent Comparison](examples/compare_agents_grid.py) | Compare multiple agents across wind conditions |
-| [Noise Examples](examples/noise_examples/) | Working with measurement uncertainty |
+| [Measurement Error](examples/measurement_error/) | Working with measurement uncertainty |
 
 <p align="center">
   <img src="examples/images/Flowfield_gif.gif" alt="Flow field animation" width="600"/>

@@ -1,4 +1,4 @@
-# In examples/noise_examples/noise_definitions.py
+# In examples/measurement_error/noise_definitions.py
 
 from WindGym.Measurement_Manager import (
     HybridNoiseModel,

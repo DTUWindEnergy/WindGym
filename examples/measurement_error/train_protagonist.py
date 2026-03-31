@@ -1,4 +1,4 @@
-# filename: examples/noise_examples/train_protagonist.py (Updated with Self-Play)
+# filename: examples/measurement_error/train_protagonist.py (Updated with Self-Play)
 
 import os
 import tyro
