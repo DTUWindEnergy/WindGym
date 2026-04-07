@@ -418,7 +418,7 @@ for _ in range(100):
 ## Related Examples
 
 - [Example 2: Evaluate Pretrained Agent](https://gitlab.windenergy.dtu.dk/sys/windgym/-/blob/main/examples/Example%202%20Evaluate%20pretrained%20agent.ipynb)
-- [CurriculumWrapper API Reference](modules/wrappers.md#module-WindGym.wrappers.curriculum_wrapper)
+- [CurriculumWrapper API Reference](api/modules/wrappers.md#module-WindGym.wrappers.curriculum_wrapper)
 - [Agent Comparison Scripts](https://gitlab.windenergy.dtu.dk/sys/windgym/-/blob/main/examples/compare_agents_grid.py)
 
 ---
