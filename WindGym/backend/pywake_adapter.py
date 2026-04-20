@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from py_wake.literature.gaussian_models import Blondel_Cathelain_2020
-from py_wake.turbulence_models import CrespoHernandez
+from py_wake.turbulence_models import CrespoHernandez, STF2017TurbulenceModel
 from py_wake.deflection_models.jimenez import JimenezWakeDeflection
 from py_wake.site import UniformSite
 from dynamiks.views import XYView
@@ -187,7 +187,7 @@ class PyWakeFlowSimulationAdapter:
         self._model = model or Blondel_Cathelain_2020(
             site=self._site,
             windTurbines=self._wt,
-            turbulenceModel=CrespoHernandez(),
+            turbulenceModel=STF2017TurbulenceModel(),
             deflectionModel=JimenezWakeDeflection(),
         )
 
