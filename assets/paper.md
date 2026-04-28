@@ -105,7 +105,7 @@ The full documentation of the library is available at [https://sys.pages.windene
 
 # Research Impact Statement
 
-WindGym is designed to serve as a shared experimental platform for the wind energy RL community. To our knowledge, four research papers currently utilize WindGym as their experimental environment, demonstrating its adoption for novel contributions in RL-based wind farm control. The package integrates with the widely adopted Gymnasium and PettingZoo APIs, enabling direct compatibility with mainstream RL training libraries such as Stable-Baselines3 [@sb3] and CleanRL [@cleanrl], which lowers the barrier for researchers to adopt WindGym in their existing workflows.
+WindGym is designed to serve as a shared experimental platform for the wind energy RL community. To our knowledge, four research papers currently utilize WindGym as their experimental environment, demonstrating its adoption for novel contributions in RL-based wind farm control [@adversequick; @loadsteo; @paper3; @paper4]. The package integrates with the widely adopted Gymnasium and PettingZoo APIs, enabling direct compatibility with mainstream RL training libraries such as Stable-Baselines3 [@sb3] and CleanRL [@cleanrl], which lowers the barrier for researchers to adopt WindGym in their existing workflows.
 
 The package is designed for community readiness: comprehensive documentation explains core concepts and usage patterns, worked examples demonstrate training and evaluation workflows, and an extensive test suite ensures reliability across updates. WindGym is developed and maintained at the Technical University of Denmark (DTU) and is openly available through both GitHub and GitLab, where we actively encourage external contributions.
 
