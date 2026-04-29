@@ -21,6 +21,9 @@
   <a href="https://pixi.sh">
     <img src="https://img.shields.io/badge/package%20manager-pixi-blue" alt="Pixi"/>
   </a>
+  <a href="https://doi.org/10.21105/joss.09946">
+    <img src="https://joss.theoj.org/papers/10.21105/joss.09946/status.svg" alt="DOI"/>
+  </a>
 </p>
 
 ---
@@ -182,6 +185,27 @@ We welcome contributions! Feel free to open a merge request if you have anything
 WindGym is released under the [MIT License](LICENSE).
 
 Copyright (c) 2025 Technical University of Denmark (DTU)
+
+---
+
+## Citation
+
+If you find WindGym useful in your research, please cite our JOSS paper:
+
+```bibtex
+@article{Nilsen2026,
+  doi = {10.21105/joss.09946},
+  url = {https://doi.org/10.21105/joss.09946},
+  year = {2026},
+  publisher = {The Open Journal},
+  volume = {11},
+  number = {120},
+  pages = {9946},
+  author = {Nilsen, Marcus Binder and Quick, Julian and Åstrand, Teodor Olof Benedict and Simutis, Ernestas and Réthoré, Pierre-Elouan Mikael},
+  title = {WindGym: A Reinforcement Learning Environment for Wind Farm Control},
+  journal = {Journal of Open Source Software}
+}
+```
 
 ---
 
