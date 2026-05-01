@@ -22,5 +22,8 @@
     "react-dom": "^18.2.0",
     "rehype-katex": "7.0.1",
     "remark-math": "6.0.0"
+  },
+  "overrides": {
+    "webpackbar": "7.0.0"
   }
 }
