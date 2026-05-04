@@ -13,10 +13,6 @@ from pathlib import Path
 
 
 # Dynamiks imports
-from dynamiks.dwm import DWMFlowSimulation
-from dynamiks.dwm.particle_deficit_profiles.ainslie import jDWMAinslieGenerator
-from dynamiks.dwm.particle_motion_models import HillVortexParticleMotion
-from dynamiks.wind_turbines import PyWakeWindTurbines
 from dynamiks.views import XYView
 
 from IPython import display
@@ -30,12 +26,12 @@ from .core.turbulence_manager import TurbulenceManager
 from .core.renderer import WindFarmRenderer
 from .core.baseline_manager import BaselineManager
 from .core.probe_manager import ProbeManager
+from .core.dwm_defaults import make_wts, make_dwm
 
 from py_wake.wind_turbines import WindTurbines as WindTurbinesPW
 from collections import deque, defaultdict
 import yaml
 from dynamiks.wind_turbines.hawc2_windturbine import HAWC2WindTurbines
-from dynamiks.dwm.particle_motion_models import CutOffFrq
 
 # For live plotting
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
@@ -44,9 +40,6 @@ from WindGym.core.wind_probe import WindProbe
 
 # import logging
 # logger = logging.getLogger(__name__)
-
-
-CutOffFrqLio2021 = CutOffFrq(4)
 
 """
 This is the base for the wind farm environment. This is where the magic happens.
@@ -177,10 +170,6 @@ class WindFarmEnv(gym.Env):
         self.maxturbpower = max(turbine.power(np.arange(10, 25, 1)))
         self.baseline_wakes = True  # A flag that decides if we include the wakes in the baseline farm. For now always true.
         # The step size for the yaw angles. How manny degress the yaw angles can change pr. step
-        # The distance between the particles. This is used in the flow simulation.
-        self.d_particle = 0.2
-        self.n_particles = None
-        self.temporal_filter = CutOffFrqLio2021
         self.turbtype = turbtype
         self.yaw_step_sim = yaw_step_sim  # How many degrees the yaw angles can change pr. simulation step
 
@@ -387,7 +376,7 @@ class WindFarmEnv(gym.Env):
                 expose=True,
             )
         else:  # If we have no HTC path, use the pywake turbine
-            self.wts = PyWakeWindTurbines(
+            self.wts = make_wts(
                 x=self.x_pos,
                 y=self.y_pos,  # x and y position of two wind turbines
                 windTurbine=self.turbine,
@@ -771,17 +760,11 @@ class WindFarmEnv(gym.Env):
                 create_baseline=self.Baseline_comp,
             )
 
-            self.fs = DWMFlowSimulation(
+            self.fs = make_dwm(
                 site=self.site,
                 windTurbines=self.wts,
                 wind_direction=self.wd,
-                particleDeficitGenerator=jDWMAinslieGenerator(),
                 dt=self.dt,
-                n_particles=self.n_particles,
-                d_particle=self.d_particle,
-                particleMotionModel=HillVortexParticleMotion(
-                    temporal_filter=self.temporal_filter
-                ),
                 addedTurbulenceModel=self.addedTurbulenceModel,
             )
             self.wd = self.fs._wind_direction  # Update to match wd_list first value
@@ -822,17 +805,11 @@ class WindFarmEnv(gym.Env):
         # 3b) Baseline flow sim (optional)
         if self.Baseline_comp:
             if self.backend == "dynamiks":
-                self.fs_baseline = DWMFlowSimulation(
+                self.fs_baseline = make_dwm(
                     site=self.site_base,
                     windTurbines=self.wts_baseline,
                     wind_direction=self.wd,
-                    particleDeficitGenerator=jDWMAinslieGenerator(),
                     dt=self.dt,
-                    n_particles=self.n_particles,
-                    d_particle=self.d_particle,
-                    particleMotionModel=HillVortexParticleMotion(
-                        temporal_filter=self.temporal_filter
-                    ),
                     addedTurbulenceModel=self.addedTurbulenceModel,
                 )
             else:

@@ -15,8 +15,17 @@ import gc
 from dynamiks.sites.turbulence_fields import MannTurbulenceField, RandomTurbulence
 from dynamiks.sites._site import MetmastSite
 from dynamiks.dwm.added_turbulence_models import (
-    SynchronizedAutoScalingIsotropicMannTurbulence,
     AutoScalingIsotropicMannTurbulence,
+    BranlardScaling,
+    SynchronizedAutoScalingIsotropicMannTurbulence,
+)
+
+from .dwm_defaults import (
+    MANN_AE,
+    MANN_DXYZ,
+    MANN_GAMMA,
+    MANN_L,
+    MANN_NXYZ,
 )
 
 
@@ -202,31 +211,34 @@ class TurbulenceManager:
         tf = MannTurbulenceField.from_netcdf(filename=self.tf_file)
         tf.scale_TI(TI=ti, U=ws)
 
-        added_turb_model = SynchronizedAutoScalingIsotropicMannTurbulence()
+        added_turb_model = SynchronizedAutoScalingIsotropicMannTurbulence(
+            scaling=BranlardScaling()
+        )
         return tf, added_turb_model
 
     def _generate_mann_generate(
         self, ws: float, ti: float, rotor_diameter: float
     ) -> tuple:
-        """Generate new Mann turbulence box with random seed."""
+        """Generate new Mann turbulence box with random seed.
+
+        ``rotor_diameter`` is unused (the calibrated grid in ``dwm_defaults``
+        is uniform and not D-relative); kept on the signature for now so
+        callers don't have to change.
+        """
         tf_seed = self.np_random.integers(0, 100000)
 
         tf = MannTurbulenceField.generate(
-            alphaepsilon=0.1,  # turbulence dissipation parameter
-            L=33.6,  # length scale (m)
-            Gamma=3.9,  # anisotropy parameter
-            Nxyz=(4096, 512, 64),  # grid points (x, y, z)
-            dxyz=(
-                rotor_diameter / 20,
-                rotor_diameter / 10,
-                rotor_diameter / 10,
-            ),  # grid spacing
+            alphaepsilon=MANN_AE,
+            L=MANN_L,
+            Gamma=MANN_GAMMA,
+            Nxyz=MANN_NXYZ,
+            dxyz=MANN_DXYZ,
             seed=tf_seed,
         )
         tf.scale_TI(TI=ti, U=ws)
 
         added_turb_model = SynchronizedAutoScalingIsotropicMannTurbulence(
-            cache_field=False
+            scaling=BranlardScaling(), cache_field=False,
         )
         return tf, added_turb_model
 
@@ -235,17 +247,17 @@ class TurbulenceManager:
         tf_seed = 1234  # Fixed seed for reproducibility
 
         tf = MannTurbulenceField.generate(
-            alphaepsilon=0.1,
-            L=33.6,
-            Gamma=3.9,
-            Nxyz=(2048, 512, 64),
-            dxyz=(3.0, 3.0, 3.0),
+            alphaepsilon=MANN_AE,
+            L=MANN_L,
+            Gamma=MANN_GAMMA,
+            Nxyz=MANN_NXYZ,
+            dxyz=MANN_DXYZ,
             seed=tf_seed,
         )
         tf.scale_TI(TI=ti, U=ws)
 
         added_turb_model = SynchronizedAutoScalingIsotropicMannTurbulence(
-            cache_field=False
+            scaling=BranlardScaling(), cache_field=False,
         )
         return tf, added_turb_model
 

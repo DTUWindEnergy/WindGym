@@ -8,9 +8,9 @@ for comparing agent performance against baseline control strategies.
 from typing import Optional, Callable, TYPE_CHECKING
 import numpy as np
 
-from dynamiks.wind_turbines import PyWakeWindTurbines
 from dynamiks.wind_turbines.hawc2_windturbine import HAWC2WindTurbines
 from ..BasicControllers import local_yaw_controller, global_yaw_controller
+from .dwm_defaults import make_wts
 
 # Use TYPE_CHECKING to avoid circular import at runtime
 # PyWakeAgent is imported lazily in _setup_pywake_baseline
@@ -203,7 +203,7 @@ class BaselineManager:
             )
         else:
             # PyWake turbines
-            self.wts_baseline = PyWakeWindTurbines(
+            self.wts_baseline = make_wts(
                 x=self.x_pos,
                 y=self.y_pos,
                 windTurbine=self.turbine,
