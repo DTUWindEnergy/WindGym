@@ -53,17 +53,6 @@ class DWMRandomizationWrapper(gym.Wrapper):
             raise TypeError("sampler must be callable")
         self._sampler = sampler
         self._rng = np.random.default_rng(seed)
-        # Most-recently-applied params (after caller overrides). Useful for
-        # introspection, e.g. AsyncVectorEnv.get_attr("last_theta") to log
-        # what each parallel worker drew on its last reset.
-        self._last_theta: Optional[dict] = None
-
-    @property
-    def last_theta(self) -> Optional[dict]:
-        """Most-recently-applied DWM params after caller overrides, or None
-        before the first reset. Returns a fresh copy so callers can't mutate
-        wrapper state."""
-        return None if self._last_theta is None else dict(self._last_theta)
 
     def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
         if seed is not None:
@@ -81,6 +70,5 @@ class DWMRandomizationWrapper(gym.Wrapper):
         caller_overrides = merged_options.get("dwm_params") or {}
         # Caller's keys win — they're the explicit override path.
         merged_options["dwm_params"] = {**theta, **caller_overrides}
-        self._last_theta = dict(merged_options["dwm_params"])
 
         return self.env.reset(seed=seed, options=merged_options)
