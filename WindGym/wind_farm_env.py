@@ -38,16 +38,11 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 
 from WindGym.core.wind_probe import WindProbe
 
-# import logging
-# logger = logging.getLogger(__name__)
-
 """
 This is the base for the wind farm environment. This is where the magic happens.
 For now it only supports the PyWakeWindTurbines, but it should be easy to expand to other types of turbines.
 """
 
-
-# TODO make it so that the turbines can be other then a square grid
 # TODO thrust coefficient control
 # TODO for now I have just hardcoded this scaling value (1 and 25 for the wind_speed min and max). This is beacuse the wind speed is chosen from the normal distribution, but becasue of the wakes and the turbulence, we canhave cases where we go above or below these values.
 
