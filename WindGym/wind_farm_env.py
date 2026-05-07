@@ -52,9 +52,7 @@ class WindFarmEnv(gym.Env):
 
     # Allowed keys for `dwm_params` (constructor) and `options["dwm_params"]`
     # (reset). Anything else raises so DR typos don't silently no-op.
-    _DWM_PARAM_KEYS = frozenset(
-        {"k1", "k2", "ti_w", "shear_w", "d_particle", "d_meander"}
-    )
+    _DWM_PARAM_KEYS = frozenset({"k1", "k2", "d_particle"})
 
     @classmethod
     def _validate_dwm_keys(cls, params: dict, where: str = "") -> None:
@@ -109,7 +107,7 @@ class WindFarmEnv(gym.Env):
         cleanup_on_time_limit: bool = True,
         wd_function=None,  # A function that takes in the timestep and returns the wind direction
         max_turb_move=2,  # The maximum distance that the turbines can move in one timestep. This is used to avoid numerical issues with the DWM solver.
-        dwm_params: Optional[dict] = None,  # Override DWM closure params (k1, k2, ti_w, shear_w, d_particle, d_meander). Used for domain randomization; per-episode overrides go through reset(options={"dwm_params": ...}).
+        dwm_params: Optional[dict] = None,  # Override DWM closure params (k1, k2, d_particle). Used for domain randomization; per-episode overrides go through reset(options={"dwm_params": ...}).
         **kwargs,
     ):
         """

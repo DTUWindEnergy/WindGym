@@ -113,17 +113,33 @@ def test_dwm_params_reset_changes_simulation(env, mann_turbulence_field, monkeyp
     )
 
 
-def test_d_meander_none_vs_set_changes_simulation(env, mann_turbulence_field, monkeypatch):
-    """d_meander=None (no temporal filter) vs d_meander=4 must differ.
+def test_d_particle_changes_simulation(env, mann_turbulence_field, monkeypatch):
+    """Very different d_particle must produce different observations after wake propagation.
 
-    This regression-tests the CutOffFrq path that calibration's posterior
-    will exercise once the wrapper is added.
+    Mirrors test_dwm_params_reset_changes_simulation but exercises the
+    streamwise particle-spacing knob now that it's a calibrated parameter.
     """
     monkeypatch.setattr(
         "dynamiks.sites.turbulence_fields.MannTurbulenceField.generate",
         lambda *a, **kw: mann_turbulence_field,
     )
-    obs_no_filter, _ = env.reset(seed=0, options={"dwm_params": {"d_meander": None}})
-    obs_filtered, _ = env.reset(seed=0, options={"dwm_params": {"d_meander": 4.0}})
+    n_steps = 40
+    zero_action = np.zeros(env.action_space.shape, dtype=env.action_space.dtype)
 
-    assert not np.allclose(obs_no_filter, obs_filtered)
+    def rollout(theta):
+        env.reset(seed=0, options={"dwm_params": theta})
+        obs_seq = []
+        for _ in range(n_steps):
+            obs, _, term, trunc, _ = env.step(zero_action)
+            obs_seq.append(obs)
+            if term or trunc:
+                break
+        return np.concatenate(obs_seq)
+
+    obs_dense = rollout({"d_particle": 0.2})
+    obs_sparse = rollout({"d_particle": 1.0})
+
+    assert not np.allclose(obs_dense, obs_sparse), (
+        "Identical observations across d_particle=0.2 vs d_particle=1.0 — the "
+        "override is likely not being plumbed into make_dwm()."
+    )
