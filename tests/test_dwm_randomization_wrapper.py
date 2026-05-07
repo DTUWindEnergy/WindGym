@@ -115,3 +115,36 @@ def test_sampler_returning_non_dict_raises():
 def test_non_callable_sampler_raises():
     with pytest.raises(TypeError, match="sampler must be callable"):
         DWMRandomizationWrapper(_StubEnv(), sampler=42)
+
+
+def test_last_theta_is_none_before_first_reset():
+    w = DWMRandomizationWrapper(_StubEnv(), sampler=_const_sampler({"k1": 0.05}))
+    assert w.last_theta is None
+
+
+def test_last_theta_reflects_applied_params_after_reset():
+    w = DWMRandomizationWrapper(
+        _StubEnv(),
+        sampler=_const_sampler({"k1": 0.10, "k2": 0.02}),
+    )
+    w.reset()
+    assert w.last_theta == {"k1": 0.10, "k2": 0.02}
+
+
+def test_last_theta_includes_caller_overrides():
+    """last_theta should reflect what was actually applied, including overrides."""
+    w = DWMRandomizationWrapper(
+        _StubEnv(),
+        sampler=_const_sampler({"k1": 0.10, "k2": 0.02}),
+    )
+    w.reset(options={"dwm_params": {"k1": 0.99}})  # override k1
+    assert w.last_theta == {"k1": 0.99, "k2": 0.02}
+
+
+def test_last_theta_returns_a_copy():
+    """Mutating the returned dict must not affect future reads."""
+    w = DWMRandomizationWrapper(_StubEnv(), sampler=_const_sampler({"k1": 0.05}))
+    w.reset()
+    snapshot = w.last_theta
+    snapshot["k1"] = 999.0  # try to corrupt internal state
+    assert w.last_theta == {"k1": 0.05}
