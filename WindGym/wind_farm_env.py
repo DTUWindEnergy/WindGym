@@ -55,6 +55,12 @@ For now it only supports the PyWakeWindTurbines, but it should be easy to expand
 class WindFarmEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"]}
 
+    # Allowed keys for `dwm_params` (constructor) and `options["dwm_params"]`
+    # (reset). Anything else raises so DR typos don't silently no-op.
+    _DWM_PARAM_KEYS = frozenset(
+        {"k1", "k2", "ti_w", "shear_w", "d_particle", "d_meander"}
+    )
+
     def __init__(
         self,
         turbine,
@@ -94,6 +100,7 @@ class WindFarmEnv(gym.Env):
         cleanup_on_time_limit: bool = True,
         wd_function=None,  # A function that takes in the timestep and returns the wind direction
         max_turb_move=2,  # The maximum distance that the turbines can move in one timestep. This is used to avoid numerical issues with the DWM solver.
+        dwm_params: Optional[dict] = None,  # Override DWM closure params (k1, k2, ti_w, shear_w, d_particle, d_meander). Used for domain randomization; per-episode overrides go through reset(options={"dwm_params": ...}).
         **kwargs,
     ):
         """
@@ -306,6 +313,18 @@ class WindFarmEnv(gym.Env):
         self.obs_var = self.farm_measurements.observed_variables()
 
         self._init_spaces()
+
+        # Base DWM closure-param overrides used at every reset unless an
+        # episode supplies its own via reset(options={"dwm_params": ...}).
+        # Unknown keys raise immediately.
+        self._base_dwm_params: dict = dict(dwm_params) if dwm_params else {}
+        bad = set(self._base_dwm_params) - self._DWM_PARAM_KEYS
+        if bad:
+            raise ValueError(
+                f"Unknown dwm_params keys: {sorted(bad)}. "
+                f"Allowed: {sorted(self._DWM_PARAM_KEYS)}"
+            )
+        self._active_dwm_params: dict = dict(self._base_dwm_params)
 
         if reset_init:
             # We should have this here, to set the seeding correctly
@@ -682,7 +701,22 @@ class WindFarmEnv(gym.Env):
         - The flow simulation is run for the time it takes for the flow to develop.
         - The measurements are filled up with the initial values.
 
+        Domain-randomization hook: pass ``options={"dwm_params": {"k1": ..., ...}}``
+        to override DWM closure parameters for this episode only. Keys merge over
+        the constructor-time ``dwm_params``; missing keys fall back to the
+        calibrated defaults in ``dwm_defaults.make_dwm``.
         """
+        # Episode-level override of DWM closure params (domain randomization).
+        # Done before any heavy work so a typo fails fast.
+        episode_overrides = (options or {}).get("dwm_params") or {}
+        bad = set(episode_overrides) - self._DWM_PARAM_KEYS
+        if bad:
+            raise ValueError(
+                f"Unknown dwm_params keys in reset options: {sorted(bad)}. "
+                f"Allowed: {sorted(self._DWM_PARAM_KEYS)}"
+            )
+        self._active_dwm_params = {**self._base_dwm_params, **episode_overrides}
+
         # Clean up previous episode resources FIRST
         self._soft_cleanup()
 
@@ -766,6 +800,7 @@ class WindFarmEnv(gym.Env):
                 wind_direction=self.wd,
                 dt=self.dt,
                 addedTurbulenceModel=self.addedTurbulenceModel,
+                **self._active_dwm_params,
             )
             self.wd = self.fs._wind_direction  # Update to match wd_list first value
         else:
@@ -811,6 +846,7 @@ class WindFarmEnv(gym.Env):
                     wind_direction=self.wd,
                     dt=self.dt,
                     addedTurbulenceModel=self.addedTurbulenceModel,
+                    **self._active_dwm_params,
                 )
             else:
                 if self.HTC_path is not None:
