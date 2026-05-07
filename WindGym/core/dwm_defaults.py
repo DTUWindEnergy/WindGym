@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from dynamiks.dwm import DWMFlowSimulation
 from dynamiks.dwm.particle_deficit_profiles.ainslie import jDWMAinslieGenerator
-from dynamiks.dwm.particle_motion_models import HillVortexParticleMotion, XSpeed
+from dynamiks.dwm.particle_motion_models import CutOffFrq, HillVortexParticleMotion, XSpeed
 from dynamiks.dwm.projection_models import NoProjection
 from dynamiks.dwm.superposition import rss_superposition
 from dynamiks.utils.data_dumper import runningAverageSensor
@@ -76,14 +76,25 @@ def make_dwm(
     wind_direction,
     dt,
     addedTurbulenceModel,
+    k1: float = K1,
+    k2: float = K2,
+    ti_w: float = TI_W,
+    shear_w: float = SHEAR_W,
+    d_particle: float = D_PARTICLE,
+    d_meander: float | None = None,
 ) -> DWMFlowSimulation:
     """Assemble a DWMFlowSimulation under the calibrated setup.
 
     The caller drives it via ``fs.step()`` in a time loop. ``n_particles`` is
-    not passed — dynamiks auto-computes it from farm extent and ``D_PARTICLE``.
+    not passed — dynamiks auto-computes it from farm extent and ``d_particle``.
+
+    All closure-model knobs are kwargs that default to the module constants,
+    so existing call sites stay unchanged. Override them at episode reset to
+    do domain randomization. ``d_meander`` defaults to None (no temporal
+    meandering filter), matching pre-randomization behaviour.
     """
     deficit_gen = jDWMAinslieGenerator(
-        viscosity_model=keck(TI=TI_W, dudz_abl=SHEAR_W, k1=K1, k2=K2),
+        viscosity_model=keck(TI=ti_w, dudz_abl=shear_w, k1=k1, k2=k2),
         solver=implicit(),
         projectionModel=NoProjection(),
         r_max=AINSLIE_R_MAX,
@@ -93,7 +104,7 @@ def make_dwm(
 
     particle_motion = HillVortexParticleMotion(
         x_speed=XSpeed.Particle,
-        temporal_filter=None,
+        temporal_filter=CutOffFrq(d_meander) if d_meander is not None else None,
         spatial_filter=CGIRotorAvg(PARTICLE_SPATIAL_AVG_N),
         include_wakes=True,
         include_own_wake=False,
@@ -104,7 +115,7 @@ def make_dwm(
         windTurbines=windTurbines,
         particleDeficitGenerator=deficit_gen,
         particleMotionModel=particle_motion,
-        d_particle=D_PARTICLE,
+        d_particle=d_particle,
         addedTurbulenceModel=addedTurbulenceModel,
         superpositionModel=rss_superposition(),
         wind_direction=wind_direction,
