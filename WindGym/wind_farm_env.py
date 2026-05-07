@@ -56,6 +56,20 @@ class WindFarmEnv(gym.Env):
         {"k1", "k2", "ti_w", "shear_w", "d_particle", "d_meander"}
     )
 
+    @classmethod
+    def _validate_dwm_keys(cls, params: dict, where: str = "") -> None:
+        """Raise ValueError if any key in ``params`` is outside ``_DWM_PARAM_KEYS``.
+
+        ``where`` is appended to the message (e.g. " in reset options") so the
+        caller is identifiable from the traceback.
+        """
+        bad = set(params) - cls._DWM_PARAM_KEYS
+        if bad:
+            raise ValueError(
+                f"Unknown dwm_params keys{where}: {sorted(bad)}. "
+                f"Allowed: {sorted(cls._DWM_PARAM_KEYS)}"
+            )
+
     def __init__(
         self,
         turbine,
@@ -313,12 +327,7 @@ class WindFarmEnv(gym.Env):
         # episode supplies its own via reset(options={"dwm_params": ...}).
         # Unknown keys raise immediately.
         self._base_dwm_params: dict = dict(dwm_params) if dwm_params else {}
-        bad = set(self._base_dwm_params) - self._DWM_PARAM_KEYS
-        if bad:
-            raise ValueError(
-                f"Unknown dwm_params keys: {sorted(bad)}. "
-                f"Allowed: {sorted(self._DWM_PARAM_KEYS)}"
-            )
+        self._validate_dwm_keys(self._base_dwm_params)
         self._active_dwm_params: dict = dict(self._base_dwm_params)
 
         if reset_init:
@@ -704,12 +713,7 @@ class WindFarmEnv(gym.Env):
         # Episode-level override of DWM closure params (domain randomization).
         # Done before any heavy work so a typo fails fast.
         episode_overrides = (options or {}).get("dwm_params") or {}
-        bad = set(episode_overrides) - self._DWM_PARAM_KEYS
-        if bad:
-            raise ValueError(
-                f"Unknown dwm_params keys in reset options: {sorted(bad)}. "
-                f"Allowed: {sorted(self._DWM_PARAM_KEYS)}"
-            )
+        self._validate_dwm_keys(episode_overrides, " in reset options")
         self._active_dwm_params = {**self._base_dwm_params, **episode_overrides}
 
         # Clean up previous episode resources FIRST
