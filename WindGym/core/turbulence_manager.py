@@ -83,6 +83,7 @@ class TurbulenceManager:
         n_passthrough: int,
         burn_in_passthroughs: int,
         create_baseline: bool = False,
+        mann_overrides: Optional[dict] = None,
     ) -> tuple:
         """
         Create turbulence fields and sites for agent and optionally baseline.
@@ -104,6 +105,12 @@ class TurbulenceManager:
             n_passthrough: Number of flow passthroughs for episode
             burn_in_passthroughs: Number of passthroughs for flow development
             create_baseline: Whether to create baseline site
+            mann_overrides: Optional dict with per-episode Mann-box parameter
+                overrides drawn from a calibrated posterior. Recognized keys:
+                ``mann_L``, ``mann_GAMMA``, ``mann_AE``. Only honored by the
+                ``MannGenerate`` branch (other branches raise if non-empty —
+                this is defense-in-depth; ``WindFarmEnv.reset`` is the primary
+                guard).
 
         Returns:
             tuple: (site, site_baseline, t_developed, time_max, added_turbulence_model)
@@ -117,7 +124,8 @@ class TurbulenceManager:
 
         # Generate turbulence field
         tf_agent, added_turbulence_model = self._generate_turbulence_field(
-            ws=ws, ti=ti, rotor_diameter=rotor_diameter
+            ws=ws, ti=ti, rotor_diameter=rotor_diameter,
+            mann_overrides=mann_overrides,
         )
 
         # Calculate time parameters based on farm geometry
@@ -170,7 +178,8 @@ class TurbulenceManager:
         return site, site_baseline, t_developed, time_max, added_turbulence_model
 
     def _generate_turbulence_field(
-        self, ws: float, ti: float, rotor_diameter: float
+        self, ws: float, ti: float, rotor_diameter: float,
+        mann_overrides: Optional[dict] = None,
     ) -> tuple:
         """
         Generate turbulence field based on turbulence_type.
@@ -179,15 +188,29 @@ class TurbulenceManager:
             ws: Wind speed (m/s)
             ti: Turbulence intensity (fraction)
             rotor_diameter: Rotor diameter (m)
+            mann_overrides: Per-episode Mann-box overrides (see ``create_sites``).
+                Only the ``MannGenerate`` branch can honor these; other branches
+                must reject non-empty overrides (defense-in-depth — the env
+                already guards on construction-time ``turbtype``).
 
         Returns:
             tuple: (turbulence_field, added_turbulence_model)
         """
+        if mann_overrides and self.turbulence_type != "MannGenerate":
+            raise ValueError(
+                f"mann_overrides={sorted(mann_overrides)} provided but "
+                f"turbulence_type={self.turbulence_type!r} cannot honor them. "
+                "Per-episode Mann statistics only take effect under "
+                "turbtype='MannGenerate'."
+            )
+
         if self.turbulence_type == "MannLoad":
             return self._generate_mann_load(ws, ti)
 
         elif self.turbulence_type == "MannGenerate":
-            return self._generate_mann_generate(ws, ti, rotor_diameter)
+            return self._generate_mann_generate(
+                ws, ti, rotor_diameter, mann_overrides=mann_overrides,
+            )
 
         elif self.turbulence_type == "MannFixed":
             return self._generate_mann_fixed(ws, ti)
@@ -217,25 +240,46 @@ class TurbulenceManager:
         return tf, added_turb_model
 
     def _generate_mann_generate(
-        self, ws: float, ti: float, rotor_diameter: float
+        self, ws: float, ti: float, rotor_diameter: float,
+        mann_overrides: Optional[dict] = None,
     ) -> tuple:
         """Generate new Mann turbulence box with random seed.
 
         ``rotor_diameter`` is unused (the calibrated grid in ``dwm_defaults``
         is uniform and not D-relative); kept on the signature for now so
         callers don't have to change.
+
+        ``mann_overrides`` is a dict drawn from the calibrated posterior:
+        ``{"mann_L": ..., "mann_GAMMA": ..., "mann_AE": ...}``. Missing keys
+        fall back to the module-level defaults from ``dwm_defaults``.
+
+        When any override is present, ``tf.scale_TI(...)`` is skipped so that
+        αε directly sets the ambient TI of the box — matching the calibration's
+        reference implementation in ``calibration/simulator.py:_build_site``
+        (αε ≈ (TI_target/0.40)² at WS=9 for the canonical L=29.4, Γ=3.9 box).
+        Without overrides, the legacy ``scale_TI`` path remains so non-DR runs
+        are byte-identical to pre-change behaviour.
         """
+        overrides = mann_overrides or {}
+        mann_L_eff     = float(overrides.get("mann_L",     MANN_L))
+        mann_gamma_eff = float(overrides.get("mann_GAMMA", MANN_GAMMA))
+        mann_ae_eff    = float(overrides.get("mann_AE",    MANN_AE))
+
         tf_seed = self.np_random.integers(0, 100000)
 
         tf = MannTurbulenceField.generate(
-            alphaepsilon=MANN_AE,
-            L=MANN_L,
-            Gamma=MANN_GAMMA,
+            alphaepsilon=mann_ae_eff,
+            L=mann_L_eff,
+            Gamma=mann_gamma_eff,
             Nxyz=MANN_NXYZ,
             dxyz=MANN_DXYZ,
             seed=tf_seed,
         )
-        tf.scale_TI(TI=ti, U=ws)
+        if not overrides:
+            # Legacy non-DR path: scale_TI renormalises the raw box to the env's
+            # nominal ambient TI. With overrides, αε is authoritative — see
+            # docstring above.
+            tf.scale_TI(TI=ti, U=ws)
 
         added_turb_model = SynchronizedAutoScalingIsotropicMannTurbulence(
             scaling=BranlardScaling(), cache_field=False,

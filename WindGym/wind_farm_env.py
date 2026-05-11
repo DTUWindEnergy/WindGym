@@ -51,8 +51,13 @@ class WindFarmEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"]}
 
     # Allowed keys for `dwm_params` (constructor) and `options["dwm_params"]`
-    # (reset). Anything else raises so DR typos don't silently no-op.
-    _DWM_PARAM_KEYS = frozenset({"k1", "k2", "d_particle"})
+    # (reset). Split so the reset path can partition closure overrides
+    # (forwarded to ``make_dwm``) from Mann-box overrides (forwarded to
+    # ``TurbulenceManager.create_sites``). Anything outside the union raises so
+    # DR typos don't silently no-op.
+    _CLOSURE_PARAM_KEYS = frozenset({"k1", "k2", "d_particle"})
+    _MANN_PARAM_KEYS    = frozenset({"mann_L", "mann_GAMMA", "mann_AE"})
+    _DWM_PARAM_KEYS     = _CLOSURE_PARAM_KEYS | _MANN_PARAM_KEYS
 
     @classmethod
     def _validate_dwm_keys(cls, params: dict, where: str = "") -> None:
@@ -703,16 +708,47 @@ class WindFarmEnv(gym.Env):
         - The flow simulation is run for the time it takes for the flow to develop.
         - The measurements are filled up with the initial values.
 
-        Domain-randomization hook: pass ``options={"dwm_params": {"k1": ..., ...}}``
-        to override DWM closure parameters for this episode only. Keys merge over
-        the constructor-time ``dwm_params``; missing keys fall back to the
-        calibrated defaults in ``dwm_defaults.make_dwm``.
+        Domain-randomization hook: pass
+        ``options={"dwm_params": {"k1": ..., "mann_L": ..., ...}}`` to override
+        DWM parameters for this episode only. Two parameter groups are
+        supported:
+
+        * **Closure** (``k1``, ``k2``, ``d_particle``) — forwarded to
+          ``make_dwm``. Honored under any ``turbtype``.
+        * **Mann box** (``mann_L``, ``mann_GAMMA``, ``mann_AE``) — forwarded to
+          ``TurbulenceManager.create_sites`` and used by ``MannGenerate`` to
+          rebuild the box per reset. **Only honored under
+          ``turbtype="MannGenerate"``** — under other turbtypes the box is not
+          regenerated from these statistics and the env raises rather than
+          silently dropping them.
+
+        Under DR with any Mann key set, ``self.ti`` (sampled by
+        ``wind_manager``) is no longer authoritative for the box's ambient TI —
+        ``mann_AE`` is. ``self.ti`` is kept as a nominal value for observations
+        and normalization.
         """
-        # Episode-level override of DWM closure params (domain randomization).
+        # Episode-level override of DWM params (domain randomization).
         # Done before any heavy work so a typo fails fast.
         episode_overrides = (options or {}).get("dwm_params") or {}
         self._validate_dwm_keys(episode_overrides, " in reset options")
         self._active_dwm_params = {**self._base_dwm_params, **episode_overrides}
+
+        # Partition into the two subsystems that consume these keys.
+        closure_overrides = {k: v for k, v in self._active_dwm_params.items()
+                             if k in self._CLOSURE_PARAM_KEYS}
+        mann_overrides    = {k: v for k, v in self._active_dwm_params.items()
+                             if k in self._MANN_PARAM_KEYS}
+
+        # Per-episode Mann statistics only take effect when the turbulence
+        # manager actually regenerates the box. Fail loud rather than silently
+        # ignoring them under the other branches.
+        if mann_overrides and self.turbtype != "MannGenerate":
+            raise ValueError(
+                f"dwm_params contains Mann keys {sorted(mann_overrides)} but "
+                f"turbtype={self.turbtype!r} does not regenerate the box from "
+                "those statistics. Set turbtype='MannGenerate' on env "
+                "construction, or remove the Mann keys from the DR sampler."
+            )
 
         # Clean up previous episode resources FIRST
         self._soft_cleanup()
@@ -789,6 +825,7 @@ class WindFarmEnv(gym.Env):
                 n_passthrough=self.n_passthrough,
                 burn_in_passthroughs=self.burn_in_passthroughs,
                 create_baseline=self.Baseline_comp,
+                mann_overrides=mann_overrides or None,
             )
 
             self.fs = make_dwm(
@@ -797,7 +834,7 @@ class WindFarmEnv(gym.Env):
                 wind_direction=self.wd,
                 dt=self.dt,
                 addedTurbulenceModel=self.addedTurbulenceModel,
-                **self._active_dwm_params,
+                **closure_overrides,
             )
             self.wd = self.fs._wind_direction  # Update to match wd_list first value
         else:
@@ -843,7 +880,7 @@ class WindFarmEnv(gym.Env):
                     wind_direction=self.wd,
                     dt=self.dt,
                     addedTurbulenceModel=self.addedTurbulenceModel,
-                    **self._active_dwm_params,
+                    **closure_overrides,
                 )
             else:
                 if self.HTC_path is not None:
