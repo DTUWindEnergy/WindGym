@@ -44,8 +44,19 @@ TI_RUNNING_AVG_S = 600       # RunningAverageSensorTIModel window in seconds
 
 # === Mann turbulence box ====================================================
 # Used by `TurbulenceManager._generate_mann_generate` and `_generate_mann_fixed`.
+#
+# Under the legacy non-DR path the raw box at αε=1 is renormalised by
+# `tf.scale_TI(TI=self.ti, U=ws)` to the env's nominal TI, so MANN_AE is
+# effectively cosmetic *in that path*.
+#
+# Under domain randomization (Mann keys present in `dwm_params`), the
+# turbulence manager skips `scale_TI` and αε directly controls the box's
+# ambient TI (matching `calibration/simulator.py:_build_site`). At
+# (L=29.4, Γ=3.9, WS=9), raw σ_u ≈ 3.63 → TI ≈ 0.40·√αε, so the calibrated
+# αε ≈ 0.0056 corresponds to TI ≈ 3%. If you ever switch the default branch
+# to skip `scale_TI` unconditionally, lower MANN_AE accordingly.
 MANN_L = 29.4
-MANN_AE = 1.0                # alphaepsilon (cosmetic — scale_TI rescales after)
+MANN_AE = 1.0                # alphaepsilon — see docstring above re: scale_TI
 MANN_GAMMA = 3.9
 MANN_NXYZ = (4096, 128, 32)
 MANN_DXYZ = (3.2, 3.2, 3.2)
