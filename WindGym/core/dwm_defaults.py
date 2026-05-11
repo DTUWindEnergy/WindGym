@@ -58,7 +58,7 @@ TI_RUNNING_AVG_S = 600       # RunningAverageSensorTIModel window in seconds
 MANN_L = 29.4
 MANN_AE = 1.0                # alphaepsilon — see docstring above re: scale_TI
 MANN_GAMMA = 3.9
-MANN_NXYZ = (4096, 128, 32)
+MANN_NXYZ = (4096, 512, 128)
 MANN_DXYZ = (3.2, 3.2, 3.2)
 
 
