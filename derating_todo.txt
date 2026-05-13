@@ -1,0 +1,176 @@
+DERATING (PITCH CONTROL / DOWNREGULATION) — IMPLEMENTATION PLAN
+=================================================================
+
+Goal: Add per-turbine derating as a second action alongside yaw. Physically
+accurate: derating changes the operating point on the power curve, which
+reduces both power AND thrust (Ct), so the DWM particles downstream carry a
+smaller deficit and less added TI.
+
+
+PHYSICS
+-------
+Below-rated pitch control works by increasing pitch angle, which moves the
+turbine to a lower operating point on the P(ws) and Ct(ws) curves. If the
+current effective wind speed is ws_eff and we want to produce fraction f of
+available power (f = 1 - derate, derate in [0,1]):
+
+  1. Solve:  P(ws_op) = f * P(ws_eff)   for ws_op on the power curve
+             (ws_op <= ws_eff, i.e. find the below-rated operating wind speed)
+  2. Ct_derated = Ct(ws_op)
+  3. P_derated  = P(ws_op)
+
+This is physically correct because:
+- ws_op < ws_eff → lower Ct → smaller DWM particles → less deficit and TI downstream
+- The Ct reduction is not arbitrary; it follows the real turbine aerodynamics
+- Works naturally for SWT23 which is often below rated in Lillgrund conditions
+
+NOTE: Above-rated, pitch control reduces power but Ct stays roughly flat near
+rated. The power-curve approach handles this correctly since Ct(ws_op) for
+ws_op near rated is still well-defined from the tabular curve.
+
+Solving P(ws_op) = f * P(ws_eff) requires a 1D root-find (scipy.brentq or
+np.interp on the inverted power curve). The inversion is pre-computed once
+over the ws range and stored as a lookup table for speed.
+
+
+STEP 1 — DeratingPowerCtFunction wrapper
+-----------------------------------------
+File: WindGym/core/derating.py  (new file)
+
+Create a PyWake-compatible PowerCtFunction subclass that wraps any existing
+powerCtFunction (e.g. SWT23's PowerCtTabular) and adds 'derate' as an
+optional input.
+
+  class DeratingPowerCtFunction(PowerCtFunction):
+      optional_inputs = [...base inputs..., 'derate']
+
+  __call__(ws, derate=0.0, **kwargs):
+      P_base, Ct_base = self._base_func(ws, **kwargs)
+      f = 1.0 - derate                          # power fraction [0, 1]
+      ws_op = self._invert_power_curve(ws, f)   # find operating ws
+      P_out  = self._base_func.power(ws_op)
+      Ct_out = self._base_func.ct(ws_op)
+      return P_out, Ct_out
+
+  _invert_power_curve: pre-computed lookup using the tabular ws/P arrays.
+  Below cut-in or f=0: return (0, 0). Above rated: ws_op = ws (no change in Ct).
+
+Usage: wrap at env initialisation time — replace wt.powerCtFunction with
+DeratingPowerCtFunction(wt.powerCtFunction) before passing wt to Dynamiks.
+
+
+STEP 2 — Dynamiks sensor hookup
+---------------------------------
+Because Dynamiks' PyWakeWindTurbines.get_kwargs() automatically passes any
+sensor whose name matches an optional input of the powerCtFunction, we only
+need to add a 'derate' sensor:
+
+  fs.windTurbines.add_sensor('derate', expose=True)
+  fs.windTurbines.sensors.derate = np.zeros(n_turb)   # initialise to no derating
+
+After this, setting fs.windTurbines.sensors.derate = derate_values each step
+automatically flows through ct() → rotor_avg_induction() → DWM particles.
+No changes needed inside Dynamiks itself.
+
+Where to add this: in wind_farm_env.py, in the block that initialises the
+Dynamiks flow simulation (after fs is created, before the first step).
+
+
+STEP 3 — PyWake adapter hookup
+--------------------------------
+The PyWakeFlowSimulationAdapter does not use the Dynamiks sensor system. Its
+_compute_steady_state() calls the PyWake model directly. We need to:
+
+  a. Store derate values on the adapter: self._derate = np.zeros(n_turb)
+  b. In _compute_steady_state(), compute effective ws_op per turbine using the
+     same power-curve inversion as Step 1, then override the Ct passed into
+     the model call (or pass a modified turbine object).
+  c. Simplest implementation: after steady-state, post-correct _power_eff and
+     compute derated Ct per turbine, then re-run with a custom per-turbine Ct.
+
+     PyWake supports per-turbine Ct via the 'ct' kwarg in the model call for
+     some models, or via a custom WindTurbines subclass. Use the same
+     DeratingPowerCtFunction wrapper — attach it to the turbine before
+     constructing the model, same as Dynamiks.
+
+
+STEP 4 — Action space extension
+---------------------------------
+In wind_farm_env.py:
+
+  - Add config key:  derate_action: bool  (default False)
+  - Add config keys: derate_min: 0.0, derate_max: 1.0
+  - When derate_action=True, set act_var = 2 instead of 1
+  - Action vector layout: [yaw_0..yaw_n | derate_0..derate_n]
+    (first n_turb entries = yaw, last n_turb = derate)
+
+Keep yaw logic unchanged. Add _apply_derating(action) alongside
+_adjust_yaws(action) in _advance_and_measure().
+
+  _apply_derating(action):
+      derate_raw = action[self.n_turb:]          # [-1, 1]
+      derate = (derate_raw + 1) / 2              # map to [0, 1]
+      derate = np.clip(derate, derate_min, derate_max)
+      # apply to backend:
+      if dynamiks:
+          fs.windTurbines.sensors.derate = derate
+      elif pywake_adapter:
+          fs._derate = derate
+
+Store current derate values on self (like self.yaw_angles) for observations.
+
+
+STEP 5 — Observations
+-----------------------
+Add derate state to measurements, mirroring yaw_mes:
+
+  - Config key: derate_mes: {history: N, rolling_mean: bool}
+  - Measurement name: 'derate' — current per-turbine derate fraction
+  - Add to _measure() and history buffers in wind_farm_env.py
+  - Expose via obs space the same way yaw angles are
+
+
+STEP 6 — Reward
+-----------------
+No special reward term needed — derating reduces farm power directly, so the
+existing power reward already penalises unnecessary derating. The agent must
+learn that upstream derating is only worth it if the downstream gain exceeds
+the upstream loss.
+
+Optionally add a derate change penalty (like action_penalty for yaw) to
+discourage rapid derating oscillations:
+  config key: derate_penalty, derate_penalty_type: 'change' | 'total'
+
+
+STEP 7 — Config & presets
+---------------------------
+Add to config schema (config.py or equivalent):
+  derate_action:  false
+  derate_min:     0.0      # min derate fraction (0 = no derating)
+  derate_max:     1.0      # max derate fraction (1 = full shutdown)
+  derate_penalty: 0.0
+  derate_penalty_type: 'change'
+
+Update presets (presets.py) for Lillgrund/SWT23 if a derate preset is wanted.
+
+
+STEP 8 — Tests
+---------------
+  - Unit test DeratingPowerCtFunction: verify P and Ct decrease monotonically
+    with derate, verify at derate=0 output matches base turbine exactly
+  - Integration test: 3-turbine row, derate turbine 0, check that turbine 1
+    effective ws increases and its power increases
+  - Check DWM particles: rotor_avg_induction of turbine 0 must decrease
+  - PyWake adapter: same 3-turbine check with pywake backend
+
+
+ORDER OF ATTACK
+---------------
+1. DeratingPowerCtFunction (Step 1) — self-contained, testable in isolation
+2. Dynamiks hookup (Step 2) — verify wake effect with a quick simulation
+3. Action space + _apply_derating (Step 4) — plug into env
+4. Observations (Step 5)
+5. PyWake adapter (Step 3) — parallel effort, lower priority if DWM is main backend
+6. Config/presets (Step 7)
+7. Tests (Step 8)
+8. Reward penalty (Step 6) — optional, add if training is unstable
