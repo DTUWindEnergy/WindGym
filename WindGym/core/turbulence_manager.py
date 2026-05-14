@@ -160,7 +160,16 @@ class TurbulenceManager:
         # Create baseline site if requested
         site_baseline = None
         if create_baseline:
-            tf_base = copy.deepcopy(tf_agent)
+            # Share the large `uvw` ndarray (~3.2 GB) by reference between the
+            # agent and baseline fields, while deep-copying everything else so
+            # each field keeps its own mutable `time_offset`/`ti` state.
+            # Pre-seeding the memo with `uvw` mapped to itself makes deepcopy
+            # skip (share) it. Safe only because `uvw` is read-only after
+            # `_generate_turbulence_field` returns — `scale_TI` (its only
+            # in-place mutator) has already run above. Revisit if any caller
+            # scales TI per-field after `create_sites`.
+            memo = {id(tf_agent.uvw): tf_agent.uvw}
+            tf_base = copy.deepcopy(tf_agent, memo)
             site_baseline = MetmastSite(
                 ws=ws,
                 turbulenceField=tf_base,
