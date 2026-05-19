@@ -41,6 +41,7 @@ from dynamiks.dwm.particle_motion_models import CutOffFrq
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 
 from WindGym.core.wind_probe import WindProbe
+from WindGym.core.derating import add_derating_to_turbine
 
 # import logging
 # logger = logging.getLogger(__name__)
@@ -213,6 +214,11 @@ class WindFarmEnv(gym.Env):
         # --- Load config ---
         cfg = self._normalize_config_input(config)
         self._apply_config(cfg)
+
+        # Derating: extend action space and prepare turbine once (idempotent)
+        if self.derate_action:
+            self.act_var = 2
+            add_derating_to_turbine(turbine)
 
         self.n_turb = len(x_pos)  # The number of turbines
 
@@ -392,6 +398,9 @@ class WindFarmEnv(gym.Env):
                 y=self.y_pos,  # x and y position of two wind turbines
                 windTurbine=self.turbine,
             )
+            if self.derate_action:
+                self.wts.add_sensor("derate", expose=True)
+                self.wts.sensors.derate = np.zeros(self.n_turb)
 
         # Initialize baseline turbines if needed
         if self.Baseline_comp and self.baseline_manager is not None:
@@ -501,6 +510,13 @@ class WindFarmEnv(gym.Env):
         self.power_avg = self.power_def.get("Power_avg")
         self.power_reward = self.power_def.get("Power_reward")
         self.tau = self.power_def.get("tau", 0.02)
+
+        # Derating action (optional, all default to off/zero)
+        self.derate_action = config.get("derate_action", False)
+        self.derate_min = config.get("derate_min", 0.0)
+        self.derate_max = config.get("derate_max", 1.0)
+        self.derate_penalty = config.get("derate_penalty", 0.0)
+        self.derate_penalty_type = config.get("derate_penalty_type", "change")
 
         # Initialize probe manager
         probes_config = config.get("probes", [])
@@ -667,6 +683,9 @@ class WindFarmEnv(gym.Env):
             "Turbulence intensity at turbines": self.farm_measurements.get_TI_turb(),
         }
 
+        if self.derate_action:
+            return_dict["derate agent"] = self.current_derate
+
         if self.Baseline_comp:
             return_dict["yaw angles base"] = self.fs_baseline.windTurbines.yaw
             return_dict["Power baseline"] = self.fs_baseline.windTurbines.power().sum()
@@ -721,6 +740,7 @@ class WindFarmEnv(gym.Env):
 
         # 3) Turbines + main flow sim
         self._init_wts()
+        self.current_derate = np.zeros(self.n_turb)
 
         # Set random generator for turbulence manager
         self.turbulence_manager.np_random = self.np_random
@@ -771,13 +791,23 @@ class WindFarmEnv(gym.Env):
                 create_baseline=self.Baseline_comp,
             )
 
+            # Ensure enough particles to cover at least 15D downstream.
+            # Dynamiks defaults to farm_size_x / d_particle, which is 0 for
+            # side-by-side layouts where all turbines share the same x position.
+            _n_particles = self.n_particles
+            if _n_particles is None:
+                _D = self.turbine.diameter()
+                _farm_x = max(self.x_pos) - min(self.x_pos)
+                _desired = max(_farm_x * 1.2, 15 * _D)
+                _n_particles = max(int(np.ceil(_desired / (self.d_particle * _D))), 10)
+
             self.fs = DWMFlowSimulation(
                 site=self.site,
                 windTurbines=self.wts,
                 wind_direction=self.wd,
                 particleDeficitGenerator=jDWMAinslieGenerator(),
                 dt=self.dt,
-                n_particles=self.n_particles,
+                n_particles=_n_particles,
                 d_particle=self.d_particle,
                 particleMotionModel=HillVortexParticleMotion(
                     temporal_filter=self.temporal_filter
@@ -828,7 +858,7 @@ class WindFarmEnv(gym.Env):
                     wind_direction=self.wd,
                     particleDeficitGenerator=jDWMAinslieGenerator(),
                     dt=self.dt,
-                    n_particles=self.n_particles,
+                    n_particles=_n_particles,
                     d_particle=self.d_particle,
                     particleMotionModel=HillVortexParticleMotion(
                         temporal_filter=self.temporal_filter
@@ -949,16 +979,19 @@ class WindFarmEnv(gym.Env):
             yaws_baseline = np.zeros((T, n), dtype=np.float32)
             windspeeds_baseline = np.zeros((T, n), dtype=np.float32)
 
-        # If in "yaw" mode, we have an action budget that spans the env step
+        # If in "yaw" mode, we have an action budget that spans the env step.
+        # Only the first n_turb entries are yaw; the rest (if any) are derate.
         if apply_agent_action and self.ActionMethod == "yaw":
             self.action_remaining = (
-                action * self.yaw_step_env
+                action[: self.n_turb] * self.yaw_step_env
             )  # total budget for this env step
 
         for j in range(T):
             # 1) Agent yaw update (if any)
             if apply_agent_action:
                 self._adjust_yaws(action)
+                if self.derate_action:
+                    self._apply_derating(action)
 
             # 2) Step agent flow
             wd_old = self.fs.wind_direction
@@ -1044,6 +1077,9 @@ class WindFarmEnv(gym.Env):
         Heavily inspired from https://github.com/AlgTUDelft/wind-farm-env
         This function adjusts the yaw angles of the turbines, based on the actions given, but we now have differnt methods for the actions
         """
+        # When derate_action=True action is [yaw_0..yaw_n | derate_0..derate_n];
+        # yaw logic only operates on the first n_turb entries.
+        action = action[: self.n_turb]
 
         if self.ActionMethod == "yaw":
             # The new yaw angles are the old yaw angles + the action, scaled with the yaw_step
@@ -1094,6 +1130,23 @@ class WindFarmEnv(gym.Env):
 
         else:
             raise ValueError("The ActionMethod must be yaw, wind or absolute")
+
+    def _apply_derating(self, action):
+        """Apply per-turbine derating from the last n_turb entries of *action*.
+
+        Action layout when derate_action=True:
+            [yaw_0 .. yaw_n-1 | derate_0 .. derate_n-1]
+        Each derate value is in [-1, 1] and mapped to [derate_min, derate_max].
+        """
+        derate_raw = action[self.n_turb :]  # last n_turb entries
+        derate = (derate_raw + 1.0) / 2.0  # [-1, 1] → [0, 1]
+        derate = np.clip(derate, self.derate_min, self.derate_max).astype(np.float64)
+        self.current_derate = derate
+
+        if self.backend == "dynamiks":
+            self.wts.sensors.derate = derate
+        else:
+            self.fs._derate = derate
 
     def step(self, action):
         """

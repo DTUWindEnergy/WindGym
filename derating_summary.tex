@@ -1,0 +1,119 @@
+\section{Derating via Below-Rated Pitch Control}
+
+\subsection{Theory}
+
+Derating (downregulation) reduces a turbine's power output by increasing the pitch
+angle, moving the operating point to a lower effective wind speed on the turbine's
+$P(u)$ and $C_T(u)$ curves.
+Given a free-stream (or wake-effective) wind speed $u_\infty$ and a desired power
+fraction $f \in [0,1]$, the operating wind speed $u_\text{op}$ is found by solving
+
+\begin{equation}
+    P(u_\text{op}) = f \cdot P(u_\infty), \qquad u_\text{op} \leq u_\infty,
+    \label{eq:derate_inversion}
+\end{equation}
+
+where $P(\cdot)$ is the tabular power curve of the turbine.
+The corresponding derated thrust coefficient and power output are then
+
+\begin{equation}
+    C_T^\text{d} = C_T(u_\text{op}), \qquad P^\text{d} = P(u_\text{op}).
+    \label{eq:derated_ct}
+\end{equation}
+
+Because $u_\text{op} < u_\infty$, the turbine operates at a lower induction, producing a
+weaker wake deficit downstream.
+This is physically correct: derating follows the real aerodynamic relationship between
+pitch angle, $C_T$, and power, rather than applying an arbitrary scaling to thrust.
+
+Equation~\eqref{eq:derate_inversion} is solved by inverting the power curve on its
+monotonically increasing portion (cut-in to rated wind speed).
+Above rated, $P$ is flat so the inverse is not unique; however, $C_T$ is also
+approximately constant in that region, making the distinction unimportant for wake
+modelling purposes.
+
+The derate fraction $\delta \in [0,1]$ relates to $f$ by
+
+\begin{equation}
+    f = 1 - \delta,
+\end{equation}
+
+so $\delta = 0$ means no curtailment ($f=1$, full power) and $\delta = 1$ means
+full shutdown ($f=0$, turbine off).
+
+\subsection{Effect on Downstream Wakes}
+
+In the Dynamic Wake Meandering (DWM) model, the wake deficit and added turbulence
+intensity downstream of turbine $i$ scale with $C_T^{(i)}$.
+Derating reduces $C_T^{(i)}$ via~\eqref{eq:derated_ct}, which shrinks the DWM wake
+particles emitted at turbine $i$, resulting in a higher effective wind speed at
+downstream rotors.
+The net farm power change is
+
+\begin{equation}
+    \Delta P_\text{farm} = \underbrace{-\delta \cdot P(u_\infty^{(i)})}_{\text{upstream loss}}
+    + \underbrace{\sum_{j \in \text{wake}(i)} \bigl[P(u_j^\text{d}) - P(u_j)\bigr]}_{\text{downstream gain}},
+\end{equation}
+
+where $u_j^\text{d} > u_j$ is the improved wind speed at turbine $j$ under derating.
+Derating is only beneficial when the downstream gain exceeds the upstream loss.
+
+\subsection{Implementation in WindGym}
+
+\paragraph{Power-curve inversion (\texttt{DeratingModel}).}
+A new \texttt{AdditionalModel} subclass (\texttt{WindGym/core/derating.py}) is appended
+to the turbine's \texttt{PowerCtTabular.model\_lst}.
+At construction time the monotonically increasing portion of the power curve
+$\{u_k, P_k\}$ is stored.
+At each call, given $u_\infty$ and $\delta$, equation~\eqref{eq:derate_inversion} is
+solved via \texttt{np.interp} on the pre-inverted table, and $C_T$ and $P$ are
+evaluated at $u_\text{op}$.
+The model is attached once with \texttt{add\_derating\_to\_turbine(turbine)} and is
+idempotent across environment resets.
+
+\paragraph{Action space.}
+When \texttt{derate\_action: true} in the environment config, the action space doubles
+to $2n_\text{turb}$ entries:
+
+\begin{equation}
+    \mathbf{a} = [\underbrace{\psi_0,\ldots,\psi_{n-1}}_{\text{yaw offsets}},\;
+                  \underbrace{a_0^\delta,\ldots,a_{n-1}^\delta}_{\text{derate actions}}],
+    \quad a_i^\delta \in [-1,1].
+\end{equation}
+
+Each derate action is mapped to $\delta_i \in [\delta_\min, \delta_\max]$ by
+
+\begin{equation}
+    \delta_i = \frac{a_i^\delta + 1}{2} \cdot (\delta_\max - \delta_\min) + \delta_\min.
+\end{equation}
+
+\paragraph{Sensor hookup (Dynamiks backend).}
+A \texttt{derate} sensor is registered on \texttt{PyWakeWindTurbines}.
+At each environment step, \texttt{wts.sensors.derate} is set to the current
+$[\delta_0,\ldots,\delta_{n-1}]$ vector.
+Dynamiks' \texttt{get\_kwargs()} propagates the sensor values automatically to the
+\texttt{powerCtFunction}, so the updated $C_T^{(i)}$ values are used when the DWM
+particles are emitted in the next time step.
+
+\paragraph{Wake particle coverage.}
+For side-by-side layouts all turbines share the same downwind position, giving a
+farm downwind extent of zero.
+Dynamiks' default particle count (based on farm extent) therefore collapses to its
+minimum of 10 particles, covering only $10 \times 0.2D \approx 2D$ downstream.
+WindGym now ensures at least $15D$ of coverage by computing
+
+\begin{equation}
+    N_\text{particles} = \max\!\left(\left\lceil
+        \frac{\max(1.2\,L_x,\;15D)}{d_\text{particle}\,D}
+    \right\rceil,\; 10\right),
+\end{equation}
+
+where $L_x$ is the farm downwind extent and $d_\text{particle} = 0.2$ (normalised
+particle spacing).
+
+\paragraph{Reward.}
+No special reward term is required.
+Unnecessary derating directly reduces farm power, so the standard power reward
+already penalises it.
+The agent must discover autonomously that upstream derating is only worthwhile when
+the downstream power recovery exceeds the upstream sacrifice.
