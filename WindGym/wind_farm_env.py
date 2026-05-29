@@ -660,7 +660,12 @@ class WindFarmEnv(gym.Env):
             "Wind direction at farm measured": self.farm_measurements.get_wd_farm(),
             "Turbulence intensity": self.ti,
             "Power agent": self.fs.windTurbines.power().sum(),
-            "Power agent nowake": self.fs.windTurbines.power(include_wakes=False).sum(),
+            # HAWC2WindTurbines cannot compute power without wakes; report NaN there.
+            "Power agent nowake": (
+                np.nan
+                if self.HTC_path is not None
+                else self.fs.windTurbines.power(include_wakes=False).sum()
+            ),
             "Power pr turbine agent": self.fs.windTurbines.power(),
             "Turbine x positions": self.fs.windTurbines.positions_xyz[0],
             "Turbine y positions": self.fs.windTurbines.positions_xyz[1],
