@@ -899,7 +899,9 @@ class WindFarmEnv(gym.Env):
             if self.Baseline_comp:
                 self.base_pow_deq.append(out["baseline_power_mean"].sum())
                 self.nowake_pow_deq.append(
-                    self.fs_baseline.windTurbines.power(include_wakes=False).sum()
+                    np.nan
+                if self.HTC_path is not None
+                else self.fs_baseline.windTurbines.power(include_wakes=False).sum()
                 )
 
         # 5) Get observation and info
@@ -1141,7 +1143,9 @@ class WindFarmEnv(gym.Env):
         if self.Baseline_comp:
             self.base_pow_deq.append(out["baseline_power_mean"].sum())
             self.nowake_pow_deq.append(
-                self.fs_baseline.windTurbines.power(include_wakes=False).sum()
+                np.nan
+                if self.HTC_path is not None
+                else self.fs_baseline.windTurbines.power(include_wakes=False).sum()
             )
 
         if np.any(np.isnan(self.farm_pow_deq)):
