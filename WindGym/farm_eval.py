@@ -31,6 +31,7 @@ class FarmEval(WindFarmEnv):
         Baseline_comp=False,
         render_mode=None,
         turbtype="MannGenerate",
+        backend: str = "dynamiks",
         seed=None,
         dt_sim=1,  # Simulation timestep in seconds
         dt_env=1,  # Environment timestep in seconds
@@ -62,6 +63,7 @@ class FarmEval(WindFarmEnv):
             burn_in_passthroughs=burn_in_passthroughs,
             TurbBox=TurbBox,
             turbtype=turbtype,
+            backend=backend,
             config=config,
             Baseline_comp=Baseline_comp,  # UPDATE: Changed so that we dont need the baseline farm anymore. Before it was always true! #We always want to compare to the baseline, so this is true
             yaw_init=yaw_init,
