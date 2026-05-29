@@ -202,7 +202,9 @@ class TurbulenceManager:
         tf = MannTurbulenceField.from_netcdf(filename=self.tf_file)
         tf.scale_TI(TI=ti, U=ws)
 
-        added_turb_model = SynchronizedAutoScalingIsotropicMannTurbulence()
+        added_turb_model = SynchronizedAutoScalingIsotropicMannTurbulence(
+            cache_field=False
+        )
         return tf, added_turb_model
 
     def _generate_mann_generate(
