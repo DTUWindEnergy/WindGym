@@ -244,7 +244,8 @@ class TurbulenceManager:
         tf.scale_TI(TI=ti, U=ws)
 
         added_turb_model = SynchronizedAutoScalingIsotropicMannTurbulence(
-            scaling=BranlardScaling()
+            scaling=BranlardScaling(),
+            cache_field=False,
         )
         return tf, added_turb_model
 
