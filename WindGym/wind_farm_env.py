@@ -99,6 +99,7 @@ class WindFarmEnv(gym.Env):
         reset_init=True,
         burn_in_passthroughs=2,  # number of passthroughs before episode starts
         cleanup_on_time_limit: bool = True,
+        keep_hawc_results: bool = False,  # if True, never delete the HAWC2 res/htc/log folders
         wd_function=None,  # A function that takes in the timestep and returns the wind direction
         max_turb_move=2,  # The maximum distance that the turbines can move in one timestep. This is used to avoid numerical issues with the DWM solver.
         **kwargs,
@@ -128,6 +129,7 @@ class WindFarmEnv(gym.Env):
             HTC_path: str: The path to the high fidelity turbine model. If this is Not none, then we assume you want to use that instead of pywake turbines. Note you still need a pywake version of your turbine.
             reset_init: bool: If True, then the environment will be reset at initialization. This is used to save time for things that call the reset method anyways.
             cleanup_on_time_limit: bool: If True, then the environment will clean up the HAWC2 files when the maximum time is reached. This is to avoid filling up the disk with files.
+            keep_hawc_results: bool: If True, the HAWC2 res/htc/log folders are never deleted (overrides all cleanup), so they can be kept for later inspection. Default False.
         """
         self.kwargs = locals()
         del self.kwargs["self"]  # Remove 'self' from the dictionary
@@ -147,6 +149,7 @@ class WindFarmEnv(gym.Env):
         self.wts_baseline = None
         self.burn_in_passthroughs = burn_in_passthroughs
         self.cleanup_on_time_limit = cleanup_on_time_limit
+        self.keep_hawc_results = keep_hawc_results
         # The power setpoint for the farm. This is used if the Track_power is True. (Not used yet)
         self.power_setpoint = 0.0
         self.act_var = (
@@ -1266,47 +1269,33 @@ class WindFarmEnv(gym.Env):
         This deletes the HAWC2 results folder from the directory.
         This is done to make sure we keep it nice and clean.
 
+        Each turbine writes into res/<case>, htc/<case> and log/<case>; this removes all
+        three for both the agent and (if present) the baseline turbines. Skipped entirely
+        when keep_hawc_results is set, so folders can be retained for later inspection.
+
         Called from cleanup paths (truncation and close()), possibly more than once and
         during teardown, so it must not raise if a folder is already gone.
         """
-        if self.wts is None:
+        if self.keep_hawc_results or self.wts is None:
             return
 
-        # This is the path to the results
-        delete_folder = (
-            self.wts.htc_lst[0].modelpath
-            + os.path.split(self.wts.htc_lst[0].output.filename.values[0])[0]
-        )
-        shutil.rmtree(delete_folder, ignore_errors=True)
-
-        # Also delete the htc folder
-        htc_folder = (
-            self.wts.htc_lst[0].modelpath
-            + os.path.split(
-                self.wts.htc_lst[0].output.filename.values[0].replace("res", "htc")
-            )[0]
-        )
-        shutil.rmtree(htc_folder, ignore_errors=True)
-
+        self._delete_case_folders(self.wts)
         if self.Baseline_comp and self.wts_baseline is not None:
-            delete_folder_baseline = (
-                self.wts_baseline.htc_lst[0].modelpath
-                + os.path.split(self.wts_baseline.htc_lst[0].output.filename.values[0])[
-                    0
-                ]
-            )
-            shutil.rmtree(delete_folder_baseline, ignore_errors=True)
+            self._delete_case_folders(self.wts_baseline)
 
-            # Also delete the htc folder
-            htc_folder_baseline = (
-                self.wts_baseline.htc_lst[0].modelpath
-                + os.path.split(
-                    self.wts_baseline.htc_lst[0]
-                    .output.filename.values[0]
-                    .replace("res", "htc")
-                )[0]
-            )
-            shutil.rmtree(htc_folder_baseline, ignore_errors=True)
+    def _delete_case_folders(self, wts):
+        """Remove the res/, htc/ and log/ case subfolders for one set of HAWC2 turbines.
+
+        ``output.filename`` points at ``res/<case>/...``; the htc and log folders mirror
+        it with the leading ``res`` swapped. ``ignore_errors=True`` so an already-deleted
+        folder does not raise during teardown.
+        """
+        modelpath = wts.htc_lst[0].modelpath
+        res_rel = os.path.split(wts.htc_lst[0].output.filename.values[0])[0]
+        for sub in ("res", "htc", "log"):
+            # replace only the leading "res" (count=1) to avoid touching the case name
+            folder = modelpath + res_rel.replace("res", sub, 1)
+            shutil.rmtree(folder, ignore_errors=True)
 
     def render(
         self,
