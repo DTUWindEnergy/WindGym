@@ -1247,8 +1247,9 @@ class WindFarmEnv(gym.Env):
             self._safe_close_h2(self.wts)
             if self.Baseline_comp:
                 self._safe_close_h2(self.wts_baseline)
-            # Then delete folders
-            self._deleteHAWCfolder()
+            # Then delete folders (self.wts holds the paths; skip if already cleaned up)
+            if self.wts is not None:
+                self._deleteHAWCfolder()
 
         # Now clear all references
         self.fs_baseline = None
@@ -1263,14 +1264,20 @@ class WindFarmEnv(gym.Env):
     def _deleteHAWCfolder(self):
         """
         This deletes the HAWC2 results folder from the directory.
-        This is done to make sure we keep it nice and clean
+        This is done to make sure we keep it nice and clean.
+
+        Called from cleanup paths (truncation and close()), possibly more than once and
+        during teardown, so it must not raise if a folder is already gone.
         """
+        if self.wts is None:
+            return
+
         # This is the path to the results
         delete_folder = (
             self.wts.htc_lst[0].modelpath
             + os.path.split(self.wts.htc_lst[0].output.filename.values[0])[0]
         )
-        shutil.rmtree(delete_folder)
+        shutil.rmtree(delete_folder, ignore_errors=True)
 
         # Also delete the htc folder
         htc_folder = (
@@ -1279,16 +1286,16 @@ class WindFarmEnv(gym.Env):
                 self.wts.htc_lst[0].output.filename.values[0].replace("res", "htc")
             )[0]
         )
-        shutil.rmtree(htc_folder)
+        shutil.rmtree(htc_folder, ignore_errors=True)
 
-        if self.Baseline_comp:
+        if self.Baseline_comp and self.wts_baseline is not None:
             delete_folder_baseline = (
                 self.wts_baseline.htc_lst[0].modelpath
                 + os.path.split(self.wts_baseline.htc_lst[0].output.filename.values[0])[
                     0
                 ]
             )
-            shutil.rmtree(delete_folder_baseline)
+            shutil.rmtree(delete_folder_baseline, ignore_errors=True)
 
             # Also delete the htc folder
             htc_folder_baseline = (
@@ -1299,7 +1306,7 @@ class WindFarmEnv(gym.Env):
                     .replace("res", "htc")
                 )[0]
             )
-            shutil.rmtree(htc_folder_baseline)
+            shutil.rmtree(htc_folder_baseline, ignore_errors=True)
 
     def render(
         self,
@@ -1359,14 +1366,24 @@ class WindFarmEnv(gym.Env):
         )
 
     def close(self):
-        """Close the environment and clean up resources."""
+        """Close the environment and clean up resources.
+
+        This is what runs on a normal stop (``envs.close()`` / Ctrl+C), so for HAWC2
+        (level 3) it must also delete the htc/res/log folders. Previously folder deletion
+        only happened on time-limit truncation, so stopping a job mid-episode left the
+        HAWC2 folders behind on the node.
+        """
         self.renderer.close()
-        if self.Baseline_comp:
-            self.fs_baseline = None
-            self.site_base = None
-        self.fs = None
-        self.site = None
-        self.farm_measurements = None
+        if getattr(self, "HTC_path", None) is not None:
+            # Full cleanup: close h2 connections + delete HAWC2 folders + drop refs.
+            self._cleanup_resources()
+        else:
+            if self.Baseline_comp:
+                self.fs_baseline = None
+                self.site_base = None
+            self.fs = None
+            self.site = None
+            self.farm_measurements = None
         gc.collect()
 
     def plot_farm(self, baseline=False, fix_turbines=False):
