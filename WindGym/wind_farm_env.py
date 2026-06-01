@@ -839,12 +839,20 @@ class WindFarmEnv(gym.Env):
             )
 
         # Initial yaw set (bounded by yaw_start)
-        self.fs.windTurbines.yaw = self._yaw_init(
-            min_val=-self.yaw_start,
-            max_val=self.yaw_start,
-            n=self.n_turb,
-            yaws=self.yaw_initial,
-        )
+        # self.yaw_command is our authoritative commanded SETPOINT. We mutate it in plain
+        # Python and only ever write it to windTurbines.yaw. Reading windTurbines.yaw back
+        # to compute the next command is unsafe for HAWC2, whose getter returns the lagging
+        # physical bearing while the setter writes a setpoint (see _adjust_yaws).
+        self.yaw_command = np.asarray(
+            self._yaw_init(
+                min_val=-self.yaw_start,
+                max_val=self.yaw_start,
+                n=self.n_turb,
+                yaws=self.yaw_initial,
+            ),
+            dtype=float,
+        ).copy()
+        self.fs.windTurbines.yaw = self.yaw_command
 
         # Must init probes after fs
         self.probe_manager.initialize_probes(self.fs, self.fs.windTurbines.yaw)
@@ -1001,7 +1009,10 @@ class WindFarmEnv(gym.Env):
 
             wd_new = self.fs.wind_direction
             delta_wd = wd_new - wd_old
-            self.fs.windTurbines.yaw += delta_wd
+            # Track the wind shift on our own command, not via read-modify-write of the
+            # (physical, lagging for HAWC2) yaw getter, which would clobber the command.
+            self.yaw_command = self.yaw_command + delta_wd
+            self.fs.windTurbines.yaw = self.yaw_command
 
             # Update the winddirection to match the flow sim
             self.wd = self.fs.wind_direction
@@ -1093,11 +1104,13 @@ class WindFarmEnv(gym.Env):
                 dtype=np.float32,
             )
 
-            self.fs.windTurbines.yaw += yaw_change
-            # clip the yaw angles to be between -30 and 30
-            self.fs.windTurbines.yaw = np.clip(
-                self.fs.windTurbines.yaw, self.yaw_min, self.yaw_max
+            # Accumulate on our own command (clipped to bounds), then write it once.
+            # Never read windTurbines.yaw back here: for HAWC2 the getter returns the
+            # lagging physical bearing, so a read-modify-write erases the command.
+            self.yaw_command = np.clip(
+                self.yaw_command + yaw_change, self.yaw_min, self.yaw_max
             )
+            self.fs.windTurbines.yaw = self.yaw_command
 
             self.action_remaining -= yaw_change
 
@@ -1111,18 +1124,20 @@ class WindFarmEnv(gym.Env):
             if (
                 self.HTC_path is None
             ):  # This clip is only usefull for the pywake turbine model, as the hawc2 model has inertia anyways
-                # The bounds for the yaw angles are:
-                yaw_max = self.fs.windTurbines.yaw + self.yaw_step_sim
-                yaw_min = self.fs.windTurbines.yaw - self.yaw_step_sim
+                # Rate-limit relative to our own command, not the (physical) readback.
+                yaw_max = self.yaw_command + self.yaw_step_sim
+                yaw_min = self.yaw_command - self.yaw_step_sim
 
                 # The new yaw angles are the new yaw angles, but clipped to be between the yaw_max and yaw_min
-                self.fs.windTurbines.yaw = np.clip(
+                self.yaw_command = np.clip(
                     np.clip(new_yaws, yaw_min, yaw_max), self.yaw_min, self.yaw_max
                 )
 
             else:
                 # The new yaw angles are the new yaw angles, but clipped to be between the yaw_min and yaw_max
-                self.fs.windTurbines.yaw = np.clip(new_yaws, self.yaw_min, self.yaw_max)
+                self.yaw_command = np.clip(new_yaws, self.yaw_min, self.yaw_max)
+
+            self.fs.windTurbines.yaw = self.yaw_command
 
         elif self.ActionMethod == "absolute":
             raise NotImplementedError("The absolute method is not implemented yet")
