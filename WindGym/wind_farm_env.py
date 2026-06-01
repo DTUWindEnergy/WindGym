@@ -364,6 +364,11 @@ class WindFarmEnv(gym.Env):
             name_string = f"{node_string}_{self.wd:.2f}_{self.ws:.2f}_{self.ti:.2f}_{self.np_random.integers(low=0, high=45000)}"
             name_string = name_string.replace(".", "p")
 
+            # MultiH2Lib spawns one subprocess per turbine. Those children can only be
+            # managed (closed / polled) from the process that created them, so remember
+            # who that is and gate cleanup on it (see _safe_close_h2).
+            self._h2_owner_pid = os.getpid()
+
             self.wts = HAWC2WindTurbines(
                 x=self.x_pos,
                 y=self.y_pos,
@@ -1195,25 +1200,22 @@ class WindFarmEnv(gym.Env):
 
         return observation, reward, terminated, truncated, info
 
-    def _cleanup_resources(self) -> None:
-        """Close handles, delete temp dirs, drop heavy refs to avoid leaks."""
-        if self.Baseline_comp:
-            if self.HTC_path is not None:
-                self.wts_baseline.h2.close()
-            self.fs_baseline = None
-            self.site_base = None
+    def _safe_close_h2(self, wt) -> None:
+        """Close a HAWC2 turbine's h2 connection defensively.
 
-        if self.HTC_path is not None:
-            # Close the connections
-            self.wts.h2.close()
-            self.wts_baseline.h2.close()
-            # Delete the directory
-            self._deleteHAWCfolder()
-
-        self.fs = None
-        self.site = None
-        self.farm_measurements = None
-        gc.collect()
+        The MultiH2Lib children can only be polled/closed from the process that spawned
+        them, so closing from another process raises ``AssertionError: can only test a
+        child process``. Gate on the owning pid and never let teardown raise (HAWC2's own
+        ``atexit`` handler still closes the connection in the owning process).
+        """
+        if wt is None or not hasattr(wt, "h2"):
+            return
+        if os.getpid() != getattr(self, "_h2_owner_pid", None):
+            return
+        try:
+            wt.h2.close()
+        except Exception:
+            pass
 
     def _soft_cleanup(self) -> None:
         """
@@ -1222,16 +1224,8 @@ class WindFarmEnv(gym.Env):
         """
         # Close HAWC2 connections if they exist
         if self.HTC_path is not None:
-            if self.wts is not None and hasattr(self.wts, "h2"):
-                # try:
-                self.wts.h2.close()
-                # except Exception as e:
-                #     logger.warning(f"Failed to close wts.h2 connection: {e}")
-            if self.wts_baseline is not None and hasattr(self.wts_baseline, "h2"):
-                # try:
-                self.wts_baseline.h2.close()
-                # except Exception as e:
-                #     logger.warning(f"Failed to close wts_baseline.h2 connection: {e}")
+            self._safe_close_h2(self.wts)
+            self._safe_close_h2(self.wts_baseline)
 
         # Clear references
         self.fs_baseline = None
@@ -1250,14 +1244,9 @@ class WindFarmEnv(gym.Env):
         # Delete HAWC folders BEFORE clearing references (needs self.wts for paths)
         if self.HTC_path is not None:
             # Close connections first
-            if self.wts is not None and hasattr(self.wts, "h2"):
-                self.wts.h2.close()
-            if (
-                self.Baseline_comp
-                and self.wts_baseline is not None
-                and hasattr(self.wts_baseline, "h2")
-            ):
-                self.wts_baseline.h2.close()
+            self._safe_close_h2(self.wts)
+            if self.Baseline_comp:
+                self._safe_close_h2(self.wts_baseline)
             # Then delete folders
             self._deleteHAWCfolder()
 
@@ -1444,8 +1433,15 @@ class WindFarmEnv(gym.Env):
         return None
 
     def __del__(self):
-        """Destructor to ensure cleanup."""
-        # try:
-        self._soft_cleanup()
-        # except Exception as e:
-        #     logger.warning(f"Exception during WindFarmEnv cleanup: {e}")
+        """Destructor to ensure cleanup.
+
+        Runs during garbage collection / interpreter shutdown, possibly on a
+        partially-constructed instance or in a non-owning process, so it must never
+        raise (a raising ``__del__`` only prints "Exception ignored in __del__").
+        """
+        if getattr(self, "HTC_path", None) is None and not hasattr(self, "fs"):
+            return
+        try:
+            self._soft_cleanup()
+        except Exception:
+            pass
