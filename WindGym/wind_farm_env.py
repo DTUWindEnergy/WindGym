@@ -9,6 +9,7 @@ import gc
 import socket
 import shutil
 import math
+import warnings
 from pathlib import Path
 
 
@@ -98,6 +99,7 @@ class WindFarmEnv(gym.Env):
         HTC_path=None,
         reset_init=True,
         burn_in_passthroughs=2,  # number of passthroughs before episode starts
+        max_time_steps: int | None = None,  # fixed episode length in env steps; overrides the ws-derived time_max when set. None = use ws-derived time_max.
         cleanup_on_time_limit: bool = True,
         keep_hawc_results: bool = False,  # if True, never delete the HAWC2 res/htc/log folders
         wd_function=None,  # A function that takes in the timestep and returns the wind direction
@@ -148,6 +150,10 @@ class WindFarmEnv(gym.Env):
         self.wts = None
         self.wts_baseline = None
         self.burn_in_passthroughs = burn_in_passthroughs
+        # Optional fixed episode length (env steps). When set, reset() overrides the
+        # ws-derived time_max with this value so all parallel envs truncate (and autoreset)
+        # on the same global step. None keeps the original ws-derived behavior.
+        self.max_time_steps = max_time_steps
         self.cleanup_on_time_limit = cleanup_on_time_limit
         self.keep_hawc_results = keep_hawc_results
         # The power setpoint for the farm. This is used if the Track_power is True. (Not used yet)
@@ -749,6 +755,20 @@ class WindFarmEnv(gym.Env):
                 burn_in_passthroughs=self.burn_in_passthroughs,
             )
         )
+
+        # Optional fixed episode length: overrides the ws-derived time_max so that all
+        # parallel envs truncate (and therefore autoreset) on the same global step. This
+        # runs before make_wind_direction_list below, so the wind-direction series is sized
+        # to the fixed length and the flow never runs past it.
+        if self.max_time_steps is not None:
+            if self.max_time_steps <= self.t_developed:
+                warnings.warn(
+                    f"max_time_steps ({self.max_time_steps}) <= t_developed "
+                    f"({self.t_developed}); the episode would end during/just after flow "
+                    "burn-in. Consider a larger max_time_steps.",
+                    stacklevel=2,
+                )
+            self.time_max = self.max_time_steps
 
         if self.backend == "dynamiks":
             # --- ORIGINAL dynamic backend ---
