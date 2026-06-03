@@ -35,7 +35,7 @@ from .core.probe_manager import ProbeManager
 from py_wake.wind_turbines import WindTurbines as WindTurbinesPW
 from collections import deque, defaultdict
 import yaml
-from dynamiks.wind_turbines.hawc2_windturbine import HAWC2WindTurbines
+from .backend.hawc2_adapter import HAWC2WindTurbinesW
 from dynamiks.dwm.particle_motion_models import CutOffFrq
 
 # For live plotting
@@ -378,7 +378,7 @@ class WindFarmEnv(gym.Env):
             # who that is and gate cleanup on it (see _safe_close_h2).
             self._h2_owner_pid = os.getpid()
 
-            self.wts = HAWC2WindTurbines(
+            self.wts = HAWC2WindTurbinesW(  # power() normalized to W (native HAWC2 is kW)
                 x=self.x_pos,
                 y=self.y_pos,
                 htc_lst=[self.HTC_path],
