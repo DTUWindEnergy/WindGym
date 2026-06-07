@@ -207,6 +207,9 @@ If you find WindGym useful in your research, please cite our JOSS paper:
 }
 ```
 
+For a list of research that uses WindGym — and how to add yours — see the
+[Publications page](https://sys.pages.windenergy.dtu.dk/windgym/publications).
+
 ---
 
 ## Support

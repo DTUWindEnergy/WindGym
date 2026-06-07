@@ -46,6 +46,7 @@ const sidebars = {
     },
 
     // Other Reference
+    "publications",
     "troubleshooting",
 
     // Contributing
