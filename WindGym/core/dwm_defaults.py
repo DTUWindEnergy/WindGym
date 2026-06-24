@@ -19,13 +19,16 @@ from dynamiks.dwm import DWMFlowSimulation
 from dynamiks.dwm.particle_deficit_profiles.ainslie import jDWMAinslieGenerator
 from dynamiks.dwm.particle_motion_models import HillVortexParticleMotion, XSpeed
 from dynamiks.dwm.projection_models import NoProjection
-from dynamiks.dwm.superposition import rss_superposition
-from dynamiks.utils.data_dumper import runningAverageSensor
+# from dynamiks.dwm.superposition import rss_superposition
+# from dynamiks.utils.data_dumper import runningAverageSensor
 from dynamiks.wind_turbines import PyWakeWindTurbines
-from dynamiks.wind_turbines.ti_model import RunningAverageSensorTIModel
+# from dynamiks.wind_turbines.ti_model import RunningAverageSensorTIModel
 from jDWM.EddyViscosityModel import keck
 from jDWM.Solvers import implicit
 from py_wake.rotor_avg_models import CGIRotorAvg
+
+from dynamiks.dwm.superposition import MixedSum #MixedSum instead of rss
+from dynamiks.wind_turbines.ti_models import TISensor, MeanMethod
 
 
 # === DWM closure / particle setup ===========================================
@@ -69,12 +72,7 @@ def make_wts(x, y, windTurbine) -> PyWakeWindTurbines:
         y=y,
         windTurbine=windTurbine,
         rotorAvgModel=CGIRotorAvg(ROTOR_AVG_N),
-        tiModel=RunningAverageSensorTIModel(
-            runningAverageSensor=runningAverageSensor(
-                TI_RUNNING_AVG_S, TI_RUNNING_AVG_S, None
-            ),
-            eval_fct=None,
-        ),
+        turbulenceIntensityModel = TISensor(mean_method=MeanMethod.TURBULENCE_TRANSPORT_SPEED, T=600),
     )
 
 
@@ -122,7 +120,7 @@ def make_dwm(
         particleMotionModel=particle_motion,
         d_particle=d_particle,
         addedTurbulenceModel=addedTurbulenceModel,
-        superpositionModel=rss_superposition(),
+        superpositionModel=MixedSum(),
         wind_direction=wind_direction,
         dt=dt,
     )
