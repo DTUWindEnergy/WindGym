@@ -99,7 +99,8 @@ class WindFarmEnv(gym.Env):
         HTC_path=None,
         reset_init=True,
         burn_in_passthroughs=2,  # number of passthroughs before episode starts
-        max_time_steps: int | None = None,  # fixed episode length in env steps; overrides the ws-derived time_max when set. None = use ws-derived time_max.
+        max_time_steps: int
+        | None = None,  # fixed episode length in env steps; overrides the ws-derived time_max when set. None = use ws-derived time_max.
         cleanup_on_time_limit: bool = True,
         keep_hawc_results: bool = False,  # if True, never delete the HAWC2 res/htc/log folders
         wd_function=None,  # A function that takes in the timestep and returns the wind direction
@@ -936,8 +937,8 @@ class WindFarmEnv(gym.Env):
                 self.base_pow_deq.append(out["baseline_power_mean"].sum())
                 self.nowake_pow_deq.append(
                     np.nan
-                if self.HTC_path is not None
-                else self.fs_baseline.windTurbines.power(include_wakes=False).sum()
+                    if self.HTC_path is not None
+                    else self.fs_baseline.windTurbines.power(include_wakes=False).sum()
                 )
 
         # 5) Get observation and info
@@ -1252,7 +1253,8 @@ class WindFarmEnv(gym.Env):
             return
         try:
             wt.h2.close()
-        except Exception:
+        except (AssertionError, OSError, EOFError):
+            # Proxy child already gone / pipe closed / non-owning poll — teardown must not raise.
             pass
 
     def _soft_cleanup(self) -> None:
@@ -1484,5 +1486,6 @@ class WindFarmEnv(gym.Env):
             return
         try:
             self._soft_cleanup()
-        except Exception:
+        except (AttributeError, ImportError, OSError, EOFError):
+            # Destructor during GC / interpreter shutdown — never let teardown raise.
             pass
