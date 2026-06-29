@@ -45,6 +45,18 @@ class EnvFnWrapper:
 
 
 class ParallelPettingZooMultiprocessingWrapper:
+    """Runs multiple PettingZoo ParallelEnv instances in subprocesses for parallel multi-agent training.
+
+    Each environment is stepped in its own process and communicated with over a
+    multiprocessing Pipe. Observations, rewards, terminations, truncations
+    and infos from all environments are combined into per-agent lists, similar to
+    a vectorized Gymnasium environment but for multi-agent PettingZoo environments.
+
+    Args:
+        env_fns (list[Callable[[], ParallelEnv]]): A list of callables, each returning
+            a new instance of the PettingZoo environment to run in its own process.
+    """
+
     def __init__(self, env_fns):
         self.num_envs = len(env_fns)
         self.remotes, self.work_remotes = zip(
@@ -77,12 +89,15 @@ class ParallelPettingZooMultiprocessingWrapper:
         dummy_env.close()
 
     def observation_space(self, agent):
+        """Return the observation space for the given agent."""
         return self.observation_spaces[agent]
 
     def action_space(self, agent):
+        """Return the action space for the given agent."""
         return self.action_spaces[agent]
 
     def reset(self):
+        """Reset all sub-environments and return combined per-agent observations and infos."""
         for remote in self.remotes:
             remote.send(("reset", None))
         results = [remote.recv() for remote in self.remotes]
@@ -129,6 +144,7 @@ class ParallelPettingZooMultiprocessingWrapper:
         return self.current_obs, self.current_info
 
     def step(self, actions):
+        """Step all sub-environments and return combined per-agent obs, rewards, dones, truncs and infos."""
         for i, remote in enumerate(self.remotes):
             env_actions = {
                 agent: actions[agent][i]
@@ -171,6 +187,7 @@ class ParallelPettingZooMultiprocessingWrapper:
         )
 
     def close(self):
+        """Send a close command to every sub-environment and wait for the processes to exit."""
         for remote in self.remotes:
             try:
                 remote.send(("close", None))
@@ -180,18 +197,28 @@ class ParallelPettingZooMultiprocessingWrapper:
             p.join()
 
     def seed(self, seed=None):
+        """Seed each sub-environment with ``seed + i`` for sub-environment index ``i``."""
         for i, remote in enumerate(self.remotes):
             remote.send(("seed", None if seed is None else seed + i))
         for remote in self.remotes:
             remote.recv()
 
     def render(self):
+        """Render every sub-environment using its own render mode."""
         for remote in self.remotes:
             remote.send(("render", None))
         # Wait for all to finish rendering
         [remote.recv() for remote in self.remotes]
 
     def render_grid(self, mode="human", grid_shape=None):
+        """Render all sub-environments as RGB arrays and tile them into a single grid image.
+
+        Args:
+            mode (str): "human" to display the grid with the system image viewer,
+                or "rgb_array" to return it as a NumPy array.
+            grid_shape (tuple[int, int] | None): Optional (rows, cols) shape for the
+                grid. If None, a near-square grid is chosen automatically.
+        """
         # Ask all envs for their current rendered frame
         for remote in self.remotes:
             remote.send(("render", "rgb_array"))
