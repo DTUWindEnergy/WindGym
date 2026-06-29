@@ -1,6 +1,6 @@
 # Quick Start
 
-WindGym ships with **presets** — factory functions that create fully configured wind farm environments in a single call, so you can skip the configuration boilerplate and start experimenting immediately.
+WindGym ships with **presets**: factory functions that create fully configured wind farm environments in a single call, so you can skip the configuration boilerplate and start experimenting immediately.
 
 ---
 
@@ -21,7 +21,7 @@ for _ in range(100):
 env.close()
 ```
 
-This creates a 3-turbine row of V80 turbines with 5D spacing — the same layout used in the paper examples.
+This creates a 3-turbine row of V80 turbines with 5D spacing, the same layout used in the paper examples.
 
 ---
 

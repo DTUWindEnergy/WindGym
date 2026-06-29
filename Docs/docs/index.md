@@ -41,15 +41,22 @@ To begin using WindGym, we recommend the following steps:
 
 ## Project Structure
 
-The WindGym project is organized into several key directories:
+The WindGym project is organized as follows:
 
-- `docs/`: Contains all the documentation files for this website.
-- `WindGym/envs/`: Defines the core Gymnasium environments, including `WindFarmEnv` and `FarmEval`.
-- `WindGym/wrappers/`: Provides Gymnasium wrappers to modify environment behavior, such as `RecordEpisodeVals`, `CurriculumWrapper`, and `PowerWrapper`.
-- `WindGym/Agents/`: Implements various agent types, from basic `GreedyAgent` and `PyWakeAgent` to `RandomAgent` and `ConstantAgent`.
-- `WindGym/MesClass.py`: Manages the collection and processing of wind farm measurements.
-- `WindGym/utils/`: Contains utility functions, including the `Coliseum` class for advanced evaluation workflows and `generate_layouts` for creating wind farm configurations.
-- `scripts/`: Holds scripts for pre-building evaluation data and other tasks (e.g., `prebuild.sh`).
+- `WindGym/`: The main Python package.
+  - `wind_farm_env.py`, `wind_env_multi.py`: The core Gymnasium environments, `WindFarmEnv` and the multi-agent `WindFarmEnvMulti`.
+  - `farm_eval.py`, `agent_eval.py`: The evaluation entry points, `FarmEval` and `AgentEval`.
+  - `presets.py`: Ready-made environment factories (e.g. `three_turbine_row`, `two_by_two_grid`, `nine_turbine_grid`).
+  - `core/`: Core building blocks: reward calculation, wind/turbulence managers, baselines, probes, rendering, and the measurement system with its noise models (`measurement_manager.py`).
+  - `Agents/`: Built-in agents, including `GreedyAgent`, `PyWakeAgent`, `RandomAgent`, `ConstantAgent`, and the `BaseAgent` base class.
+  - `wrappers/`: Gymnasium wrappers such as `RecordEpisodeVals`, `CurriculumWrapper`, `PowerWrapper`, `PerTurbineObservationWrapper`, and the PettingZoo parallel wrapper.
+  - `backend/`: Simulation backend adapters (e.g. the PyWake adapter).
+  - `BasicControllers/`: Basic turbine controllers.
+  - `visualization/`: Plotting utilities for farms and turbines.
+  - `utils/`: Utility functions, including `generate_layouts` for creating wind farm configurations and PPO evaluation helpers.
+- `examples/`: Example scripts and environment configs (`EnvConfigs/`).
+- `tests/`: The test suite.
+- `Docs/`: This documentation site (Docusaurus).
 
 ---
 
