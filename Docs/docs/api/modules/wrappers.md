@@ -127,3 +127,74 @@ Resets the environment using kwargs and resets the episode returns and lengths.
 #### step(actions: ActType) → [tuple](https://docs.python.org/3/library/stdtypes.html#tuple)[ObsType, ArrayType, ArrayType, ArrayType, [List](https://docs.python.org/3/library/typing.html#typing.List)[[Dict](https://docs.python.org/3/library/typing.html#typing.Dict)[[str](https://docs.python.org/3/library/stdtypes.html#str), [Any](https://docs.python.org/3/library/typing.html#typing.Any)]]]
 
 Steps through the environment, recording the episode statistics.
+
+## ParallelPettingZooMultiprocessingWrapper
+
+### WindGym.wrappers.parallel_PettingZoo_wrapper.worker(remote, parent_remote, env_fn_wrapper)
+
+### *class* WindGym.wrappers.parallel_PettingZoo_wrapper.EnvFnWrapper(env_fn)
+
+Bases: [`object`](https://docs.python.org/3/library/functions.html#object)
+
+#### \_\_init_\_(env_fn)
+
+### *class* WindGym.wrappers.parallel_PettingZoo_wrapper.ParallelPettingZooMultiprocessingWrapper(env_fns)
+
+Bases: [`object`](https://docs.python.org/3/library/functions.html#object)
+
+Runs multiple PettingZoo ParallelEnv instances in subprocesses for parallel multi-agent training.
+
+Each environment is stepped in its own process and communicated with over a
+multiprocessing Pipe. Observations, rewards, terminations, truncations
+and infos from all environments are combined into per-agent lists, similar to
+a vectorized Gymnasium environment but for multi-agent PettingZoo environments.
+
+* **Parameters:**
+  **env_fns** ([*list*](https://docs.python.org/3/library/stdtypes.html#list) *[**Callable* *[* *[* *]* *,* *ParallelEnv* *]* *]*) – A list of callables, each returning
+  a new instance of the PettingZoo environment to run in its own process.
+
+#### \_\_init_\_(env_fns)
+
+#### observation_space(agent)
+
+Return the observation space for the given agent.
+
+#### action_space(agent)
+
+Return the action space for the given agent.
+
+#### reset()
+
+Reset all sub-environments and return combined per-agent observations and infos.
+
+#### reset_done_envs(done_env_indices)
+
+Reset only the environments with indices in done_env_indices.
+done_env_indices: list or set of ints - env indices that are done.
+Returns updated observations and infos with resets done in place.
+
+#### step(actions)
+
+Step all sub-environments and return combined per-agent obs, rewards, dones, truncs and infos.
+
+#### close()
+
+Send a close command to every sub-environment and wait for the processes to exit.
+
+#### seed(seed=None)
+
+Seed each sub-environment with `seed + i` for sub-environment index `i`.
+
+#### render()
+
+Render every sub-environment using its own render mode.
+
+#### render_grid(mode='human', grid_shape=None)
+
+Render all sub-environments as RGB arrays and tile them into a single grid image.
+
+* **Parameters:**
+  * **mode** ([*str*](https://docs.python.org/3/library/stdtypes.html#str)) – “human” to display the grid with the system image viewer,
+    or “rgb_array” to return it as a NumPy array.
+  * **grid_shape** ([*tuple*](https://docs.python.org/3/library/stdtypes.html#tuple) *[*[*int*](https://docs.python.org/3/library/functions.html#int) *,* [*int*](https://docs.python.org/3/library/functions.html#int) *]*  *|* *None*) – Optional (rows, cols) shape for the
+    grid. If None, a near-square grid is chosen automatically.

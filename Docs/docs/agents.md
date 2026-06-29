@@ -133,7 +133,7 @@ Optimal static yaw control using PyWake optimization:
 
 ```python
 from WindGym.Agents import PyWakeAgent
-from WindGym.FarmEval import FarmEval
+from WindGym import FarmEval
 from py_wake.examples.data.hornsrev1 import V80
 
 # Turbine positions

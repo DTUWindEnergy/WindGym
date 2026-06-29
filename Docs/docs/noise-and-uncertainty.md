@@ -155,7 +155,7 @@ assert bias_2 != bias_1  # Different bias
 ### Hybrid Noise Model
 
 ```python
-from WindGym.noise.noise_models import HybridNoiseModel
+from WindGym.core import HybridNoiseModel
 
 base_env = WindFarmEnv(
     turbine=V80(),
@@ -186,10 +186,10 @@ print(f"Total noise: {info['noise_info']['wd']['total_noise']:.2f}°")
 ### Using NoisyPyWakeAgent
 
 ```python
-from WindGym.Agents.NoisyPyWakeAgent import NoisyPyWakeAgent
-from WindGym.wrappers.NoisyWindFarmEnv import NoisyWindFarmEnv
-from WindGym.noise.measurement_manager import MeasurementManager
-from WindGym.noise.noise_models import HybridNoiseModel
+from WindGym.Agents import NoisyPyWakeAgent
+from WindGym.core import NoisyWindFarmEnv
+from WindGym.core import MeasurementManager
+from WindGym.core import HybridNoiseModel
 
 # Setup noisy environment
 base_env = WindFarmEnv(
@@ -235,7 +235,7 @@ print(f"Total reward with noisy observations: {total_reward:.2f}")
 ```python
 import numpy as np
 from WindGym.Agents.PyWakeAgent import PyWakeAgent
-from WindGym.Agents.NoisyPyWakeAgent import NoisyPyWakeAgent
+from WindGym.Agents import NoisyPyWakeAgent
 
 def evaluate_agent(env, agent, n_episodes=10):
     """Evaluate agent over multiple episodes."""
@@ -450,9 +450,9 @@ plt.show()
 
 ```python
 from stable_baselines3 import PPO
-from WindGym.wrappers.NoisyWindFarmEnv import NoisyWindFarmEnv
-from WindGym.noise.measurement_manager import MeasurementManager
-from WindGym.noise.noise_models import HybridNoiseModel
+from WindGym.core import NoisyWindFarmEnv
+from WindGym.core import MeasurementManager
+from WindGym.core import HybridNoiseModel
 
 # Create noisy training environment
 base_env = WindFarmEnv(
