@@ -20,8 +20,8 @@ def worker(remote, parent_remote, env_fn_wrapper):
                 obs, rewards, dones, truncs, infos = env.step(actions)
                 remote.send((obs, rewards, dones, truncs, infos))
             elif cmd == "render":
-                env.render()
-                remote.send(None)
+                frame = env.render()
+                remote.send(frame)
             elif cmd == "close":
                 env.close()
                 remote.close()
@@ -219,9 +219,11 @@ class ParallelPettingZooMultiprocessingWrapper:
             grid_shape (tuple[int, int] | None): Optional (rows, cols) shape for the
                 grid. If None, a near-square grid is chosen automatically.
         """
-        # Ask all envs for their current rendered frame
+        # Ask all envs for their current rendered frame.
+        # Each sub-env must have been constructed with render_mode="rgb_array"
+        # so that env.render() returns an RGB array instead of None.
         for remote in self.remotes:
-            remote.send(("render", "rgb_array"))
+            remote.send(("render", None))
         frames = [remote.recv() for remote in self.remotes]
 
         # Convert to numpy arrays if needed
