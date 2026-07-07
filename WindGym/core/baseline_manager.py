@@ -9,7 +9,7 @@ from typing import Optional, Callable, TYPE_CHECKING
 import numpy as np
 
 from dynamiks.wind_turbines import PyWakeWindTurbines
-from dynamiks.wind_turbines.hawc2_windturbine import HAWC2WindTurbines
+from ..backend.hawc2_adapter import HAWC2WindTurbinesW
 from ..BasicControllers import local_yaw_controller, global_yaw_controller
 
 # Use TYPE_CHECKING to avoid circular import at runtime
@@ -179,12 +179,14 @@ class BaselineManager:
                     "name_string is required when initializing HAWC2 baseline turbines"
                 )
             # HAWC2 high-fidelity turbines
-            self.wts_baseline = HAWC2WindTurbines(
-                x=self.x_pos,
-                y=self.y_pos,
-                htc_lst=[self.htc_path],
-                case_name=name_string + "_baseline",
-                suppress_output=True,
+            self.wts_baseline = (
+                HAWC2WindTurbinesW(  # power() normalized to W (native HAWC2 is kW)
+                    x=self.x_pos,
+                    y=self.y_pos,
+                    htc_lst=[self.htc_path],
+                    case_name=name_string + "_baseline",
+                    suppress_output=True,
+                )
             )
             # Add yaw sensor
             self.wts_baseline.add_sensor(
