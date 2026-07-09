@@ -108,7 +108,8 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
             max_turb_move=max_turb_move,
         )
 
-        self.act_var = 1
+        # self.act_var is inherited from WindFarmEnv (1, or 2 when
+        # derate_action=True and yaw_action=True → per-agent [yaw, derate])
         # Define the observation and action space
         # The obsevations pr turbine is:
         turbine_obs_var = self.farm_measurements.turb_mes[0].observed_variables()
@@ -207,6 +208,8 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
                         agent_idx
                     ],
                 }
+                if self.derate_action:
+                    info_dict["derate agent"] = self.current_derate[agent_idx]
                 if self.Baseline_comp:
                     info_dict["yaw angles base"] = self.fs_baseline.windTurbines.yaw[
                         agent_idx
@@ -279,8 +282,14 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
         We unpack the actions, and call the step function of the parent class.
         """
 
-        # Extract all actions
-        all_action = np.array([yaw[0] for yaw in actions.values()])
+        # Extract all actions. Each agent supplies act_var values; the parent
+        # env expects them grouped by variable: [yaw_0..yaw_n | derate_0..derate_n]
+        # (or a single group when act_var == 1).
+        act_mat = np.array(
+            [np.atleast_1d(a)[: self.act_var] for a in actions.values()],
+            dtype=np.float32,
+        )  # (n_agents, act_var)
+        all_action = act_mat.T.reshape(-1)
 
         # Call the parent WindFarmEnv's step method
         parent_obs, parent_reward, parent_terminated, parent_truncated, parent_info = (

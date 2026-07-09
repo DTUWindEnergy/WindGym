@@ -1,3 +1,23 @@
+"""LEGACY derating via power-curve inversion.
+
+This module retrofits derating onto tabular (PowerCtTabular) turbines by
+inverting the power curve: P(ws_op) = (1 - derate) * P(ws). It approximates
+the derated Ct as Ct(ws_op), i.e. it assumes the turbine tracks its normal
+operating curve — it does NOT know how a real controller would re-optimise
+pitch/TSR at reduced power.
+
+Preferred approach: build the turbine from a derating surrogate that tabulates
+power/ct over (ws, yaw, derating) directly — e.g. a HAWCStab2-generated
+PowerCtNDTabular with a 'derate' dimension (see hawcpowerctcurvegenerator).
+Such turbines accept 'derate' natively and need nothing from this module;
+WindFarmEnv only requires that the powerCtFunction accepts a 'derate' input.
+
+Use this module only when no surrogate exists for the turbine (e.g. SWT23):
+
+    from WindGym.core.derating import add_derating_to_turbine
+    turbine = add_derating_to_turbine(SWT23())
+"""
+
 from __future__ import annotations
 import numpy as np
 from py_wake.wind_turbines.power_ct_functions import AdditionalModel
@@ -84,18 +104,26 @@ class DeratingModel(AdditionalModel):
         return f(ws_op, **kwargs)
 
 
-def add_derating_to_turbine(turbine) -> None:
+def add_derating_to_turbine(turbine):
     """Attach a DeratingModel to *turbine*'s PowerCtTabular powerCtFunction.
 
-    Modifies *turbine* in-place.  After this call the turbine accepts an
-    optional 'derate' kwarg in all power / ct computations.  Passing
-    derate=0 (default) leaves behaviour identical to the unmodified turbine.
+    Modifies *turbine* in-place and returns it (for chaining, e.g.
+    ``WindFarmEnv(turbine=add_derating_to_turbine(SWT23()), ...)``).
+    After this call the turbine accepts an optional 'derate' kwarg in all
+    power / ct computations.  Passing derate=0 (default) leaves behaviour
+    identical to the unmodified turbine.
+
+    Turbines whose powerCtFunction already accepts a 'derate' input (e.g. a
+    surrogate-based PowerCtNDTabular with a derate dimension) are left
+    untouched — they handle derating natively.
 
     Raises TypeError if the turbine's powerCtFunction is not a PowerCtTabular.
     """
     from py_wake.wind_turbines.power_ct_functions import PowerCtTabular
 
     pctf = turbine.powerCtFunction
+    if "derate" in (list(pctf.required_inputs) + list(pctf.optional_inputs)):
+        return turbine
     if not isinstance(pctf, PowerCtTabular):
         raise TypeError(
             f"add_derating_to_turbine requires a PowerCtTabular powerCtFunction, "
@@ -103,7 +131,8 @@ def add_derating_to_turbine(turbine) -> None:
         )
     # Guard: don't add twice (e.g. across multiple env resets sharing turbine)
     if any(isinstance(m, DeratingModel) for m in pctf.model_lst):
-        return
+        return turbine
     dm = DeratingModel(pctf.ws_tab, pctf.power_ct_tab[0])
     pctf.model_lst.append(dm)
     pctf.add_inputs(dm.required_inputs, dm.optional_inputs)
+    return turbine

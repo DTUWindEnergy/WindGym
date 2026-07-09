@@ -41,7 +41,6 @@ from dynamiks.dwm.particle_motion_models import CutOffFrq
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 
 from WindGym.core.wind_probe import WindProbe
-from WindGym.core.derating import add_derating_to_turbine
 
 # import logging
 # logger = logging.getLogger(__name__)
@@ -215,10 +214,14 @@ class WindFarmEnv(gym.Env):
         cfg = self._normalize_config_input(config)
         self._apply_config(cfg)
 
-        # Derating: extend action space and prepare turbine once (idempotent)
+        # Derating: extend the action space. The turbine itself must accept a
+        # 'derate' input — the env only forwards per-turbine derate values.
+        # With yaw_action=False the agent controls derating only (act_var=1).
         if self.derate_action:
-            self.act_var = 2
-            add_derating_to_turbine(turbine)
+            self.act_var = 2 if self.yaw_action else 1
+            self._check_turbine_supports_derating(turbine)
+        elif not self.yaw_action:
+            raise ValueError("yaw_action=False requires derate_action=True")
 
         self.n_turb = len(x_pos)  # The number of turbines
 
@@ -513,6 +516,8 @@ class WindFarmEnv(gym.Env):
 
         # Derating action (optional, all default to off/zero)
         self.derate_action = config.get("derate_action", False)
+        # yaw_action=False (with derate_action=True) gives a derate-only agent
+        self.yaw_action = config.get("yaw_action", True)
         self.derate_min = config.get("derate_min", 0.0)
         self.derate_max = config.get("derate_max", 1.0)
         self.derate_penalty = config.get("derate_penalty", 0.0)
@@ -981,7 +986,7 @@ class WindFarmEnv(gym.Env):
 
         # If in "yaw" mode, we have an action budget that spans the env step.
         # Only the first n_turb entries are yaw; the rest (if any) are derate.
-        if apply_agent_action and self.ActionMethod == "yaw":
+        if apply_agent_action and self.yaw_action and self.ActionMethod == "yaw":
             self.action_remaining = (
                 action[: self.n_turb] * self.yaw_step_env
             )  # total budget for this env step
@@ -989,7 +994,8 @@ class WindFarmEnv(gym.Env):
         for j in range(T):
             # 1) Agent yaw update (if any)
             if apply_agent_action:
-                self._adjust_yaws(action)
+                if self.yaw_action:
+                    self._adjust_yaws(action)
                 if self.derate_action:
                     self._apply_derating(action)
 
@@ -1131,16 +1137,37 @@ class WindFarmEnv(gym.Env):
         else:
             raise ValueError("The ActionMethod must be yaw, wind or absolute")
 
+    @staticmethod
+    def _check_turbine_supports_derating(turbine):
+        """Validate that *turbine* can be derated (powerCtFunction accepts 'derate')."""
+        pctf = turbine.powerCtFunction
+        inputs = list(getattr(pctf, "required_inputs", [])) + list(
+            getattr(pctf, "optional_inputs", [])
+        )
+        if "derate" not in inputs:
+            raise ValueError(
+                "derate_action=True requires a turbine whose powerCtFunction "
+                "accepts a 'derate' input, e.g. built from a derating surrogate "
+                "(PowerCtNDTabular with a 'derate' dimension). Alternatively, "
+                "retrofit a tabular turbine with the legacy power-curve-inversion "
+                "wrapper: WindGym.core.derating.add_derating_to_turbine(turbine)."
+            )
+
     def _apply_derating(self, action):
         """Apply per-turbine derating from the last n_turb entries of *action*.
 
         Action layout when derate_action=True:
-            [yaw_0 .. yaw_n-1 | derate_0 .. derate_n-1]
+            [yaw_0 .. yaw_n-1 | derate_0 .. derate_n-1]   (yaw_action=True)
+            [derate_0 .. derate_n-1]                       (yaw_action=False)
         Each derate value is in [-1, 1] and mapped to [derate_min, derate_max].
         """
-        derate_raw = action[self.n_turb :]  # last n_turb entries
-        derate = (derate_raw + 1.0) / 2.0  # [-1, 1] → [0, 1]
-        derate = np.clip(derate, self.derate_min, self.derate_max).astype(np.float64)
+        derate_raw = action[self.n_turb :] if self.yaw_action else action[: self.n_turb]
+        # Affine map [-1, 1] → [derate_min, derate_max] so the full action
+        # range is useful even when derate_max < 1 (no saturated dead zone).
+        frac = np.clip((derate_raw + 1.0) / 2.0, 0.0, 1.0)
+        derate = (self.derate_min + frac * (self.derate_max - self.derate_min)).astype(
+            np.float64
+        )
         self.current_derate = derate
 
         if self.backend == "dynamiks":
