@@ -210,6 +210,9 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
                 }
                 if self.derate_action:
                     info_dict["derate agent"] = self.current_derate[agent_idx]
+                    info_dict["derate measured"] = self.farm_measurements.turb_mes[
+                        agent_idx
+                    ].get_derate()
                 if self.Baseline_comp:
                     info_dict["yaw angles base"] = self.fs_baseline.windTurbines.yaw[
                         agent_idx

@@ -523,6 +523,25 @@ class WindFarmEnv(gym.Env):
         self.derate_penalty = config.get("derate_penalty", 0.0)
         self.derate_penalty_type = config.get("derate_penalty_type", "change")
 
+        # How the derate action is applied:
+        #   "absolute": action is the setpoint, mapped to [derate_min, derate_max]
+        #   "step":     action is a delta, at most derate_step_env change per env step
+        self.derate_method = str(config.get("derate_method", "absolute")).lower()
+        if self.derate_method not in {"absolute", "step"}:
+            raise ValueError("derate_method must be 'absolute' or 'step'")
+        self.derate_step_env = config.get("derate_step_env", 0.1)
+
+        # Derate observation (per turbine, mirrors yaw_mes). Defaults to
+        # observing the current derate whenever the derate action is enabled.
+        derate_mes = config.get("derate_mes") or {}
+        self.derate_mes = {
+            "derate_current": derate_mes.get("derate_current", self.derate_action),
+            "derate_rolling_mean": derate_mes.get("derate_rolling_mean", False),
+            "derate_history_N": derate_mes.get("derate_history_N", 1),
+            "derate_history_length": derate_mes.get("derate_history_length", 10),
+            "derate_window_length": derate_mes.get("derate_window_length", 10),
+        }
+
         # Initialize probe manager
         probes_config = config.get("probes", [])
         self.probe_manager = ProbeManager(probes_config=probes_config)
@@ -569,6 +588,11 @@ class WindFarmEnv(gym.Env):
             yaw_history_N=self.yaw_mes["yaw_history_N"],
             yaw_history_length=self.yaw_mes["yaw_history_length"],
             yaw_window_length=self.yaw_mes["yaw_window_length"],
+            derate_current=self.derate_mes["derate_current"],
+            derate_rolling_mean=self.derate_mes["derate_rolling_mean"],
+            derate_history_N=self.derate_mes["derate_history_N"],
+            derate_history_length=self.derate_mes["derate_history_length"],
+            derate_window_length=self.derate_mes["derate_window_length"],
             power_current=self.power_mes["power_current"],
             power_rolling_mean=self.power_mes["power_rolling_mean"],
             power_history_N=self.power_mes["power_history_N"],
@@ -690,6 +714,7 @@ class WindFarmEnv(gym.Env):
 
         if self.derate_action:
             return_dict["derate agent"] = self.current_derate
+            return_dict["derate measured"] = self.farm_measurements.get_derate_turb()
 
         if self.Baseline_comp:
             return_dict["yaw angles base"] = self.fs_baseline.windTurbines.yaw
@@ -923,6 +948,7 @@ class WindFarmEnv(gym.Env):
                 out["mean_winddir"],
                 out["mean_yaw"],
                 out["mean_power"],
+                derates=self.current_derate,
             )
             # Power history (farm-level)
             self.farm_pow_deq.append(out["mean_power"].sum())
@@ -990,6 +1016,13 @@ class WindFarmEnv(gym.Env):
             self.action_remaining = (
                 action[: self.n_turb] * self.yaw_step_env
             )  # total budget for this env step
+
+        # Stepwise derating: snapshot the derate at env-step start so the
+        # per-substep application is idempotent (setpoint = base + delta).
+        if apply_agent_action and self.derate_action and self.derate_method == "step":
+            self._derate_step_base = np.asarray(
+                self.current_derate, dtype=np.float64
+            ).copy()
 
         for j in range(T):
             # 1) Agent yaw update (if any)
@@ -1159,15 +1192,26 @@ class WindFarmEnv(gym.Env):
         Action layout when derate_action=True:
             [yaw_0 .. yaw_n-1 | derate_0 .. derate_n-1]   (yaw_action=True)
             [derate_0 .. derate_n-1]                       (yaw_action=False)
-        Each derate value is in [-1, 1] and mapped to [derate_min, derate_max].
+
+        derate_method="absolute": each value in [-1, 1] is affine-mapped to a
+        setpoint in [derate_min, derate_max].
+        derate_method="step": each value in [-1, 1] is a delta of at most
+        derate_step_env per env step, added to the derate at env-step start.
         """
         derate_raw = action[self.n_turb :] if self.yaw_action else action[: self.n_turb]
-        # Affine map [-1, 1] → [derate_min, derate_max] so the full action
-        # range is useful even when derate_max < 1 (no saturated dead zone).
-        frac = np.clip((derate_raw + 1.0) / 2.0, 0.0, 1.0)
-        derate = (self.derate_min + frac * (self.derate_max - self.derate_min)).astype(
-            np.float64
-        )
+
+        if self.derate_method == "step":
+            delta = np.clip(derate_raw, -1.0, 1.0) * self.derate_step_env
+            derate = np.clip(
+                self._derate_step_base + delta, self.derate_min, self.derate_max
+            ).astype(np.float64)
+        else:
+            # Affine map [-1, 1] → [derate_min, derate_max] so the full action
+            # range is useful even when derate_max < 1 (no saturated dead zone).
+            frac = np.clip((derate_raw + 1.0) / 2.0, 0.0, 1.0)
+            derate = (
+                self.derate_min + frac * (self.derate_max - self.derate_min)
+            ).astype(np.float64)
         self.current_derate = derate
 
         if self.backend == "dynamiks":
@@ -1211,6 +1255,7 @@ class WindFarmEnv(gym.Env):
             out["mean_winddir"],
             out["mean_yaw"],
             out["mean_power"],
+            derates=self.current_derate,
         )
         self.farm_pow_deq.append(out["mean_power"].sum())
         if self.Baseline_comp:

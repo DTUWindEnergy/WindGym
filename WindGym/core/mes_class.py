@@ -151,6 +151,11 @@ class TurbMes:
         yaw_history_N: int = 2,
         yaw_history_length: int = 30,
         yaw_window_length: int = 1,
+        derate_current: bool = False,
+        derate_rolling_mean: bool = False,
+        derate_history_N: int = 1,
+        derate_history_length: int = 10,
+        derate_window_length: int = 10,
         power_current: bool = False,
         power_rolling_mean: bool = True,
         power_history_N: int = 1,
@@ -189,6 +194,14 @@ class TurbMes:
             history_N=yaw_history_N,
             history_length=yaw_history_length,
             window_length=yaw_window_length,
+        )
+        # Derate fraction in [0, 1]; only populated when the env has derating
+        self.derate = Mes(
+            current=derate_current,
+            rolling_mean=derate_rolling_mean,
+            history_N=derate_history_N,
+            history_length=derate_history_length,
+            window_length=derate_window_length,
         )
         self.power = Mes(
             current=power_current,
@@ -263,6 +276,7 @@ class TurbMes:
                 self.ws.history_length,
                 self.wd.history_length,
                 self.yaw.history_length,
+                self.derate.history_length,
                 self.power.history_length,
             ]
         )
@@ -282,6 +296,11 @@ class TurbMes:
 
         # Number of yaw variables
         obs_var += self.yaw.current + self.yaw.rolling_mean * self.yaw.history_N
+
+        # Number of derate variables
+        obs_var += (
+            self.derate.current + self.derate.rolling_mean * self.derate.history_N
+        )
 
         # Number of TI variables
         obs_var += self.include_TI
@@ -311,6 +330,10 @@ class TurbMes:
         # add measurements to the yaw
         self.yaw.add_measurement(measurement)
 
+    def add_derate(self, measurement: float | NDArray[np.floating]) -> None:
+        # add measurements to the derate
+        self.derate.add_measurement(measurement)
+
     def add_power(self, measurement: float | NDArray[np.floating]) -> None:
         # add measurements to the power
         self.power.add_measurement(measurement)
@@ -339,6 +362,13 @@ class TurbMes:
             )
         else:
             return self.yaw.get_measurements()
+
+    def get_derate(self, scaled: bool = False) -> NDArray[np.float32]:
+        # get the derate measurements (derate fraction lives in [0, 1])
+        if scaled:
+            return self._scale_val(self.derate.get_measurements(), 0.0, 1.0)
+        else:
+            return self.derate.get_measurements()
 
     def get_power(self, scaled: bool = False) -> NDArray[np.float32]:
         # get the power measurements
@@ -382,6 +412,7 @@ class TurbMes:
                     self._scale_val(self.get_ws(), self.ws_min, self.ws_max),
                     self._scale_val(self.get_wd(), self.wd_min, self.wd_max),
                     self._scale_val(self.get_yaw(), self.yaw_min, self.yaw_max),
+                    self._scale_val(self.get_derate(), 0.0, 1.0),
                     self._scale_val(self.get_TI(), self.TI_min, self.TI_max),
                     self._scale_val(self.get_power(), 0, self.power_max),
                 ]
@@ -392,6 +423,7 @@ class TurbMes:
                     self.get_ws(),
                     self.get_wd(),
                     self.get_yaw(),
+                    self.get_derate(),
                     self.get_TI(),
                     self.get_power(),
                 ]
@@ -433,6 +465,11 @@ class FarmMes:
         yaw_history_N: int = 2,
         yaw_history_length: int = 30,
         yaw_window_length: int = 1,
+        derate_current: bool = False,
+        derate_rolling_mean: bool = False,
+        derate_history_N: int = 1,
+        derate_history_length: int = 10,
+        derate_window_length: int = 10,
         power_current: bool = False,
         power_rolling_mean: bool = True,
         power_history_N: int = 1,
@@ -509,6 +546,11 @@ class FarmMes:
                     yaw_history_N=yaw_history_N,
                     yaw_history_length=yaw_history_length,
                     yaw_window_length=yaw_window_length,
+                    derate_current=derate_current,
+                    derate_rolling_mean=derate_rolling_mean,
+                    derate_history_N=derate_history_N,
+                    derate_history_length=derate_history_length,
+                    derate_window_length=derate_window_length,
                     power_current=power_current and turb_power,
                     power_rolling_mean=power_rolling_mean and turb_power,
                     power_history_N=power_history_N,
@@ -545,6 +587,8 @@ class FarmMes:
             yaw_history_N=yaw_history_N,
             yaw_history_length=yaw_history_length,
             yaw_window_length=yaw_window_length,
+            derate_current=False,  # avoid farm derate measurement (like yaw)
+            derate_rolling_mean=False,
             power_current=power_current and farm_power,
             power_rolling_mean=power_rolling_mean and farm_power,
             power_history_N=power_history_N,
@@ -594,6 +638,11 @@ class FarmMes:
         for turb in self.turb_mes:
             turb.add_yaw(measurement)
 
+    def add_derate(self, measurement: NDArray[np.floating]) -> None:
+        # add per-turbine derate measurements
+        for turb, derate in zip(self.turb_mes, measurement):
+            turb.add_derate(derate)
+
     def add_power(self, measurement: NDArray[np.floating]) -> None:
         # add measurements to the power
         for turb in self.turb_mes:
@@ -609,6 +658,7 @@ class FarmMes:
         wd: NDArray[np.floating],
         yaws: NDArray[np.floating],
         powers: NDArray[np.floating],
+        derates: NDArray[np.floating] | None = None,
     ) -> None:
         # add measurements to the ws, wd and yaw in one go
         for turb, speed, direction, yaw, power in zip(
@@ -618,6 +668,9 @@ class FarmMes:
             turb.add_wd(direction)
             turb.add_yaw(yaw)
             turb.add_power(power)
+
+        if derates is not None:
+            self.add_derate(derates)
 
         # Add to farm level measurements
         self.farm_mes.add_ws(np.mean(ws))
@@ -708,6 +761,10 @@ class FarmMes:
     def get_yaw_turb(self, scaled: bool = False) -> NDArray[np.float32]:
         # get the yaw measurements
         return np.array([turb.get_yaw(scaled) for turb in self.turb_mes]).flatten()
+
+    def get_derate_turb(self, scaled: bool = False) -> NDArray[np.float32]:
+        # get the derate measurements
+        return np.array([turb.get_derate(scaled) for turb in self.turb_mes]).flatten()
 
     def get_measurements(self, scaled: bool = False) -> NDArray[np.float32]:
         # get all the measurements
