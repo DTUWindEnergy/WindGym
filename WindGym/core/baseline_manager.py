@@ -203,6 +203,8 @@ class BaselineManager:
                 ),
                 expose=True,
             )
+            # No derate sensor: baseline turbines run greedy. Nothing writes
+            # "general variable 2", whose htc init value 100 means no derating.
         else:
             # PyWake turbines
             self.wts_baseline = PyWakeWindTurbines(
