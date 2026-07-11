@@ -60,6 +60,20 @@ class MeasurementSpec:
 # --- Noise Model Definitions ---
 
 
+def _find_wd_noise(noise_map: Dict[str, float], turbine_id: Optional[int]):
+    """Look up the wind-direction noise that confounds a yaw measurement.
+
+    Prefers the 'current' wd spec; falls back to the first rolling-mean spec
+    (wd_hist_0) so the yaw/wd confounding also works for configs that only
+    observe rolling-mean wind directions.
+    """
+    prefix = f"turb_{turbine_id}" if turbine_id is not None else "farm"
+    for name in (f"{prefix}/wd_current", f"{prefix}/wd_hist_0"):
+        if name in noise_map:
+            return noise_map[name]
+    return 0.0
+
+
 class NoiseModel(ABC):
     # These will be set by MeasurementManager during its initialization
     # and will be accessible as NoiseModel._unscale_value_static
@@ -109,10 +123,19 @@ class NoiseModel(ABC):
             # 2. Add noise in physical units
             noisy_physical = values_physical + noise_unscaled_physical
 
-            # 3. Apply circular wrapping (e.g., 0-360 degrees)
-            wrapped_physical = (
-                noisy_physical + spec.circular_range
-            ) % spec.circular_range
+            # 3. Apply circular wrapping into the window centred on the
+            # spec's own scaling range (not blindly into [0, 360), which is
+            # wrong whenever the range isn't exactly [0, 360]). For ranges
+            # narrower than the full circle, values that wrap outside the
+            # observable sector are clipped to the nearest boundary.
+            span = spec.max_val - spec.min_val
+            center = 0.5 * (spec.min_val + spec.max_val)
+            lower = center - spec.circular_range / 2.0
+            wrapped_physical = ((noisy_physical - lower) % spec.circular_range) + lower
+            if span < spec.circular_range:
+                wrapped_physical = np.clip(
+                    wrapped_physical, spec.min_val, spec.max_val
+                )
 
             # 4. Convert back to scaled representation [-1, 1] using the original min/max of the observation space
             return NoiseModel._scale_value_static(
@@ -169,16 +192,8 @@ class WhiteNoiseModel(NoiseModel):
 
             # --- Confounding Logic for Yaw Angle ---
             if spec.measurement_type == MeasurementType.YAW_ANGLE:
-                if spec.turbine_id is not None:
-                    # Find corresponding 'current' wind direction noise for this turbine
-                    wd_spec_name = f"turb_{spec.turbine_id}/wd_current"
-                    wd_noise = physical_noise_map.get(wd_spec_name, 0.0)
-                else:
-                    # Fallback for farm-level yaw
-                    wd_spec_name = "farm/wd_current"
-                    wd_noise = physical_noise_map.get(wd_spec_name, 0.0)
-
                 # Sensed Yaw = True Yaw - WD_noise + Yaw_noise
+                wd_noise = _find_wd_noise(physical_noise_map, spec.turbine_id)
                 final_noise_physical = primary_noise_physical - wd_noise
 
             # --- Apply the final calculated noise ---
@@ -210,7 +225,7 @@ class EpisodicBiasNoiseModel(NoiseModel):
         super().__init__()  # Call parent constructor
         self.bias_ranges = bias_ranges
         self.current_unscaled_biases_by_spec_name: Dict[str, float] = {}
-        self.current_bias_vector: Optional[np.ndarray] = None
+        self._bias_resampled: bool = False
         self.rng: Optional[np.random.Generator] = None  # Will be set in reset_noise
 
     def reset_noise(self, specs: List[MeasurementSpec], rng: np.random.Generator):
@@ -219,55 +234,15 @@ class EpisodicBiasNoiseModel(NoiseModel):
 
     def _resample_bias(self, specs: List[MeasurementSpec], rng: np.random.Generator):
         # This method is called by reset_noise() to generate the bias for an episode.
+        # Sample all intrinsic physical biases from their defined ranges; the
+        # confounding and scaling are applied per-spec in apply_noise().
         self.current_unscaled_biases_by_spec_name = {}
-
-        if not specs:
-            self.current_bias_vector = np.array([], dtype=np.float32)
-            return
-
-        # Pass 1: Sample all intrinsic physical biases from their defined ranges.
         for spec in specs:
             if spec.measurement_type in self.bias_ranges:
                 min_bias, max_bias = self.bias_ranges[spec.measurement_type]
                 unscaled_bias = rng.uniform(min_bias, max_bias) * spec.noise_sensitivity
                 self.current_unscaled_biases_by_spec_name[spec.name] = unscaled_bias
-
-        # Pass 2: Build the final scaled bias vector, applying confounding logic for yaw.
-        total_obs_size = max(s.index_range[1] for s in specs) if specs else 0
-        temp_scaled_bias_vector = np.zeros(total_obs_size, dtype=np.float32)
-
-        for spec in specs:
-            primary_bias_physical = self.current_unscaled_biases_by_spec_name.get(
-                spec.name, 0.0
-            )
-            final_bias_physical = primary_bias_physical
-
-            # --- CONFOUNDING LOGIC ---
-            if spec.measurement_type == MeasurementType.YAW_ANGLE:
-                wd_bias = 0.0
-                if spec.turbine_id is not None:
-                    # Find the corresponding wind direction bias for this turbine.
-                    wd_spec_name = f"turb_{spec.turbine_id}/wd_current"
-                    wd_bias = self.current_unscaled_biases_by_spec_name.get(
-                        wd_spec_name, 0.0
-                    )
-
-                # Apply the formula: Sensed Yaw = True Yaw - WD_Noise + Yaw_Noise
-                final_bias_physical = primary_bias_physical - wd_bias
-
-            # --- SCALING ---
-            # Scale the final physical bias and place it in the vector for apply_noise to use.
-            span = spec.max_val - spec.min_val
-            scaled_bias_delta = 0.0
-            if span > 0:
-                # This correctly scales a physical delta into the [-1, 1] observation space.
-                scaled_bias_delta = final_bias_physical * (2.0 / span)
-
-            temp_scaled_bias_vector[spec.index_range[0] : spec.index_range[1]] = (
-                scaled_bias_delta
-            )
-
-        self.current_bias_vector = temp_scaled_bias_vector
+        self._bias_resampled = True
 
     def apply_noise(
         self,
@@ -278,13 +253,10 @@ class EpisodicBiasNoiseModel(NoiseModel):
         """
         Applies the sampled episodic bias to the given observations.
         """
-        if (
-            self.current_bias_vector is None
-            or self.current_bias_vector.shape != observations.shape
-        ):
+        if not self._bias_resampled:
             self._resample_bias(specs, rng)
-            if self.current_bias_vector is None or self.current_bias_vector.size == 0:
-                return observations.copy()
+        if not specs:
+            return observations.copy()
 
         noisy_obs = observations.copy()
 
@@ -299,22 +271,10 @@ class EpisodicBiasNoiseModel(NoiseModel):
 
             # --- Confounding Logic for Yaw Angle ---
             if spec.measurement_type == MeasurementType.YAW_ANGLE:
-                # Find the corresponding wind direction bias for this turbine.
-                # Assumes a naming convention like 'turb_0/wd_current'.
-                if spec.turbine_id is not None:
-                    # Look for the current (non-historic) wind direction measurement for this turbine
-                    wd_spec_name = f"turb_{spec.turbine_id}/wd_current"
-                    wd_bias = self.current_unscaled_biases_by_spec_name.get(
-                        wd_spec_name, 0.0
-                    )
-                else:
-                    # Fallback for a farm-level yaw angle (unlikely)
-                    wd_spec_name = "farm/wd_current"
-                    wd_bias = self.current_unscaled_biases_by_spec_name.get(
-                        wd_spec_name, 0.0
-                    )
-
                 # Sensed Yaw = True Yaw - WD_noise + Yaw_noise
+                wd_bias = _find_wd_noise(
+                    self.current_unscaled_biases_by_spec_name, spec.turbine_id
+                )
                 final_bias_physical = primary_bias_physical - wd_bias
 
             # --- Apply the final calculated bias ---
@@ -494,6 +454,19 @@ class MeasurementManager:
         specs: List[MeasurementSpec] = []
         current_idx = 0
         fm = self.env.farm_measurements
+
+        # Probe readings are prepended to each turbine's observation block,
+        # but no MeasurementSpec is built for them yet — noise would be
+        # applied to the wrong indices. Refuse loudly instead of corrupting.
+        probe_manager = getattr(self.env, "probe_manager", None)
+        if probe_manager is not None and probe_manager.probes_config:
+            raise NotImplementedError(
+                "NoisyWindFarmEnv / MeasurementManager does not support "
+                "environments with wind probes yet: probe readings have no "
+                "MeasurementSpec, so noise would be applied to the wrong "
+                "observation indices. Remove the 'probes' config section or "
+                "use the base environment without measurement noise."
+            )
 
         def get_mes_names(mes_obj, prefix=""):
             names = []
