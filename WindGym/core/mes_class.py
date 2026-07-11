@@ -32,6 +32,7 @@ class Mes:
     history_N: int, number of rolling windows to use for the rolling mean. If 1, only return the latest value, if 2 return the lates and oldest value, if more then do some inbetween values also
     history_length: int, number of measurements to save
     window_length: int, size of the rolling window
+    circular: bool, if true the measurements are angles in degrees and all means are circular (handles the 0/360 wrap)
     """
 
     def __init__(
@@ -41,6 +42,7 @@ class Mes:
         history_N: int = 3,
         history_length: int = 100,
         window_length: int = 5,
+        circular: bool = False,
     ) -> None:
         # Do you want the current wind speed to be included in the measurements
         self.current: bool = current
@@ -51,8 +53,15 @@ class Mes:
         )
         self.history_length: int = history_length  # Number of measurements to save
         self.window_length: int = window_length  # Size of the rolling window
+        self.circular: bool = circular  # Angles in degrees -> use circular means
 
         self.measurements: deque = deque(maxlen=self.history_length)
+
+    def _mean(self, values) -> float:
+        """Mean of *values*; circular (degrees) when this Mes holds angles."""
+        if self.circular:
+            return utils.circ_mean_deg(values)
+        return np.mean(values)
 
     def __call__(self, measurement: float | NDArray[np.floating]) -> None:
         """
@@ -80,7 +89,7 @@ class Mes:
 
         if self.current:
             # Return the current measurement
-            return_vals.append(np.mean(self.measurements[-1]))
+            return_vals.append(self._mean(self.measurements[-1]))
 
         if self.rolling_mean:
             available_length = len(self.measurements)
@@ -119,11 +128,7 @@ class Mes:
                         )
 
                 # Always calculate mean of whatever data we have
-                # if result:
-                return_vals.append(np.mean(result))
-                # else:
-                #    # If somehow we got no data, use the latest value
-                #    return_vals.append(np.mean(self.measurements[-1]))
+                return_vals.append(self._mean(result))
 
         return np.array(return_vals, dtype=np.float32)
 
@@ -171,7 +176,6 @@ class TurbMes:
         TI_max: float = 0.50,
         include_TI: bool = True,
         power_max: float = 2000000,  # 2 MW
-        n_probes_per_turb: dict = {},
         ti_sample_count: int = 30,
     ) -> None:
         self.ws = Mes(
@@ -187,6 +191,7 @@ class TurbMes:
             history_N=wd_history_N,
             history_length=wd_history_length,
             window_length=wd_window_length,
+            circular=True,  # wind direction wraps at 0/360
         )
         self.yaw = Mes(
             current=yaw_current,
@@ -222,7 +227,6 @@ class TurbMes:
         self.TI_max: float = TI_max
         self.include_TI: bool = include_TI
         self.power_max: float = power_max
-        self.n_probes_per_turb: dict = n_probes_per_turb
 
         if self.include_TI:
             # Set get_TI function to calc_TI for TI calculations
@@ -271,15 +275,17 @@ class TurbMes:
         Return the maximum history length of the measurements
         """
 
-        return max(
-            [
-                self.ws.history_length,
-                self.wd.history_length,
-                self.yaw.history_length,
-                self.derate.history_length,
-                self.power.history_length,
-            ]
-        )
+        lengths = [
+            self.ws.history_length,
+            self.wd.history_length,
+            self.yaw.history_length,
+            self.power.history_length,
+        ]
+        # Derate is off by default; don't let its history default inflate
+        # the reset burn-in of non-derating envs.
+        if self.derate.current or self.derate.rolling_mean:
+            lengths.append(self.derate.history_length)
+        return max(lengths)
 
     def observed_variables(self) -> int:
         """
@@ -308,13 +314,9 @@ class TurbMes:
         # Number of power variables
         obs_var += self.power.current + self.power.rolling_mean * self.power.history_N
 
-        # Number of probes per turbine
-        if (
-            hasattr(self, "n_probes_per_turb")
-            and self.n_probes_per_turb is not None
-            and 0 in self.n_probes_per_turb
-        ):
-            obs_var += self.n_probes_per_turb[0]
+        # Probe readings are prepended in get_measurements when the env has
+        # attached probes to this TurbMes (see WindFarmEnv._init_farm_mes).
+        obs_var += getattr(self, "n_probes", 0)
 
         return obs_var
 
@@ -441,7 +443,6 @@ class FarmMes:
     def __init__(
         self,
         n_turbines: int,
-        n_probes_per_turb: dict = {},
         turb_ws: bool = True,
         turb_wd: bool = True,
         turb_TI: bool = True,
@@ -487,7 +488,6 @@ class FarmMes:
         ti_sample_count: int = 30,
     ) -> None:
         self.n_turbines: int = n_turbines
-        self.n_probes_per_turb: dict = n_probes_per_turb
         self.turb_mes: list[TurbMes] = []
         # Do we want measurements from the turbines individually?
         self.turb_ws: bool = turb_ws
@@ -604,7 +604,6 @@ class FarmMes:
             TI_max=TI_max,
             include_TI=farm_TI,
             power_max=power_max * n_turbines,
-            n_probes_per_turb=n_probes_per_turb,
             ti_sample_count=ti_sample_count,
         )  # The max power is the sum of all the turbines
 
@@ -631,7 +630,7 @@ class FarmMes:
         for turb in self.turb_mes:
             turb.add_wd(measurement)
         if self.farm_wd:
-            self.farm_mes.add_wd(np.mean(measurement))
+            self.farm_mes.add_wd(utils.circ_mean_deg(measurement))
 
     def add_yaw(self, measurement: NDArray[np.floating]) -> None:
         # add measurements to the yaw
@@ -674,18 +673,8 @@ class FarmMes:
 
         # Add to farm level measurements
         self.farm_mes.add_ws(np.mean(ws))
-        self.farm_mes.add_wd(np.mean(wd))
+        self.farm_mes.add_wd(utils.circ_mean_deg(wd))
         self.farm_mes.add_power(np.sum(powers))
-
-        #
-        # if self.farm_ws:
-        #     self.farm_mes.add_ws(np.mean(ws))
-
-        # if self.farm_wd:
-        #     self.farm_mes.add_wd(np.mean(wd))
-
-        # if self.farm_power:
-        #     self.farm_mes.add_power(np.sum(powers))
 
     def max_hist(self) -> int:
         """
@@ -698,9 +687,10 @@ class FarmMes:
         """
         Returns the number of observed variables
         """
-
+        # Sum per turbine (not turb_mes[0] * n) so heterogeneous probe
+        # counts across turbines are counted correctly.
         return (
-            self.turb_mes[0].observed_variables() * self.n_turbines
+            sum(turb.observed_variables() for turb in self.turb_mes)
             + self.farm_observed_variables
         )
 
