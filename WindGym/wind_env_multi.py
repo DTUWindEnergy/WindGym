@@ -210,6 +210,7 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
                 }
                 if self.derate_action:
                     info_dict["derate agent"] = self.current_derate[agent_idx]
+                    info_dict["derate command"] = self.derate_command[agent_idx]
                     info_dict["derate measured"] = self.farm_measurements.turb_mes[
                         agent_idx
                     ].get_derate()
@@ -251,34 +252,6 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
 
         return observations, infos
 
-    def _calc_reward(self):
-        """
-        Calculate the reward.
-        TODO think about this function.
-        For now the reward is the power of the turbines.
-        """
-
-        # The reward is a combination of the turbine powers, plus the farm power.
-        # rewards = {
-        #     a: np.mean(
-        #         self.farm_measurements.turb_mes[
-        #             self.agent_name_mapping[a]
-        #         ].power.measurements
-        #     )
-        #     / self.rated_power
-        #     + np.mean(self.farm_measurements.farm_mes.power.measurements)
-        #     / self.rated_power
-        #     for a in self.agents
-        # }
-
-        # This reward is simply the turbine power
-        rewards = {
-            a: self.fs.windTurbines.power().sum() / self.rated_power / self.n_turb
-            for a in self.agents
-        }
-
-        return rewards
-
     def step(self, actions):
         """
         The step function.
@@ -287,9 +260,10 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
 
         # Extract all actions. Each agent supplies act_var values; the parent
         # env expects them grouped by variable: [yaw_0..yaw_n | derate_0..derate_n]
-        # (or a single group when act_var == 1).
+        # (or a single group when act_var == 1). Index by self.agents so the
+        # mapping is by agent name, not by the dict's insertion order.
         act_mat = np.array(
-            [np.atleast_1d(a)[: self.act_var] for a in actions.values()],
+            [np.atleast_1d(actions[a])[: self.act_var] for a in self.agents],
             dtype=np.float32,
         )  # (n_agents, act_var)
         all_action = act_mat.T.reshape(-1)
