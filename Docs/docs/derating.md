@@ -268,9 +268,10 @@ depends on it.
   power-curve-inversion approach.
 - `examples/data/dtu10mw_derating_yaw_surrogate.nc` — reduced surrogate table.
 - `WindGym/wind_farm_env.py` — action/observation plumbing
-  (`_apply_derating`, `derate_mes`, turbine validation).
+  (`_apply_derating`, `derate_mes`).
 - `WindGym/core/mes_class.py` — derate measurement channel.
 - `WindGym/core/reward_calculator.py` — derate penalty.
-- `WindGym/core/derating.py` — legacy inversion wrapper (opt-in).
+- `WindGym/core/derating.py` — derating validation (turbine + htc), HAWC2
+  derate-sensor wiring, legacy inversion wrapper (opt-in).
 - `examples/hawc2_derating_2wt.py` + `examples/HawcFiles/` — HAWC2-backend
   derating example and the shipped DTUWEC derate model (Linux-only binaries).
