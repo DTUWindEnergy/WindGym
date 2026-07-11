@@ -123,10 +123,14 @@ class _AdapterWindTurbines:
         return np.vstack([u, np.zeros_like(u), np.zeros_like(u)])
 
     def power(self, include_wakes=True):
-        return np.asarray(
-            self._power_eff if include_wakes else self.turbine.power(self._ws_nowake),
-            float,
-        )
+        if include_wakes:
+            return np.asarray(self._power_eff, float)
+        # No-wake reference must still honour any active derating, otherwise
+        # the Wake_recovery headroom is biased for derated farms.
+        derate = getattr(self.flowSimulation, "_derate", None)
+        if derate is not None and np.any(np.asarray(derate) != 0):
+            return np.asarray(self.turbine.power(self._ws_nowake, derate=derate), float)
+        return np.asarray(self.turbine.power(self._ws_nowake), float)
 
     # Convenience passthroughs
     def diameter(self, type=0):
@@ -243,10 +247,14 @@ class PyWakeFlowSimulationAdapter:
         if np.any(self._derate != 0):
             extra["derate"] = self._derate
 
+        # The view grid and positions_xyz are in the wind-aligned (XYView)
+        # frame, where the wind blows along +x. In PyWake that is wd=270
+        # (wind from west); passing wd=self.wd here would rotate the
+        # already-rotated coordinates a second time.
         fm = self._model(
             x=self.windTurbines.positions_xyz[0],
             y=self.windTurbines.positions_xyz[1],
-            wd=[self.wd],
+            wd=[270.0],
             ws=[self.ws],
             TI=self.ti,
             tilt=0,
