@@ -64,7 +64,11 @@ complete factory function.
 
 WindGym's contract is minimal: **the env only forwards per-turbine derate
 values; the turbine must accept a `derate` input.** `WindFarmEnv` validates
-this at construction and raises otherwise.
+this at construction and raises otherwise. (Earlier versions shipped a
+power-curve-inversion retrofit, `add_derating_to_turbine`, for plain tabular
+turbines; it was removed because sliding down the *normal* operating curve
+barely reduces ct — no wake-control value — so turbines must accept `derate`
+natively.)
 
 Both backends are supported without turbine-specific code:
 
@@ -235,18 +239,6 @@ available-power fraction.
 Runnable end-to-end check (2 × DTU 10 MW inline, ~10–30 min):
 `examples/hawc2_derating_2wt.py`.
 
-## The legacy approach (and why it was replaced)
-
-`WindGym/core/derating.py` retrofits derating onto tabular turbines by
-*inverting the power curve*: solve `P(ws_op) = (1 − derate)·P(ws)` and read
-ct at `ws_op`. That assumes the turbine slides down its normal operating
-curve — it does not know how a real controller re-optimises pitch/TSR, so it
-underestimates the thrust reduction. It remains available for turbines
-without a surrogate (e.g. SWT-2.3 in
-`examples/Example 5b Derating power-curve inversion.ipynb`), applied
-explicitly via `add_derating_to_turbine(turbine)`. The env itself no longer
-depends on it.
-
 ## Sanity numbers (DTU 10MW surrogate @ 9 m/s)
 
 | derate | P/P₀ | ct   |
@@ -264,14 +256,15 @@ depends on it.
 - `examples/Example 5 Derating PyWake surrogate.ipynb` — the surrogate
   approach, end to end (turbine factory, physics plots, env usage, rendered
   gifs in `examples/images/`).
-- `examples/Example 5b Derating power-curve inversion.ipynb` — legacy
-  power-curve-inversion approach.
+- `examples/Example 5c Derating fidelity comparison.ipynb` — pywake
+  steady-state / dynamiks DWM / HAWC2 side by side on the 2-WT scenario
+  (cross-fidelity sanity check; reuses the `hawc2_derating_2wt.npz` cache).
 - `examples/data/dtu10mw_derating_yaw_surrogate.nc` — reduced surrogate table.
 - `WindGym/wind_farm_env.py` — action/observation plumbing
   (`_apply_derating`, `derate_mes`).
 - `WindGym/core/mes_class.py` — derate measurement channel.
 - `WindGym/core/reward_calculator.py` — derate penalty.
 - `WindGym/core/derating.py` — derating validation (turbine + htc), HAWC2
-  derate-sensor wiring, legacy inversion wrapper (opt-in).
+  derate-sensor wiring.
 - `examples/hawc2_derating_2wt.py` + `examples/HawcFiles/` — HAWC2-backend
   derating example and the shipped DTUWEC derate model (Linux-only binaries).
