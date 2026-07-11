@@ -18,6 +18,7 @@ const sidebars = {
         "concepts",
         "theory",
         "rewards",
+        "derating",
         "simulations",
         "agents",
         "evaluations",
