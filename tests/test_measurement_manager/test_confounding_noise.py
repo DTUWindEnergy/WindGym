@@ -195,3 +195,50 @@ def test_agent_perception_is_confounded(smoke_test_env):
     assert sensed_yaw_physical == pytest.approx(expected_sensed_yaw, abs=0.1)
 
     noisy_env.close()
+
+
+def test_white_noise_confounds_yaw_with_rolling_mean_wd():
+    """The sensed-yaw confounding (yaw = vane reading - wd noise) must also
+    apply when the wd spec is rolling-mean-only: the wd-noise lookup used to
+    try only 'wd_current' and silently miss 'wd_hist_0'."""
+    WD_NOISE, YAW_NOISE = 5.0, -1.0
+    rng = MagicMock(spec=np.random.Generator)
+    rng.normal.side_effect = [np.array([WD_NOISE]), np.array([YAW_NOISE])]
+
+    NoiseModel._unscale_value_static = MeasurementManager._unscale_value
+    NoiseModel._scale_value_static = MeasurementManager._scale_value
+    try:
+        model = WhiteNoiseModel(
+            {
+                MeasurementType.WIND_DIRECTION: 2.0,
+                MeasurementType.YAW_ANGLE: 0.5,
+            }
+        )
+        specs = [
+            MeasurementSpec(
+                name="turb_0/wd_hist_0",  # rolling-mean spec, no wd_current
+                measurement_type=MeasurementType.WIND_DIRECTION,
+                index_range=(0, 1),
+                min_val=0,
+                max_val=360,
+                turbine_id=0,
+                is_circular=True,
+            ),
+            MeasurementSpec(
+                name="turb_0/yaw_current",
+                measurement_type=MeasurementType.YAW_ANGLE,
+                index_range=(1, 2),
+                min_val=-30,
+                max_val=30,
+                turbine_id=0,
+            ),
+        ]
+        noisy = model.apply_noise(np.zeros(2, dtype=np.float32), specs, rng)
+
+        # Sensed yaw noise = yaw_noise - wd_noise (was silently 0 - the
+        # lookup only tried 'wd_current' and missed 'wd_hist_0')
+        expected = (YAW_NOISE - WD_NOISE) * 2.0 / 60.0
+        assert noisy[1] == pytest.approx(expected)
+    finally:
+        NoiseModel._unscale_value_static = None
+        NoiseModel._scale_value_static = None

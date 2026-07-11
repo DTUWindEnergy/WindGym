@@ -551,3 +551,34 @@ class TestWindFarmEnvMultiCoverage:
         # The `initialized_env` fixture provides a real env setup for this.
         # This will run a full battery of PettingZoo API compliance tests.
         parallel_api_test(initialized_env)
+
+
+# ---------------------------------------------------------------------------
+# Action ordering: the env must key actions by agent name, not dict order
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+def test_multi_agent_actions_keyed_by_agent_name():
+    from test_utils import make_fast_pywake_env
+
+    env = make_fast_pywake_env(env_cls=WindFarmEnvMulti, yaw_step_env=1)
+
+    def run(action_dict):
+        env.reset(seed=11)
+        env.step(action_dict)
+        return np.array(env.fs.windTurbines.yaw)
+
+    a0 = np.array([-1.0], dtype=np.float32)
+    a1 = np.array([1.0], dtype=np.float32)
+    ordered = {"turbine_0": a0, "turbine_1": a1}
+    shuffled = {"turbine_1": a1, "turbine_0": a0}  # same mapping, other order
+
+    yaw_ordered = run(ordered)
+    yaw_shuffled = run(shuffled)
+
+    np.testing.assert_allclose(yaw_ordered, yaw_shuffled)
+    # And the actions must actually differ per turbine (sanity check that the
+    # test would catch a swapped mapping)
+    assert not np.allclose(yaw_ordered[0], yaw_ordered[1])
+    env.close()

@@ -390,3 +390,56 @@ def test_agent_eval_multiple_save_load(
     assert new_agent_evaluator.multiple_eval is True
     assert new_agent_evaluator.multiple_eval_ds is not None
     xr.testing.assert_allclose(multi_ds, new_agent_evaluator.multiple_eval_ds)
+
+
+# ---------------------------------------------------------------------------
+# eval_single_fast seeding
+# ---------------------------------------------------------------------------
+
+
+class _ZeroAgent:
+    """Deterministic stub agent for eval_single_fast."""
+
+    def __init__(self, n_actions):
+        self.n_actions = n_actions
+
+    def predict(self, obs, deterministic=False):
+        return np.zeros(self.n_actions, dtype=np.float32), None
+
+
+@pytest.mark.integration
+def test_eval_single_fast_seed_reproducible():
+    from WindGym.agent_eval import eval_single_fast
+    from test_utils import get_fast_pywake_config
+
+    def fresh_env():
+        d = V80().diameter()
+        return FarmEval(
+            turbine=V80(),
+            x_pos=np.arange(2) * 5.0 * d,
+            y_pos=np.zeros(2),
+            config=get_fast_pywake_config(),
+            # Random initial yaws so the episode actually depends on the seed
+            # (the constructor arg wins over the config key).
+            yaw_init="Random",
+            turbtype="None",
+            reset_init=False,
+            fill_window=False,
+            n_passthrough=1,
+        )
+
+    def run(seed):
+        env = fresh_env()
+        model = _ZeroAgent(env.action_space.shape[0])
+        ds = eval_single_fast(
+            env, model, ws=10.0, ti=0.06, wd=270.0, t_sim=10, seed=seed
+        )
+        return ds["powerF_a"].values.squeeze()
+
+    trace_a = run(seed=42)
+    trace_b = run(seed=42)
+    trace_c = run(seed=43)
+
+    np.testing.assert_array_equal(trace_a, trace_b)
+    # Random yaw init -> a different seed gives a different trajectory
+    assert not np.array_equal(trace_a, trace_c)

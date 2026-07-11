@@ -9,7 +9,11 @@ from py_wake.examples.data.hornsrev1 import V80
 from gymnasium.utils.env_checker import check_env, data_equivalence
 from WindGym.utils.generate_layouts import generate_square_grid
 
-from test_utils import get_base_yaml_dict, calculate_expected_obs_dim
+from test_utils import (
+    calculate_expected_obs_dim,
+    get_base_yaml_dict,
+    make_fast_pywake_env,
+)
 
 
 class TestSpecificFeatures:
@@ -367,3 +371,106 @@ class TestSpecificFeatures:
             )
             # If __init__ fails, env might not be assigned or closeable
             # env.close() # Best practice to put close in a finally if env is successfully created
+
+
+# ---------------------------------------------------------------------------
+# Episode accounting: truncation after ceil(time_max / step-seconds) env steps
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("dt", [1, 2])
+def test_truncation_episode_length(dt):
+    """Episode ends after ceil(time_max / dt_env) env steps (time_max is in
+    seconds; comparing step counts against seconds gave up-to-2x episodes)."""
+    env = make_fast_pywake_env(dt_sim=dt, dt_env=dt)
+    env.reset(seed=0)
+    expected_steps = int(np.ceil(env.time_max / env.dt_env))
+
+    action = np.zeros(env.action_space.shape, dtype=np.float32)
+    steps = 0
+    truncated = False
+    for _ in range(expected_steps + 10):  # safety bound
+        _, _, _, truncated, _ = env.step(action)
+        steps += 1
+        if truncated:
+            break
+
+    assert truncated
+    assert steps == expected_steps
+    env.close()
+
+
+# ---------------------------------------------------------------------------
+# delay / ignore_steps: the agent-cadence feature (sim advances `delay`
+# seconds per env step, only the final dt_env window is observed)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_delay_constructor_validation():
+    # Not a multiple of dt_env
+    with pytest.raises(ValueError, match="delay"):
+        make_fast_pywake_env(delay=1.5)
+    # Smaller than one env step
+    with pytest.raises(ValueError, match="delay"):
+        make_fast_pywake_env(delay=0.5)
+    # Default: no delay
+    env = make_fast_pywake_env()
+    assert env.delay == env.dt_env
+    env.close()
+
+
+@pytest.mark.unit
+def test_ignore_steps_validation():
+    env = make_fast_pywake_env()
+    env.reset(seed=0)
+    with pytest.raises(ValueError, match="ignore_steps"):
+        env._advance_and_measure(2, ignore_steps=2)
+    with pytest.raises(ValueError, match="ignore_steps"):
+        env._advance_and_measure(2, ignore_steps=-1)
+    env.close()
+
+
+@pytest.mark.integration
+def test_delay_advances_extra_sim_steps():
+    """With delay = 2 * dt_env one env step advances the sim 2 * dt_env
+    seconds (twice the sub-steps), and truncation accounts for delay-seconds
+    per step so the sim never outruns time_max / the precomputed flow."""
+    env = make_fast_pywake_env(delay=2)  # dt_sim = dt_env = 1 (pywake backend)
+    env.reset(seed=0)
+    t0 = float(env.fs.time)
+
+    action = np.zeros(env.action_space.shape, dtype=np.float32)
+    _, _, _, truncated, info = env.step(action)
+    assert float(env.fs.time) - t0 == pytest.approx(env.delay)
+    assert len(info["time_array"]) == 2  # steps_with_delay sub-steps recorded
+
+    # Episode length: each step consumes `delay` sim-seconds, not dt_env
+    expected_steps = int(np.ceil(env.time_max / env.delay))
+    steps = 1
+    while not truncated and steps < expected_steps + 10:  # safety bound
+        _, _, _, truncated, _ = env.step(action)
+        steps += 1
+    assert truncated
+    assert steps == expected_steps
+    env.close()
+
+
+@pytest.mark.integration
+def test_delay_composes_with_sim_substeps_dynamiks():
+    """dt_env > dt_sim and delay > dt_env together: one env step advances
+    delay seconds = (delay / dt_env) * sim_steps_per_env_step sub-steps."""
+    env = make_fast_pywake_env(
+        backend="dynamiks", turbtype="None", dt_sim=1, dt_env=2, delay=4
+    )
+    obs0, _ = env.reset(seed=0)
+    t0 = float(env.fs.time)
+
+    action = np.zeros(env.action_space.shape, dtype=np.float32)
+    obs, _, _, _, info = env.step(action)
+    assert float(env.fs.time) - t0 == pytest.approx(4.0)
+    assert len(info["time_array"]) == 4  # 2 ignored + 2 observed sub-steps
+    assert obs.shape == env.observation_space.shape
+    assert env.observation_space.contains(obs)
+    env.close()

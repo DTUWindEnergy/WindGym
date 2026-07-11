@@ -484,3 +484,47 @@ def test_episodic_bias_apply_noise_returns_copy_if_no_specs():
     )  # Ensure it's a copy, not the same object
 
     assert bias_model.current_unscaled_biases_by_spec_name == {}
+
+
+def test_circular_noise_narrow_sector_clips_to_near_boundary():
+    """Circular noise wrap with scaling ranges other than [0, 360]: narrow
+    sectors must clip to the circularly-nearest boundary, and full-circle
+    ranges like [-180, 180) must wrap instead of clipping."""
+    NoiseModel._unscale_value_static = MeasurementManager._unscale_value
+    NoiseModel._scale_value_static = MeasurementManager._scale_value
+    try:
+        model = WhiteNoiseModel({})
+        spec = MeasurementSpec(
+            name="turb_0/wd_current",
+            measurement_type=MeasurementType.WIND_DIRECTION,
+            index_range=(0, 1),
+            min_val=270.0,
+            max_val=360.0,
+            turbine_id=0,
+            is_circular=True,
+        )
+        # True wd 358 deg, +4 deg noise -> 362 deg = 2 deg. The sector cannot
+        # represent 2 deg; the nearest boundary (circularly) is 360, i.e.
+        # scaled +1. The old wrap collapsed this to 270 (scaled -1).
+        scaled_358 = np.array([2 * (358.0 - 270.0) / 90.0 - 1.0])
+        noisy = model._handle_circular_noise(scaled_358, np.array([4.0]), spec)
+        assert noisy[0] == pytest.approx(1.0)
+
+        # Full-circle range that is not [0, 360]: [-180, 180). 170 + 20 deg
+        # noise must wrap to -170, not clip at +180.
+        spec_pm = MeasurementSpec(
+            name="turb_0/wd_current",
+            measurement_type=MeasurementType.WIND_DIRECTION,
+            index_range=(0, 1),
+            min_val=-180.0,
+            max_val=180.0,
+            turbine_id=0,
+            is_circular=True,
+        )
+        scaled_170 = np.array([2 * (170.0 + 180.0) / 360.0 - 1.0])
+        noisy = model._handle_circular_noise(scaled_170, np.array([20.0]), spec_pm)
+        physical = MeasurementManager._unscale_value(noisy, -180.0, 180.0)
+        assert physical[0] == pytest.approx(-170.0)
+    finally:
+        NoiseModel._unscale_value_static = None
+        NoiseModel._scale_value_static = None

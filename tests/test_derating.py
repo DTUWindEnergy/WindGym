@@ -480,3 +480,45 @@ def test_invalid_derate_penalty_type_raises():
         RewardCalculator(
             power_reward_type="None", derate_penalty=1.0, derate_penalty_type="bogus"
         )
+
+
+# ---------------------------------------------------------------------------
+# Backend / agent interaction with derating
+# ---------------------------------------------------------------------------
+
+
+def test_adapter_nowake_power_honours_derate(derating_turbine):
+    """The pywake adapter's no-wake power must reflect the derate levels."""
+    from WindGym.backend.pywake_adapter import PyWakeFlowSimulationAdapter
+
+    fs = PyWakeFlowSimulationAdapter(
+        x=np.array([0.0, 400.0]),
+        y=np.array([0.0, 0.0]),
+        windTurbine=derating_turbine,
+        ws=9.0,
+        wd=270.0,
+        ti=0.06,
+    )
+    p_full = fs.windTurbines.power(include_wakes=False).copy()
+
+    fs._derate = np.array([0.5, 0.0])
+    fs._compute_steady_state()
+    p_derated = fs.windTurbines.power(include_wakes=False)
+
+    assert p_derated[0] == pytest.approx(0.5 * p_full[0], rel=1e-3)
+    assert p_derated[1] == pytest.approx(p_full[1], rel=1e-6)
+
+
+def test_pywake_agent_rejects_derating_env(derating_turbine):
+    """PyWakeAgent only optimizes yaw; it must refuse derating envs instead
+    of silently emitting a wrong-sized action."""
+    from WindGym.Agents.PyWakeAgent import PyWakeAgent
+
+    env = make_env(derating_turbine, n_turb=2)
+    d = derating_turbine.diameter()
+    agent = PyWakeAgent(
+        x_pos=np.arange(2) * 5.0 * d, y_pos=np.zeros(2), env=env
+    )
+    with pytest.raises(ValueError, match="derate_action"):
+        agent.predict(None)
+    env.close()

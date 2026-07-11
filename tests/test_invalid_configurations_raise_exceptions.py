@@ -341,3 +341,14 @@ class TestInvalidConfigurations:
             finally:
                 if env:
                     env.close()
+
+
+def test_missing_mes_level_raises_actionable_error():
+    """A config without mes_level must fail at construction with a message
+    naming the missing section, not a downstream KeyError."""
+    from test_utils import get_fast_pywake_config, make_fast_pywake_env
+
+    config = get_fast_pywake_config()
+    del config["mes_level"]
+    with pytest.raises(ValueError, match="mes_level"):
+        make_fast_pywake_env(config=config)
