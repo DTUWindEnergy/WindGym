@@ -32,6 +32,8 @@ class RewardCalculator:
         action_penalty_type: Optional[str] = None,
         power_window_size: Optional[int] = None,
         tau: float = 0.02,
+        derate_penalty: float = 0.0,
+        derate_penalty_type: Optional[str] = None,
     ):
         """
         Initialize the reward calculator.
@@ -43,6 +45,8 @@ class RewardCalculator:
             action_penalty: Weight for action penalty (0 = no penalty)
             action_penalty_type: Type of penalty ("change" or "total")
             power_window_size: Window size for Power_diff reward type
+            derate_penalty: Weight for derate penalty (0 = no penalty)
+            derate_penalty_type: Type of derate penalty ("change" or "total")
         """
         self.power_reward_type = power_reward_type
         self.track_power = track_power
@@ -51,6 +55,8 @@ class RewardCalculator:
         self.action_penalty_type = action_penalty_type
         self._power_window_size = power_window_size
         self.tau = tau
+        self.derate_penalty = derate_penalty
+        self.derate_penalty_type = derate_penalty_type
 
         # Validate configuration
         self._validate_config()
@@ -91,6 +97,15 @@ class RewardCalculator:
                     f"got '{self.action_penalty_type}'"
                 )
 
+        if self.derate_penalty_type is not None:
+            valid_penalty_types = {"change", "total"}
+            penalty_lower = self.derate_penalty_type.lower()
+            if penalty_lower not in valid_penalty_types:
+                raise ValueError(
+                    f"derate_penalty_type must be one of {valid_penalty_types}, "
+                    f"got '{self.derate_penalty_type}'"
+                )
+
     def calculate_power_reward(
         self,
         farm_power_deque,
@@ -105,7 +120,8 @@ class RewardCalculator:
         Args:
             farm_power_deque: Deque containing farm power history
             baseline_power_deque: Deque containing baseline power history (for Baseline reward)
-            rated_power: Rated power of a single turbine (for Power_avg reward)
+            rated_power: Freestream power of a single turbine at the episode
+                inflow wind speed (for Power_avg reward)
             n_turbines: Number of turbines in the farm
 
         Returns:
@@ -199,12 +215,18 @@ class RewardCalculator:
 
         Args:
             farm_power_deque: Farm power history
-            rated_power: Rated power of a single turbine
+            rated_power: Freestream power of a single turbine at the episode
+                inflow wind speed (the env sets this per reset; it is NOT the
+                turbine's nameplate rating)
             n_turbines: Number of turbines
 
         Returns:
             float: Normalized average power production
         """
+        if rated_power <= 0:
+            # Below cut-in the freestream reference power is zero and farm
+            # power is ~0 too; 0 is the principled limit (avoids inf/NaN).
+            return 0.0
         power_agent = np.mean(farm_power_deque)
         reward = power_agent / n_turbines / rated_power
         return reward
@@ -224,13 +246,16 @@ class RewardCalculator:
             float: Power improvement per turbine
         """
         power_len = len(farm_power_deque)
+        window = self._power_window_size // 10
 
-        # Get the latest window of power values
+        # Get the latest window of power values. The deque can be shorter
+        # than the window early in the episode (fill_window=False), so clamp
+        # the start index to 0 — islice raises on negative indices.
         power_latest = np.mean(
             list(
                 itertools.islice(
                     farm_power_deque,
-                    power_len - (self._power_window_size // 10),
+                    max(0, power_len - window),
                     power_len,
                 )
             )
@@ -238,7 +263,7 @@ class RewardCalculator:
 
         # Get the oldest window of power values
         power_oldest = np.mean(
-            list(itertools.islice(farm_power_deque, 0, (self._power_window_size // 10)))
+            list(itertools.islice(farm_power_deque, 0, window))
         )
 
         return (power_latest - power_oldest) / n_turbines
@@ -286,6 +311,49 @@ class RewardCalculator:
 
         return float(self.action_penalty) * pen_val
 
+    def calculate_derate_penalty(
+        self,
+        old_derates: Optional[np.ndarray],
+        new_derates: Optional[np.ndarray],
+        derate_max: float = 1.0,
+    ) -> float:
+        """
+        Calculate penalty for derating actions (mirrors the yaw action penalty).
+
+        Supports two penalty types:
+        - "change": Penalize changes in derate level (encourages stability)
+        - "total": Penalize derate magnitude (encourages full production),
+          normalized by derate_max
+
+        Args:
+            old_derates: Derate levels at the previous env step
+            new_derates: Current derate levels
+            derate_max: Maximum allowed derate level
+
+        Returns:
+            float: Derate penalty value
+        """
+        if self.derate_penalty < 0.001:
+            return 0.0
+
+        if self.derate_penalty_type is None or new_derates is None:
+            return 0.0
+
+        penalty_type = self.derate_penalty_type.lower()
+
+        if penalty_type == "change":
+            if old_derates is None:
+                return 0.0
+            pen_val = float(np.mean(np.abs(old_derates - new_derates)))
+
+        elif penalty_type == "total":
+            pen_val = float(np.mean(np.abs(new_derates)) / max(1e-6, derate_max))
+
+        else:
+            pen_val = 0.0
+
+        return float(self.derate_penalty) * pen_val
+
     def calculate_total_reward(
         self,
         farm_power_deque,
@@ -296,9 +364,12 @@ class RewardCalculator:
         rated_power: Optional[float] = None,
         n_turbines: int = 1,
         nowake_power_deque: Optional[object] = None,
+        old_derates: Optional[np.ndarray] = None,
+        new_derates: Optional[np.ndarray] = None,
+        derate_max: float = 1.0,
     ) -> tuple[float, dict]:
         """
-        Calculate total reward including power reward and action penalty.
+        Calculate total reward including power reward and action penalties.
 
         This is a convenience method that combines power reward and action penalty
         calculations, returning both the total reward and a breakdown.
@@ -311,6 +382,9 @@ class RewardCalculator:
             baseline_power_deque: Baseline power history (if needed)
             rated_power: Rated power per turbine (if needed)
             n_turbines: Number of turbines
+            old_derates: Derate levels at the previous env step (if derating)
+            new_derates: Current derate levels (if derating)
+            derate_max: Maximum allowed derate level
 
         Returns:
             tuple: (total_reward, reward_breakdown_dict)
@@ -334,14 +408,22 @@ class RewardCalculator:
             yaw_max=yaw_max,
         )
 
+        # Calculate derate penalty
+        derate_penalty = self.calculate_derate_penalty(
+            old_derates=old_derates,
+            new_derates=new_derates,
+            derate_max=derate_max,
+        )
+
         # Total reward
-        total_reward = scaled_power_reward - action_penalty
+        total_reward = scaled_power_reward - action_penalty - derate_penalty
 
         # Return breakdown for logging/debugging
         breakdown = {
             "power_reward": power_reward,
             "scaled_power_reward": scaled_power_reward,
             "action_penalty": action_penalty,
+            "derate_penalty": derate_penalty,
             "total_reward": total_reward,
         }
 
