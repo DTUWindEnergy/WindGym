@@ -256,9 +256,9 @@ Runnable end-to-end check (2 × DTU 10 MW inline, ~10–30 min):
 - `examples/Example 5 Derating PyWake surrogate.ipynb` — the surrogate
   approach, end to end (turbine factory, physics plots, env usage, rendered
   gifs in `examples/images/`).
-- `examples/Example 5c Derating fidelity comparison.ipynb` — pywake
+- `examples/Example 5b Derating fidelity comparison.ipynb` — pywake
   steady-state / dynamiks DWM / HAWC2 side by side on the 2-WT scenario
-  (cross-fidelity sanity check; reuses the `hawc2_derating_2wt.npz` cache).
+  (cross-fidelity sanity check; runs all three live, HAWC2 included).
 - `examples/data/dtu10mw_derating_yaw_surrogate.nc` — reduced surrogate table.
 - `WindGym/wind_farm_env.py` — action/observation plumbing
   (`_apply_derating`, `derate_mes`).
