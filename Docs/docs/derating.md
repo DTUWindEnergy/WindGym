@@ -175,6 +175,66 @@ An optional `derate_penalty` is subtracted from the reward, mirroring the yaw
 - `"total"`: penalises the mean derate level, normalised by `derate_max`
   (discourages standing derating)
 
+## HAWC2 backend (level 3)
+
+Derating also works through the high-fidelity HAWC2 backend (`HTC_path=...`):
+instead of a surrogate lookup, each turbine runs a full aeroelastic HAWC2
+simulation whose DTUWEC controller derates natively. The same env code path,
+config keys, action layout, observations and info dict apply — only the
+turbine model behind `wts.sensors.derate` changes.
+
+### Contract
+
+`derate_action: true` + `HTC_path` requires an htc whose `dll` section loads
+the **DTUWEC derate controller** (a `type2_dll` with `derate` in its
+filename). The env validates the controller's init constants at construction:
+
+| constant | meaning | required |
+|---------:|---------|----------|
+| 79 | derate strategy (1 = const rotation, 2 = max rotation, 3 = min ct) | ≠ 0 |
+| 80 | derate percentage; negative = runtime derating via input 18 | < 0 |
+| 100–103 | derate pitch/speed reference shaping (rate/filter limits) | — |
+| 104 | dr reference mode: 0 = % of rated, 1 = % of available power | match `derate_reference` (absent = 0) |
+| 105 | effective TSR for the available-power estimate | — |
+
+The runtime channel is HAWC2's `general variable 2` (controller input 18,
+yaw uses variable 1): the env maps its derate fraction `d ∈ [0, 1]` to the
+controller's `dr% = (1 − d) · 100` inside the derate sensor, so `d = 0`
+(no derating) is `dr% = 100`. The htc initialises the channel to `100.0`,
+covering the instant before the first write.
+
+### Shipped model
+
+`examples/HawcFiles/htc/DTU10mw_derate.htc` is the validated DTU 10 MW derate
+model: strategy 2 (max-rotation) default, runtime derating enabled, avail
+mode (104 = 1). The controller and servo binaries in
+`examples/HawcFiles/control/` are **Linux-only** `.so` files (fork build of
+DTU's BasicDTUController, branch `runtime-derating`) — there is no derate
+`.dll` for Windows. For `derate_reference: "rated"` supply your own htc with
+constant 104 = 0 (or absent).
+
+### Rated mode is controller-native
+
+With a 104 = 0 htc, the DTUWEC controller applies the rated-power cap and its
+dead zone itself, so the env skips the surrogate-invariant conversion and
+passes the commanded fraction straight through: `"derate agent"` /
+`current_derate` then report the **commanded cap fraction**, not the applied
+available-power fraction.
+
+### Baselines, multi-agent, timing
+
+- Baseline turbines stay greedy: nothing writes their `general variable 2`,
+  and the htc init value 100 means no derating.
+- `WindFarmEnvMulti` inherits everything — no extra wiring.
+- Wake response is *slow* at this fidelity: at 5D and 10 m/s a derate change
+  at the upstream turbine needs ~100 s advection + ~200 s DWM settling before
+  the downstream turbine's power is meaningful again. Hold each setpoint
+  ≥ 350 s (and judge only the tail) when validating; RL agents get this
+  delayed credit assignment for free as part of the problem.
+
+Runnable end-to-end check (2 × DTU 10 MW inline, ~10–30 min):
+`examples/hawc2_derating_2wt.py`.
+
 ## The legacy approach (and why it was replaced)
 
 `WindGym/core/derating.py` retrofits derating onto tabular turbines by
@@ -212,3 +272,5 @@ depends on it.
 - `WindGym/core/mes_class.py` — derate measurement channel.
 - `WindGym/core/reward_calculator.py` — derate penalty.
 - `WindGym/core/derating.py` — legacy inversion wrapper (opt-in).
+- `examples/hawc2_derating_2wt.py` + `examples/HawcFiles/` — HAWC2-backend
+  derating example and the shipped DTUWEC derate model (Linux-only binaries).
