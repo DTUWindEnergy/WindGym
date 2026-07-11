@@ -30,6 +30,11 @@ from .core.turbulence_manager import TurbulenceManager
 from .core.renderer import WindFarmRenderer
 from .core.baseline_manager import BaselineManager
 from .core.probe_manager import ProbeManager
+from .core.derating import (
+    add_hawc2_derate_sensor,
+    check_htc_supports_derating,
+    check_turbine_supports_derating,
+)
 
 from py_wake.wind_turbines import WindTurbines as WindTurbinesPW
 from collections import deque, defaultdict
@@ -250,7 +255,10 @@ class WindFarmEnv(gym.Env):
         # With yaw_action=False the agent controls derating only (act_var=1).
         if self.derate_action:
             self.act_var = 2 if self.yaw_action else 1
-            self._check_turbine_supports_derating(turbine)
+            if self.HTC_path is not None:
+                check_htc_supports_derating(self.HTC_path, self.derate_reference)
+            else:
+                check_turbine_supports_derating(turbine)
             if self.derate_reference == "rated":
                 # Power-curve maximum, NOT self.rated_power (that one is the
                 # power at the episode inflow ws, set per-reset for rewards).
@@ -436,6 +444,9 @@ class WindFarmEnv(gym.Env):
                 ),
                 expose=True,
             )
+            if self.derate_action:
+                # d <-> dr% mapping and sensor wiring live in core/derating.
+                add_hawc2_derate_sensor(self.wts, self.n_turb)
         else:  # If we have no HTC path, use the pywake turbine
             self.wts = PyWakeWindTurbines(
                 x=self.x_pos,
@@ -1296,22 +1307,6 @@ class WindFarmEnv(gym.Env):
         else:
             raise ValueError("The ActionMethod must be yaw, wind or absolute")
 
-    @staticmethod
-    def _check_turbine_supports_derating(turbine):
-        """Validate that *turbine* can be derated (powerCtFunction accepts 'derate')."""
-        pctf = turbine.powerCtFunction
-        inputs = list(getattr(pctf, "required_inputs", [])) + list(
-            getattr(pctf, "optional_inputs", [])
-        )
-        if "derate" not in inputs:
-            raise ValueError(
-                "derate_action=True requires a turbine whose powerCtFunction "
-                "accepts a 'derate' input, e.g. built from a derating surrogate "
-                "(PowerCtNDTabular with a 'derate' dimension). Alternatively, "
-                "retrofit a tabular turbine with the legacy power-curve-inversion "
-                "wrapper: WindGym.core.derating.add_derating_to_turbine(turbine)."
-            )
-
     def _apply_derating(self, action):
         """Apply per-turbine derating from the last n_turb entries of *action*.
 
@@ -1331,7 +1326,10 @@ class WindFarmEnv(gym.Env):
         derate_reference="rated" reinterprets the commanded fraction as a
         fraction of rated power (an absolute cap) and converts it to the
         available-power fraction the turbine model expects; commands above
-        locally available power apply no derating.
+        locally available power apply no derating. HAWC2 turbines skip that
+        conversion: the DTUWEC controller applies the rated-power cap (and its
+        dead zone) natively, so the command passes straight through and
+        current_derate reports the commanded cap fraction.
         """
         derate_raw = action[self.n_turb :] if self.yaw_action else action[: self.n_turb]
         # float64 so the derate_step_env/derate_step_sim bounds hold exactly
@@ -1352,7 +1350,7 @@ class WindFarmEnv(gym.Env):
             )
         self.derate_command = cmd
 
-        if self.derate_reference == "rated":
+        if self.derate_reference == "rated" and self.HTC_path is None:
             # cmd is a fraction of rated power → absolute target. Convert to
             # the equivalent available-power fraction using the invariant
             # P = (1 - d) * P_avail, so P_avail = current_power / (1 - d).
