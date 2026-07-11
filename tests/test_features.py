@@ -474,3 +474,70 @@ def test_delay_composes_with_sim_substeps_dynamiks():
     assert obs.shape == env.observation_space.shape
     assert env.observation_space.contains(obs)
     env.close()
+
+
+# ---------------------------------------------------------------------------
+# max_time_steps: fixed episode length in env steps (parallel-env sync).
+# time_max is always seconds; max_time_steps mode derives it as steps * delay.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+def test_max_time_steps_truncates_after_exact_step_count():
+    """Step counting starts only after reset's burn-in and sensor fill:
+    with fill_window on (steps_on_reset > 1) the episode still runs exactly
+    max_time_steps env steps after reset."""
+    env = make_fast_pywake_env(max_time_steps=12, fill_window=True)
+    env.reset(seed=0)
+    assert env.time_max == 12  # steps * delay seconds (delay = dt_env = 1)
+
+    action = np.zeros(env.action_space.shape, dtype=np.float32)
+    steps = 0
+    truncated = False
+    while not truncated and steps < 12 + 10:  # safety bound
+        _, _, _, truncated, _ = env.step(action)
+        steps += 1
+    assert truncated
+    assert steps == 12
+    env.close()
+
+
+@pytest.mark.integration
+def test_max_time_steps_with_delay_sizes_time_max_in_seconds():
+    """With delay > dt_env, time_max must cover steps * delay seconds so the
+    wind-direction series spans the whole episode, while truncation still
+    fires on the exact step count."""
+    env = make_fast_pywake_env(max_time_steps=8, delay=2)
+    env.reset(seed=0)
+    assert env.time_max == 16  # 8 steps * 2 s, not 8
+
+    action = np.zeros(env.action_space.shape, dtype=np.float32)
+    steps = 0
+    truncated = False
+    while not truncated and steps < 8 + 10:  # safety bound
+        _, _, _, truncated, _ = env.step(action)
+        steps += 1
+    assert truncated
+    assert steps == 8
+    env.close()
+
+
+@pytest.mark.integration
+def test_max_time_steps_disables_passthrough_method():
+    """Setting max_time_steps disables the passthrough episode-length method:
+    even a fixed length far below the ws-derived time_max (40 s in the fast
+    config) runs exactly max_time_steps steps instead of truncating early."""
+    env = make_fast_pywake_env(max_time_steps=5)
+    assert env.n_passthrough == 999_999_999  # forced high at construction
+    env.reset(seed=0)
+    assert env.time_max == 5
+
+    action = np.zeros(env.action_space.shape, dtype=np.float32)
+    steps = 0
+    truncated = False
+    while not truncated and steps < 5 + 10:  # safety bound
+        _, _, _, truncated, _ = env.step(action)
+        steps += 1
+    assert truncated
+    assert steps == 5
+    env.close()

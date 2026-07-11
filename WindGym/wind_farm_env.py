@@ -9,7 +9,6 @@ import gc
 import socket
 import shutil
 import math
-import warnings
 from pathlib import Path
 
 
@@ -102,7 +101,7 @@ class WindFarmEnv(gym.Env):
         reset_init=True,
         burn_in_passthroughs=2,  # number of passthroughs before episode starts
         max_time_steps: int
-        | None = None,  # fixed episode length in env steps; overrides the ws-derived time_max when set. None = use ws-derived time_max.
+        | None = None,  # fixed episode length in env steps; time_max becomes max_time_steps * delay seconds. None = use ws-derived time_max.
         cleanup_on_time_limit: bool = True,
         keep_hawc_results: bool = False,  # if True, never delete the HAWC2 res/htc/log folders
         wd_function=None,  # A function that takes in the timestep and returns the wind direction
@@ -134,6 +133,7 @@ class WindFarmEnv(gym.Env):
             sample_site: pywake site that includes information about the wind conditions. If None we sample uniformly from within the limits.
             HTC_path: str: The path to the high fidelity turbine model. If this is Not none, then we assume you want to use that instead of pywake turbines. Note you still need a pywake version of your turbine.
             reset_init: bool: If True, then the environment will be reset at initialization. This is used to save time for things that call the reset method anyways.
+            max_time_steps: int: Fixed episode length in env steps; the episode truncates after exactly this many steps, so parallel envs stay in sync regardless of wind conditions. Step counting starts after reset's flow burn-in and sensor fill (as with the n_passthrough method). Setting this disables the passthrough episode-length method: n_passthrough is ignored (a note is printed at construction). Internally time_max is set to max_time_steps * delay seconds (time_max is always in seconds). None (default) = use the ws-derived time_max from n_passthrough.
             cleanup_on_time_limit: bool: If True, then the environment will clean up the HAWC2 files when the maximum time is reached. This is to avoid filling up the disk with files.
             keep_hawc_results: bool: If True, the HAWC2 res/htc/log folders are never deleted (overrides all cleanup), so they can be kept for later inspection. Default False.
         """
@@ -225,6 +225,17 @@ class WindFarmEnv(gym.Env):
         self.time_max = 0
         # The number of times the flow passes through the farm. This is used to calculate the maximum simulation time.
         self.n_passthrough = n_passthrough
+        if self.max_time_steps is not None:
+            # Fixed episode length: the passthrough method is disabled. Force
+            # n_passthrough so high that any code path still deriving an episode
+            # length from it can never truncate before max_time_steps.
+            self.n_passthrough = 999_999_999
+            print(
+                f"max_time_steps={self.max_time_steps}: episode length fixed to "
+                f"{self.max_time_steps} env steps "
+                f"({self.max_time_steps * self.delay} s of simulation); "
+                f"n_passthrough is ignored."
+            )
         self.timestep = 0
 
         # The initial yaw of the turbines. This is used if the yaw_init is "Defined"
@@ -859,19 +870,16 @@ class WindFarmEnv(gym.Env):
             )
         )
 
-        # Optional fixed episode length: overrides the ws-derived time_max so that all
-        # parallel envs truncate (and therefore autoreset) on the same global step. This
-        # runs before make_wind_direction_list below, so the wind-direction series is sized
-        # to the fixed length and the flow never runs past it.
+        # Optional fixed episode length: replaces the ws-derived time_max (the
+        # passthrough method is disabled at construction) so that all parallel envs
+        # truncate (and therefore autoreset) on the same global step. This runs before
+        # make_wind_direction_list below, so the wind-direction series is sized to the
+        # fixed length and the flow never runs past it. time_max stays in seconds:
+        # each env step advances the sim `delay` seconds, so N steps need N * delay
+        # seconds of wind-direction series. The step counting (for both episode-length
+        # methods) only starts after reset's burn-in and sensor fill.
         if self.max_time_steps is not None:
-            if self.max_time_steps <= self.t_developed:
-                warnings.warn(
-                    f"max_time_steps ({self.max_time_steps}) <= t_developed "
-                    f"({self.t_developed}); the episode would end during/just after flow "
-                    "burn-in. Consider a larger max_time_steps.",
-                    stacklevel=2,
-                )
-            self.time_max = self.max_time_steps
+            self.time_max = self.max_time_steps * self.delay
 
         if self.backend == "dynamiks":
             # --- ORIGINAL dynamic backend ---
@@ -1456,16 +1464,12 @@ class WindFarmEnv(gym.Env):
         # https://arxiv.org/pdf/1712.00378
         # https://gymnasium.farama.org/tutorials/gymnasium_basics/handling_time_limits/
         self.timestep += 1
-        if self.max_time_steps is not None:
-            # time_max holds max_time_steps (env steps) in this mode, so all
-            # parallel envs truncate on the same global step regardless of delay.
-            truncated_check = self.timestep >= self.time_max
-        else:
-            # time_max is in seconds while timestep counts env steps of delay
-            # seconds each (delay == dt_env unless an action delay is set), so
-            # compare simulated time, not step counts.
-            truncated_check = self.timestep * self.delay >= self.time_max
-        if truncated_check:
+        # time_max is always in seconds while timestep counts env steps of `delay`
+        # seconds each. With max_time_steps set, time_max == max_time_steps * delay,
+        # so this fires at exactly max_time_steps steps (same computation on both
+        # sides — float-exact). Keeping the single check also keeps time_max as the
+        # one truncation knob (FarmEval overwrites it to run "forever").
+        if self.timestep * self.delay >= self.time_max:
             truncated = True
             # Clean up the flow simulation. This is to make sure that we dont have a memory leak.
             if self.cleanup_on_time_limit:
