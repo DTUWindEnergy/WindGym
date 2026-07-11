@@ -269,7 +269,12 @@ class TestInvalidConfigurations:
                 "yaml_config_kwargs": {
                     "mes_level": {"turb_ws": True}
                 },  # Intends to make mes_level sparse
-                "expected_exception_info": (KeyError, r"'turb_wd'"),
+                # Config validation in _apply_config raises an actionable
+                # ValueError instead of a bare KeyError deep in init.
+                "expected_exception_info": (
+                    ValueError,
+                    r"Key 'turb_wd' is required in section 'mes_level'",
+                ),
             },
             id="MissingKeyInMesLevel",
         ),
@@ -279,7 +284,12 @@ class TestInvalidConfigurations:
                 "yaml_config_kwargs": {
                     "ws_mes": {"ws_rolling_mean": True}
                 },  # Intends to make ws_mes sparse
-                "expected_exception_info": (KeyError, r"'ws_current'"),
+                # Config validation in _apply_config raises an actionable
+                # ValueError instead of a bare KeyError deep in init.
+                "expected_exception_info": (
+                    ValueError,
+                    r"Key 'ws_current' is required in section 'ws_mes'",
+                ),
             },
             id="MissingKeyInWsMes",
         ),

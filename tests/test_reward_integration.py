@@ -128,7 +128,9 @@ class TestRewardMeasurementIntegration:
             Baseline_comp=True,
             dt_sim=1,
             dt_env=5,
-            n_passthrough=0.5,
+            # With the truncation fix, episode length is time_max/dt_env env
+            # steps; n_passthrough=2 gives enough headroom for the step loops.
+            n_passthrough=2,
             burn_in_passthroughs=0.01,
         )
 
@@ -177,7 +179,9 @@ class TestRewardMeasurementIntegration:
             Baseline_comp=True,
             dt_sim=1,
             dt_env=5,
-            n_passthrough=0.5,
+            # With the truncation fix, episode length is time_max/dt_env env
+            # steps; n_passthrough=2 gives enough headroom for the step loops.
+            n_passthrough=2,
             burn_in_passthroughs=0.01,
         )
 
@@ -232,7 +236,9 @@ class TestRewardMeasurementIntegration:
             Baseline_comp=False,  # Not needed for Power_avg
             dt_sim=1,
             dt_env=5,
-            n_passthrough=0.5,
+            # With the truncation fix, episode length is time_max/dt_env env
+            # steps; n_passthrough=2 gives enough headroom for the step loops.
+            n_passthrough=2,
             burn_in_passthroughs=0.01,
         )
 
@@ -279,7 +285,9 @@ class TestActionPenaltyIntegration:
             Baseline_comp=True,
             dt_sim=1,
             dt_env=5,
-            n_passthrough=0.5,
+            # With the truncation fix, episode length is time_max/dt_env env
+            # steps; n_passthrough=2 gives enough headroom for the step loops.
+            n_passthrough=2,
             burn_in_passthroughs=0.01,
         )
 
