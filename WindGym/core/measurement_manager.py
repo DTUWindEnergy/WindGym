@@ -133,9 +133,7 @@ class NoiseModel(ABC):
             lower = center - spec.circular_range / 2.0
             wrapped_physical = ((noisy_physical - lower) % spec.circular_range) + lower
             if span < spec.circular_range:
-                wrapped_physical = np.clip(
-                    wrapped_physical, spec.min_val, spec.max_val
-                )
+                wrapped_physical = np.clip(wrapped_physical, spec.min_val, spec.max_val)
 
             # 4. Convert back to scaled representation [-1, 1] using the original min/max of the observation space
             return NoiseModel._scale_value_static(

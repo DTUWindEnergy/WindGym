@@ -262,9 +262,7 @@ class RewardCalculator:
         )
 
         # Get the oldest window of power values
-        power_oldest = np.mean(
-            list(itertools.islice(farm_power_deque, 0, window))
-        )
+        power_oldest = np.mean(list(itertools.islice(farm_power_deque, 0, window)))
 
         return (power_latest - power_oldest) / n_turbines
 

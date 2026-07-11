@@ -92,7 +92,8 @@ class WindFarmEnv(gym.Env):
         seed=None,
         dt_sim=1,  # Simulation timestep in seconds
         dt_env=1,  # Environment timestep in seconds
-        delay: float | None = None,  # Agent action interval in seconds. None -> dt_env (no delay)
+        delay: float
+        | None = None,  # Agent action interval in seconds. None -> dt_env (no delay)
         yaw_step_sim=1,  # How many degrees the yaw angles can change pr. simulation step
         yaw_step_env=None,  # How many degrees the yaw angles can change pr. environment step
         fill_window=True,
@@ -1338,9 +1339,9 @@ class WindFarmEnv(gym.Env):
             # Affine map [-1, 1] → [derate_min, derate_max] so the full action
             # range is useful even when derate_max < 1 (no saturated dead zone).
             frac = np.clip((derate_raw + 1.0) / 2.0, 0.0, 1.0)
-            cmd = (
-                self.derate_min + frac * (self.derate_max - self.derate_min)
-            ).astype(np.float64)
+            cmd = (self.derate_min + frac * (self.derate_max - self.derate_min)).astype(
+                np.float64
+            )
         self.derate_command = cmd
 
         if self.derate_reference == "rated":
@@ -1349,9 +1350,7 @@ class WindFarmEnv(gym.Env):
             # P = (1 - d) * P_avail, so P_avail = current_power / (1 - d).
             # A target above available power clips to d = 0 (dead zone).
             p_target = (1.0 - cmd) * self.derate_rated_power
-            p_avail = self.current_powers / np.maximum(
-                1.0 - self.current_derate, 1e-6
-            )
+            p_avail = self.current_powers / np.maximum(1.0 - self.current_derate, 1e-6)
             derate = np.clip(
                 1.0 - p_target / np.maximum(p_avail, 1e-6), 0.0, self.derate_max
             )

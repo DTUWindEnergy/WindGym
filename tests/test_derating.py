@@ -70,7 +70,11 @@ def make_env_config(**overrides):
             "wd_max": 270.0,
         },
         "act_pen": {"action_penalty": 0.0, "action_penalty_type": "change"},
-        "power_def": {"Power_reward": "Power_avg", "Power_avg": 5, "Power_scaling": 1.0},
+        "power_def": {
+            "Power_reward": "Power_avg",
+            "Power_avg": 5,
+            "Power_scaling": 1.0,
+        },
         "mes_level": {
             "turb_ws": True,
             "turb_wd": False,
@@ -114,7 +118,9 @@ def make_env_config(**overrides):
     return config
 
 
-def make_env(turbine, n_turb=3, spacing_d=5.0, config=None, env_cls=WindFarmEnv, **kwargs):
+def make_env(
+    turbine, n_turb=3, spacing_d=5.0, config=None, env_cls=WindFarmEnv, **kwargs
+):
     d = turbine.diameter()
     return env_cls(
         turbine=turbine,
@@ -282,9 +288,7 @@ def test_multi_env_action_packing(derating_turbine):
     }
     _, _, _, _, infos = env.step(actions)
 
-    np.testing.assert_allclose(
-        env.current_derate, (raw + 1.0) / 2.0 * 0.8, atol=1e-6
-    )
+    np.testing.assert_allclose(env.current_derate, (raw + 1.0) / 2.0 * 0.8, atol=1e-6)
     for i, a in enumerate(agents):
         np.testing.assert_allclose(
             infos[a]["derate agent"], (raw[i] + 1.0) / 2.0 * 0.8, atol=1e-6
@@ -323,9 +327,7 @@ def test_rated_reference_dead_zone(derating_turbine):
         info["derate command"], [0.5] + [0.0] * (n - 1), atol=1e-6
     )
     np.testing.assert_allclose(info["derate agent"], np.zeros(n), atol=1e-9)
-    np.testing.assert_allclose(
-        info["Power pr turbine agent"][0], p_base[0], rtol=0.1
-    )
+    np.testing.assert_allclose(info["Power pr turbine agent"][0], p_base[0], rtol=0.1)
     env.close()
 
 
@@ -516,9 +518,7 @@ def test_pywake_agent_rejects_derating_env(derating_turbine):
 
     env = make_env(derating_turbine, n_turb=2)
     d = derating_turbine.diameter()
-    agent = PyWakeAgent(
-        x_pos=np.arange(2) * 5.0 * d, y_pos=np.zeros(2), env=env
-    )
+    agent = PyWakeAgent(x_pos=np.arange(2) * 5.0 * d, y_pos=np.zeros(2), env=env)
     with pytest.raises(ValueError, match="derate_action"):
         agent.predict(None)
     env.close()

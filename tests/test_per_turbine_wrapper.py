@@ -342,9 +342,7 @@ class TestPerTurbineWrapperDerating:
         wrapped.reset(seed=0)
 
         # derate action -1 maps to derate_min (=0), +1 to derate_max (=0.8)
-        action = np.array(
-            [[0.0, 1.0], [0.0, -1.0], [0.0, -1.0]], dtype=np.float32
-        )
+        action = np.array([[0.0, 1.0], [0.0, -1.0], [0.0, -1.0]], dtype=np.float32)
         obs, _, _, _, _ = wrapped.step(action)
 
         derate = np.asarray(env.unwrapped.current_derate)
