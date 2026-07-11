@@ -39,3 +39,11 @@ AdversaryWrapper
    :members:
    :undoc-members:
    :show-inheritance:
+
+ParallelPettingZooMultiprocessingWrapper
+-----------------------------------------
+
+.. automodule:: WindGym.wrappers.parallel_PettingZoo_wrapper
+   :members:
+   :undoc-members:
+   :show-inheritance:

@@ -361,6 +361,10 @@ act_pen:
     env.fs.windTurbines.yaw = np.array(
         [initial_yaw_offset] * env.n_turb, dtype=np.float32
     )
+    # Keep the authoritative setpoint consistent with the manual physical-yaw override:
+    # step() advances yaw via self.yaw_command (never reading the physical getter back),
+    # so without this the change penalty is measured against a stale [0,0] start.
+    env.yaw_command = np.array([initial_yaw_offset] * env.n_turb, dtype=np.float32)
     if env.Baseline_comp:  # Should be false if Power_reward is "None"
         env.fs_baseline.windTurbines.yaw = np.array(
             [initial_yaw_offset] * env.n_turb, dtype=np.float32

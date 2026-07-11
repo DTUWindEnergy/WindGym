@@ -136,7 +136,7 @@ power_def:
 
 ### 1.5 None
 
-Returns `0.0` — no power reward is applied.
+Returns `0.0` (no power reward is applied).
 
 - **Config value:** `Power_reward: "None"`
 
@@ -183,7 +183,7 @@ Penalizes the magnitude of yaw changes between steps:
 
 `penalty = action_penalty × mean(|yaw_old − yaw_new|)`
 
-This encourages stable control — the agent is penalized for large yaw adjustments.
+This encourages stable control: the agent is penalized for large yaw adjustments.
 
 ### 4.2 Total-based penalty
 
@@ -191,7 +191,7 @@ Penalizes the absolute yaw magnitude, normalized by the maximum yaw:
 
 `penalty = action_penalty × mean(|yaw_new|) / yaw_max`
 
-This encourages alignment with the wind direction — the agent is penalized for maintaining large yaw offsets.
+This encourages alignment with the wind direction: the agent is penalized for maintaining large yaw offsets.
 
 **Config example:**
 ```yaml
@@ -241,7 +241,7 @@ The `calculate_total_reward()` method also returns a breakdown dictionary with k
 | **None** | No | 0 | Custom reward wrappers, penalty-only |
 
 **Recommendations:**
-- Start with **Baseline** if you have a baseline comparison enabled — it is the most intuitive and widely used.
+- Start with **Baseline** if you have a baseline comparison enabled; it is the most intuitive and widely used.
 - Switch to **Wake_recovery** if you are training across a wide range of wind conditions and want consistent reward scaling.
 - Use **Power_avg** for quick prototyping when you don't need a baseline farm.
 - Use **Power_diff** for curriculum learning setups where absolute performance matters less than improvement.

@@ -55,6 +55,13 @@ class TurbulenceManager:
         # Random number generator (set by environment)
         self.np_random = None
 
+        # Optional explicit Mann-box seed. When not None, MannGenerate uses THIS seed for the
+        # turbulence box instead of drawing one from np_random. Lets an evaluator pin a
+        # specific, reproducible, held-out box per episode (e.g. seeds >= 100000, which the
+        # training draw `np_random.integers(0, 100000)` can never produce). None = original
+        # behaviour (random box each reset).
+        self.box_seed = None
+
         # Discovered turbulence files (for MannLoad)
         self.turbulence_files = []
         if turbulence_type == "MannLoad":
@@ -202,14 +209,20 @@ class TurbulenceManager:
         tf = MannTurbulenceField.from_netcdf(filename=self.tf_file)
         tf.scale_TI(TI=ti, U=ws)
 
-        added_turb_model = SynchronizedAutoScalingIsotropicMannTurbulence()
+        added_turb_model = SynchronizedAutoScalingIsotropicMannTurbulence(
+            cache_field=False
+        )
         return tf, added_turb_model
 
     def _generate_mann_generate(
         self, ws: float, ti: float, rotor_diameter: float
     ) -> tuple:
-        """Generate new Mann turbulence box with random seed."""
-        tf_seed = self.np_random.integers(0, 100000)
+        """Generate new Mann turbulence box (explicit box_seed if set, else random)."""
+        if self.box_seed is not None:
+            tf_seed = int(self.box_seed)
+        else:
+            tf_seed = int(self.np_random.integers(0, 100000))
+        print(f"[TurbulenceManager] MannGenerate box seed = {tf_seed}", flush=True)
 
         tf = MannTurbulenceField.generate(
             alphaepsilon=0.1,  # turbulence dissipation parameter

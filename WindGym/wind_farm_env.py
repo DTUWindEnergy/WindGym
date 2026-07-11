@@ -9,6 +9,7 @@ import gc
 import socket
 import shutil
 import math
+import warnings
 from pathlib import Path
 
 
@@ -34,7 +35,7 @@ from .core.probe_manager import ProbeManager
 from py_wake.wind_turbines import WindTurbines as WindTurbinesPW
 from collections import deque, defaultdict
 import yaml
-from dynamiks.wind_turbines.hawc2_windturbine import HAWC2WindTurbines
+from .backend.hawc2_adapter import HAWC2WindTurbinesW
 from dynamiks.dwm.particle_motion_models import CutOffFrq
 
 # For live plotting
@@ -99,7 +100,10 @@ class WindFarmEnv(gym.Env):
         HTC_path=None,
         reset_init=True,
         burn_in_passthroughs=2,  # number of passthroughs before episode starts
+        max_time_steps: int
+        | None = None,  # fixed episode length in env steps; overrides the ws-derived time_max when set. None = use ws-derived time_max.
         cleanup_on_time_limit: bool = True,
+        keep_hawc_results: bool = False,  # if True, never delete the HAWC2 res/htc/log folders
         wd_function=None,  # A function that takes in the timestep and returns the wind direction
         max_turb_move=2,  # The maximum distance that the turbines can move in one timestep. This is used to avoid numerical issues with the DWM solver.
         **kwargs,
@@ -130,6 +134,7 @@ class WindFarmEnv(gym.Env):
             HTC_path: str: The path to the high fidelity turbine model. If this is Not none, then we assume you want to use that instead of pywake turbines. Note you still need a pywake version of your turbine.
             reset_init: bool: If True, then the environment will be reset at initialization. This is used to save time for things that call the reset method anyways.
             cleanup_on_time_limit: bool: If True, then the environment will clean up the HAWC2 files when the maximum time is reached. This is to avoid filling up the disk with files.
+            keep_hawc_results: bool: If True, the HAWC2 res/htc/log folders are never deleted (overrides all cleanup), so they can be kept for later inspection. Default False.
         """
         self.kwargs = locals()
         del self.kwargs["self"]  # Remove 'self' from the dictionary
@@ -148,7 +153,12 @@ class WindFarmEnv(gym.Env):
         self.wts = None
         self.wts_baseline = None
         self.burn_in_passthroughs = burn_in_passthroughs
+        # Optional fixed episode length (env steps). When set, reset() overrides the
+        # ws-derived time_max with this value so all parallel envs truncate (and autoreset)
+        # on the same global step. None keeps the original ws-derived behavior.
+        self.max_time_steps = max_time_steps
         self.cleanup_on_time_limit = cleanup_on_time_limit
+        self.keep_hawc_results = keep_hawc_results
         # The power setpoint for the farm. This is used if the Track_power is True. (Not used yet)
         self.power_setpoint = 0.0
         self.act_var = (
@@ -387,7 +397,12 @@ class WindFarmEnv(gym.Env):
             name_string = f"{node_string}_{self.wd:.2f}_{self.ws:.2f}_{self.ti:.2f}_{self.np_random.integers(low=0, high=45000)}"
             name_string = name_string.replace(".", "p")
 
-            self.wts = HAWC2WindTurbines(
+            # MultiH2Lib spawns one subprocess per turbine. Those children can only be
+            # managed (closed / polled) from the process that created them, so remember
+            # who that is and gate cleanup on it (see _safe_close_h2).
+            self._h2_owner_pid = os.getpid()
+
+            self.wts = HAWC2WindTurbinesW(  # power() normalized to W (native HAWC2 is kW)
                 x=self.x_pos,
                 y=self.y_pos,
                 htc_lst=[self.HTC_path],
@@ -751,7 +766,12 @@ class WindFarmEnv(gym.Env):
             "Wind direction at farm measured": self.farm_measurements.get_wd_farm(),
             "Turbulence intensity": self.ti,
             "Power agent": self.fs.windTurbines.power().sum(),
-            "Power agent nowake": self.fs.windTurbines.power(include_wakes=False).sum(),
+            # HAWC2WindTurbines cannot compute power without wakes; report NaN there.
+            "Power agent nowake": (
+                np.nan
+                if self.HTC_path is not None
+                else self.fs.windTurbines.power(include_wakes=False).sum()
+            ),
             "Power pr turbine agent": self.fs.windTurbines.power(),
             "Turbine x positions": self.fs.windTurbines.positions_xyz[0],
             "Turbine y positions": self.fs.windTurbines.positions_xyz[1],
@@ -838,6 +858,20 @@ class WindFarmEnv(gym.Env):
             )
         )
 
+        # Optional fixed episode length: overrides the ws-derived time_max so that all
+        # parallel envs truncate (and therefore autoreset) on the same global step. This
+        # runs before make_wind_direction_list below, so the wind-direction series is sized
+        # to the fixed length and the flow never runs past it.
+        if self.max_time_steps is not None:
+            if self.max_time_steps <= self.t_developed:
+                warnings.warn(
+                    f"max_time_steps ({self.max_time_steps}) <= t_developed "
+                    f"({self.t_developed}); the episode would end during/just after flow "
+                    "burn-in. Consider a larger max_time_steps.",
+                    stacklevel=2,
+                )
+            self.time_max = self.max_time_steps
+
         if self.backend == "dynamiks":
             # --- ORIGINAL dynamic backend ---
             # Generate wind direction list for the episode
@@ -917,12 +951,20 @@ class WindFarmEnv(gym.Env):
             )
 
         # Initial yaw set (bounded by yaw_start)
-        self.fs.windTurbines.yaw = self._yaw_init(
-            min_val=-self.yaw_start,
-            max_val=self.yaw_start,
-            n=self.n_turb,
-            yaws=self.yaw_initial,
-        )
+        # self.yaw_command is our authoritative commanded SETPOINT. We mutate it in plain
+        # Python and only ever write it to windTurbines.yaw. Reading windTurbines.yaw back
+        # to compute the next command is unsafe for HAWC2, whose getter returns the lagging
+        # physical bearing while the setter writes a setpoint (see _adjust_yaws).
+        self.yaw_command = np.asarray(
+            self._yaw_init(
+                min_val=-self.yaw_start,
+                max_val=self.yaw_start,
+                n=self.n_turb,
+                yaws=self.yaw_initial,
+            ),
+            dtype=float,
+        ).copy()
+        self.fs.windTurbines.yaw = self.yaw_command
 
         # Must init probes after fs
         self.probe_manager.initialize_probes(self.fs, self.fs.windTurbines.yaw)
@@ -1017,7 +1059,9 @@ class WindFarmEnv(gym.Env):
             if self.Baseline_comp:
                 self.base_pow_deq.append(out["baseline_power_mean"].sum())
                 self.nowake_pow_deq.append(
-                    self.fs_baseline.windTurbines.power(include_wakes=False).sum()
+                    np.nan
+                    if self.HTC_path is not None
+                    else self.fs_baseline.windTurbines.power(include_wakes=False).sum()
                 )
 
         # 5) Get observation and info
@@ -1102,7 +1146,10 @@ class WindFarmEnv(gym.Env):
 
             wd_new = self.fs.wind_direction
             delta_wd = wd_new - wd_old
-            self.fs.windTurbines.yaw += delta_wd
+            # Track the wind shift on our own command, not via read-modify-write of the
+            # (physical, lagging for HAWC2) yaw getter, which would clobber the command.
+            self.yaw_command = self.yaw_command + delta_wd
+            self.fs.windTurbines.yaw = self.yaw_command
 
             # Update the winddirection to match the flow sim
             self.wd = self.fs.wind_direction
@@ -1199,11 +1246,13 @@ class WindFarmEnv(gym.Env):
                 dtype=np.float32,
             )
 
-            self.fs.windTurbines.yaw += yaw_change
-            # clip the yaw angles to be between -30 and 30
-            self.fs.windTurbines.yaw = np.clip(
-                self.fs.windTurbines.yaw, self.yaw_min, self.yaw_max
+            # Accumulate on our own command (clipped to bounds), then write it once.
+            # Never read windTurbines.yaw back here: for HAWC2 the getter returns the
+            # lagging physical bearing, so a read-modify-write erases the command.
+            self.yaw_command = np.clip(
+                self.yaw_command + yaw_change, self.yaw_min, self.yaw_max
             )
+            self.fs.windTurbines.yaw = self.yaw_command
 
             self.action_remaining -= yaw_change
 
@@ -1217,18 +1266,20 @@ class WindFarmEnv(gym.Env):
             if (
                 self.HTC_path is None
             ):  # This clip is only usefull for the pywake turbine model, as the hawc2 model has inertia anyways
-                # The bounds for the yaw angles are:
-                yaw_max = self.fs.windTurbines.yaw + self.yaw_step_sim
-                yaw_min = self.fs.windTurbines.yaw - self.yaw_step_sim
+                # Rate-limit relative to our own command, not the (physical) readback.
+                yaw_max = self.yaw_command + self.yaw_step_sim
+                yaw_min = self.yaw_command - self.yaw_step_sim
 
                 # The new yaw angles are the new yaw angles, but clipped to be between the yaw_max and yaw_min
-                self.fs.windTurbines.yaw = np.clip(
+                self.yaw_command = np.clip(
                     np.clip(new_yaws, yaw_min, yaw_max), self.yaw_min, self.yaw_max
                 )
 
             else:
                 # The new yaw angles are the new yaw angles, but clipped to be between the yaw_min and yaw_max
-                self.fs.windTurbines.yaw = np.clip(new_yaws, self.yaw_min, self.yaw_max)
+                self.yaw_command = np.clip(new_yaws, self.yaw_min, self.yaw_max)
+
+            self.fs.windTurbines.yaw = self.yaw_command
 
         elif self.ActionMethod == "absolute":
             raise NotImplementedError("The absolute method is not implemented yet")
@@ -1365,7 +1416,9 @@ class WindFarmEnv(gym.Env):
         if self.Baseline_comp:
             self.base_pow_deq.append(out["baseline_power_mean"].sum())
             self.nowake_pow_deq.append(
-                self.fs_baseline.windTurbines.power(include_wakes=False).sum()
+                np.nan
+                if self.HTC_path is not None
+                else self.fs_baseline.windTurbines.power(include_wakes=False).sum()
             )
 
         if np.any(np.isnan(self.farm_pow_deq)):
@@ -1403,11 +1456,17 @@ class WindFarmEnv(gym.Env):
         # https://farama.org/Gymnasium-Terminated-Truncated-Step-API#theory
         # https://arxiv.org/pdf/1712.00378
         # https://gymnasium.farama.org/tutorials/gymnasium_basics/handling_time_limits/
-        # time_max is in seconds while timestep counts env steps of delay
-        # seconds each (delay == dt_env unless an action delay is set), so
-        # compare simulated time, not step counts.
         self.timestep += 1
-        if self.timestep * self.delay >= self.time_max:
+        if self.max_time_steps is not None:
+            # time_max holds max_time_steps (env steps) in this mode, so all
+            # parallel envs truncate on the same global step regardless of delay.
+            truncated_check = self.timestep >= self.time_max
+        else:
+            # time_max is in seconds while timestep counts env steps of delay
+            # seconds each (delay == dt_env unless an action delay is set), so
+            # compare simulated time, not step counts.
+            truncated_check = self.timestep * self.delay >= self.time_max
+        if truncated_check:
             truncated = True
             # Clean up the flow simulation. This is to make sure that we dont have a memory leak.
             if self.cleanup_on_time_limit:
@@ -1419,6 +1478,24 @@ class WindFarmEnv(gym.Env):
 
         return observation, reward, terminated, truncated, info
 
+    def _safe_close_h2(self, wt) -> None:
+        """Close a HAWC2 turbine's h2 connection defensively.
+
+        The MultiH2Lib children can only be polled/closed from the process that spawned
+        them, so closing from another process raises ``AssertionError: can only test a
+        child process``. Gate on the owning pid and never let teardown raise (HAWC2's own
+        ``atexit`` handler still closes the connection in the owning process).
+        """
+        if wt is None or not hasattr(wt, "h2"):
+            return
+        if os.getpid() != getattr(self, "_h2_owner_pid", None):
+            return
+        try:
+            wt.h2.close()
+        except (AssertionError, OSError, EOFError):
+            # Proxy child already gone / pipe closed / non-owning poll — teardown must not raise.
+            pass
+
     def _soft_cleanup(self) -> None:
         """
         Clean up resources between episodes.
@@ -1426,16 +1503,8 @@ class WindFarmEnv(gym.Env):
         """
         # Close HAWC2 connections if they exist
         if self.HTC_path is not None:
-            if self.wts is not None and hasattr(self.wts, "h2"):
-                # try:
-                self.wts.h2.close()
-                # except Exception as e:
-                #     logger.warning(f"Failed to close wts.h2 connection: {e}")
-            if self.wts_baseline is not None and hasattr(self.wts_baseline, "h2"):
-                # try:
-                self.wts_baseline.h2.close()
-                # except Exception as e:
-                #     logger.warning(f"Failed to close wts_baseline.h2 connection: {e}")
+            self._safe_close_h2(self.wts)
+            self._safe_close_h2(self.wts_baseline)
 
         # Clear references
         self.fs_baseline = None
@@ -1454,16 +1523,12 @@ class WindFarmEnv(gym.Env):
         # Delete HAWC folders BEFORE clearing references (needs self.wts for paths)
         if self.HTC_path is not None:
             # Close connections first
-            if self.wts is not None and hasattr(self.wts, "h2"):
-                self.wts.h2.close()
-            if (
-                self.Baseline_comp
-                and self.wts_baseline is not None
-                and hasattr(self.wts_baseline, "h2")
-            ):
-                self.wts_baseline.h2.close()
-            # Then delete folders
-            self._deleteHAWCfolder()
+            self._safe_close_h2(self.wts)
+            if self.Baseline_comp:
+                self._safe_close_h2(self.wts_baseline)
+            # Then delete folders (self.wts holds the paths; skip if already cleaned up)
+            if self.wts is not None:
+                self._deleteHAWCfolder()
 
         # Now clear all references
         self.fs_baseline = None
@@ -1478,43 +1543,35 @@ class WindFarmEnv(gym.Env):
     def _deleteHAWCfolder(self):
         """
         This deletes the HAWC2 results folder from the directory.
-        This is done to make sure we keep it nice and clean
+        This is done to make sure we keep it nice and clean.
+
+        Each turbine writes into res/<case>, htc/<case> and log/<case>; this removes all
+        three for both the agent and (if present) the baseline turbines. Skipped entirely
+        when keep_hawc_results is set, so folders can be retained for later inspection.
+
+        Called from cleanup paths (truncation and close()), possibly more than once and
+        during teardown, so it must not raise if a folder is already gone.
         """
-        # This is the path to the results
-        delete_folder = (
-            self.wts.htc_lst[0].modelpath
-            + os.path.split(self.wts.htc_lst[0].output.filename.values[0])[0]
-        )
-        shutil.rmtree(delete_folder)
+        if self.keep_hawc_results or self.wts is None:
+            return
 
-        # Also delete the htc folder
-        htc_folder = (
-            self.wts.htc_lst[0].modelpath
-            + os.path.split(
-                self.wts.htc_lst[0].output.filename.values[0].replace("res", "htc")
-            )[0]
-        )
-        shutil.rmtree(htc_folder)
+        self._delete_case_folders(self.wts)
+        if self.Baseline_comp and self.wts_baseline is not None:
+            self._delete_case_folders(self.wts_baseline)
 
-        if self.Baseline_comp:
-            delete_folder_baseline = (
-                self.wts_baseline.htc_lst[0].modelpath
-                + os.path.split(self.wts_baseline.htc_lst[0].output.filename.values[0])[
-                    0
-                ]
-            )
-            shutil.rmtree(delete_folder_baseline)
+    def _delete_case_folders(self, wts):
+        """Remove the res/, htc/ and log/ case subfolders for one set of HAWC2 turbines.
 
-            # Also delete the htc folder
-            htc_folder_baseline = (
-                self.wts_baseline.htc_lst[0].modelpath
-                + os.path.split(
-                    self.wts_baseline.htc_lst[0]
-                    .output.filename.values[0]
-                    .replace("res", "htc")
-                )[0]
-            )
-            shutil.rmtree(htc_folder_baseline)
+        ``output.filename`` points at ``res/<case>/...``; the htc and log folders mirror
+        it with the leading ``res`` swapped. ``ignore_errors=True`` so an already-deleted
+        folder does not raise during teardown.
+        """
+        modelpath = wts.htc_lst[0].modelpath
+        res_rel = os.path.split(wts.htc_lst[0].output.filename.values[0])[0]
+        for sub in ("res", "htc", "log"):
+            # replace only the leading "res" (count=1) to avoid touching the case name
+            folder = modelpath + res_rel.replace("res", sub, 1)
+            shutil.rmtree(folder, ignore_errors=True)
 
     def render(
         self,
@@ -1574,14 +1631,24 @@ class WindFarmEnv(gym.Env):
         )
 
     def close(self):
-        """Close the environment and clean up resources."""
+        """Close the environment and clean up resources.
+
+        This is what runs on a normal stop (``envs.close()`` / Ctrl+C), so for HAWC2
+        (level 3) it must also delete the htc/res/log folders. Previously folder deletion
+        only happened on time-limit truncation, so stopping a job mid-episode left the
+        HAWC2 folders behind on the node.
+        """
         self.renderer.close()
-        if self.Baseline_comp:
-            self.fs_baseline = None
-            self.site_base = None
-        self.fs = None
-        self.site = None
-        self.farm_measurements = None
+        if getattr(self, "HTC_path", None) is not None:
+            # Full cleanup: close h2 connections + delete HAWC2 folders + drop refs.
+            self._cleanup_resources()
+        else:
+            if self.Baseline_comp:
+                self.fs_baseline = None
+                self.site_base = None
+            self.fs = None
+            self.site = None
+            self.farm_measurements = None
         gc.collect()
 
     def plot_farm(self, baseline=False, fix_turbines=False):
@@ -1648,8 +1715,16 @@ class WindFarmEnv(gym.Env):
         return None
 
     def __del__(self):
-        """Destructor to ensure cleanup."""
-        # try:
-        self._soft_cleanup()
-        # except Exception as e:
-        #     logger.warning(f"Exception during WindFarmEnv cleanup: {e}")
+        """Destructor to ensure cleanup.
+
+        Runs during garbage collection / interpreter shutdown, possibly on a
+        partially-constructed instance or in a non-owning process, so it must never
+        raise (a raising ``__del__`` only prints "Exception ignored in __del__").
+        """
+        if getattr(self, "HTC_path", None) is None and not hasattr(self, "fs"):
+            return
+        try:
+            self._soft_cleanup()
+        except (AttributeError, ImportError, OSError, EOFError):
+            # Destructor during GC / interpreter shutdown — never let teardown raise.
+            pass
