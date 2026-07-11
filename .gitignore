@@ -12,6 +12,8 @@ __pycache__/
 
 # C extensions
 *.so
+# ... except the shipped HAWC2 controller/servo binaries (Linux-only)
+!examples/HawcFiles/control/*.so
 
 # Distribution / packaging
 .Python
