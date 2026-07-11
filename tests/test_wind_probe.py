@@ -172,3 +172,45 @@ def test_init_probes_with_absolute_position():
     assert probe.position is not None
 
     env.close()
+
+
+# ---------------------------------------------------------------------------
+# Turbine-relative probes and the observation space (dynamiks backend):
+# probe readings must be sized/placed consistently in the observation, also
+# after a second reset re-attaches the probes
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+def test_probe_obs_matches_observation_space():
+    from test_utils import get_fast_pywake_config, make_fast_pywake_env
+
+    config = get_fast_pywake_config(
+        probes=[
+            {
+                "name": "p0",
+                "turbine_index": 0,
+                "relative_position": [-160.0, 0.0, 0.0],
+                "probe_type": "WS",
+            },
+            {
+                "name": "p1",
+                "turbine_index": 1,
+                "relative_position": [-160.0, 0.0, 0.0],
+                "probe_type": "WS",
+            },
+        ]
+    )
+    env = make_fast_pywake_env(config=config, backend="dynamiks", turbtype="None")
+
+    for episode in range(2):  # 2nd reset used to re-attach stale probes
+        obs, _ = env.reset(seed=episode)
+        assert obs.shape == env.observation_space.shape
+        assert env.observation_space.contains(obs)
+
+        action = np.zeros(env.action_space.shape, dtype=np.float32)
+        obs, *_ = env.step(action)
+        assert obs.shape == env.observation_space.shape
+        assert env.observation_space.contains(obs)
+
+    env.close()

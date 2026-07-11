@@ -2,9 +2,9 @@
 
 The reward function is the primary signal that guides an RL agent's learning. In WindGym, the total reward at each environment step is composed of two parts:
 
-`total_reward = (power_reward × Power_scaling) − action_penalty`
+`total_reward = (power_reward × Power_scaling) − action_penalty − derate_penalty`
 
-The **power reward** quantifies how well the agent is controlling the farm's power output, and the optional **action penalty** discourages excessive yaw adjustments.
+The **power reward** quantifies how well the agent is controlling the farm's power output, and the optional **action penalty** discourages excessive yaw adjustments. When the [derating action](derating.md) is enabled, an optional **derate penalty** does the same for derate levels.
 
 ---
 
@@ -204,15 +204,29 @@ act_pen:
 If `action_penalty` is less than `0.001`, the penalty calculation is skipped entirely.
 :::
 
+### 4.3 Derate penalty
+
+When the [derating action](derating.md) is enabled, an analogous optional penalty applies to the derate levels, with the same two types:
+
+`penalty = derate_penalty × mean(|derate_old − derate_new|)` ("change")
+
+`penalty = derate_penalty × mean(derate_new) / derate_max` ("total")
+
+**Config example:**
+```yaml
+derate_penalty: 0.1
+derate_penalty_type: "change"  # or "total"
+```
+
 ---
 
 ## 5. Total Reward Composition
 
 The final reward returned by the environment at each step is:
 
-`total_reward = (power_reward × Power_scaling) − action_penalty`
+`total_reward = (power_reward × Power_scaling) − action_penalty − derate_penalty`
 
-The `calculate_total_reward()` method also returns a breakdown dictionary with keys `power_reward`, `scaled_power_reward`, `action_penalty`, and `total_reward`, which is useful for logging and debugging during training.
+The `calculate_total_reward()` method also returns a breakdown dictionary with keys `power_reward`, `scaled_power_reward`, `action_penalty`, `derate_penalty`, and `total_reward`, which is useful for logging and debugging during training.
 
 ---
 

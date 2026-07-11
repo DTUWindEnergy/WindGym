@@ -1,5 +1,6 @@
 import unittest
 import numpy as np
+import pytest
 from WindGym.core.mes_class import Mes, TurbMes, FarmMes
 import sys
 from io import StringIO
@@ -485,3 +486,46 @@ class TestFarmMes(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ------------------------------------------------------------------------------
+# Circular (wind-direction) averaging: values near the 0/360 wrap must not
+# collapse to the arithmetic mean (e.g. 359 and 1 average to 0, not 180)
+# ------------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_mes_rolling_mean_circular():
+    mes = Mes(
+        current=False,
+        rolling_mean=True,
+        history_N=1,
+        history_length=8,
+        window_length=4,
+        circular=True,
+    )
+    for v in [358.0, 359.0, 1.0, 2.0]:
+        mes.add_measurement(v)
+    val = mes.get_measurements()[0] % 360.0
+    assert min(val, 360.0 - val) == pytest.approx(0.0, abs=1e-3)
+
+
+@pytest.mark.unit
+def test_farm_mes_wd_circular():
+    fm = FarmMes(
+        n_turbines=2,
+        farm_wd=True,
+        wd_current=True,
+        wd_rolling_mean=False,
+        turb_TI=False,
+        farm_TI=False,
+    )
+    fm.add_measurements(
+        ws=np.array([8.0, 8.0]),
+        wd=np.array([359.0, 1.0]),
+        yaws=np.array([0.0, 0.0]),
+        powers=np.array([1.0, 1.0]),
+    )
+    farm_wd = float(fm.get_wd_farm()[0]) % 360.0
+    # 359 and 1 average to 0 (mod 360), not 180
+    assert min(farm_wd, 360.0 - farm_wd) == pytest.approx(0.0, abs=1e-3)

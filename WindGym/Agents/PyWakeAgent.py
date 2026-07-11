@@ -21,6 +21,15 @@ Based on the global wind conditons it can optimize the yaw angles and then use t
 """
 
 
+def wrap_to_signed_deg(angle):
+    """Wrap angle(s) in degrees to the signed range [-180, 180).
+
+    Keeps the sign of yaw offsets: -25 stays -25 (and 335 becomes -25),
+    instead of collapsing everything to a positive magnitude.
+    """
+    return (np.asarray(angle) + 180.0) % 360.0 - 180.0
+
+
 class PyWakeAgent(BaseAgent):
     def __init__(
         self,
@@ -34,7 +43,7 @@ class PyWakeAgent(BaseAgent):
         refine_pass_n=6,
         yaw_n=7,
         look_up=False,  # If true use interpolation to get the yaw angles
-        turbine=V80(),
+        turbine=None,  # defaults to V80(); avoid a mutable default argument
         env=None,
     ):
         # This is used in a hasattr in the AgentEval class.
@@ -62,6 +71,8 @@ class PyWakeAgent(BaseAgent):
 
         # Define the farm.
         site = LillgrundSite()
+        if turbine is None:
+            turbine = V80()
         self.turbine = turbine
 
         # Check if x_pos or y_pos are lists if so then convert them to numpy arrays
@@ -185,6 +196,14 @@ class PyWakeAgent(BaseAgent):
         Note that the command yaw offset is __always__ defined relative to the incoming wind direction
         """
 
+        base_env = self.env.unwrapped
+        if getattr(base_env, "derate_action", False):
+            raise ValueError(
+                "PyWakeAgent produces yaw-only actions and cannot control an "
+                "environment with derate_action=True (the action vector would "
+                "be mis-sized/mis-interpreted)."
+            )
+
         # Only optimize if we have not done it yet, and if we are not using the lookup table.
         if not self.look_up and self.optimized is False:
             self.optimize()
@@ -195,16 +214,13 @@ class PyWakeAgent(BaseAgent):
         # Get the optimal yaw angles.
         optimal_yaws = self.optimized_yaws
 
-        base_env = self.env.unwrapped
         wd_error = self.wdir - base_env.wd
         #    (the wind direction is measured in a left hand system)
         if base_env.ActionMethod == "wind":
             # If the action method is 'wind', we return the set point yaw angles directly.
-            # subtract w error becuase of left-hand wd versus right-hand yaw
-            x = (optimal_yaws - wd_error) % 360
-
-            # final action is the "least work" path (e.g., 270 --> 90)
-            action = self.scale_yaw(np.minimum(x, 360 - x))
+            # subtract wd error becuase of left-hand wd versus right-hand yaw,
+            # then wrap to [-180, 180) so negative offsets keep their sign
+            action = self.scale_yaw(wrap_to_signed_deg(optimal_yaws - wd_error))
 
         # If using yaw based steering, we need to retun the yaw angles differently
         elif base_env.ActionMethod == "yaw":

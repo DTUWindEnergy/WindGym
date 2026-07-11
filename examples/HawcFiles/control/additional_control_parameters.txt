@@ -1,0 +1,27 @@
+; In this file the advanced control parameters for different control strategies are defined;
+; Syntax of the file;
+; NOTE: the estimation block carries only the cptable: the parser skips cttable/pitchangle/
+; lambda blocks ("not implemented"), and cp_table.txt embeds its own pitch/lambda axes in the
+; first two header lines. The upstream example's ct_table.txt is not shipped -- not needed.
+begin down_regulation;
+	begin table;
+		dim 13 2;
+		file ./control/min_ct_table.txt;
+	end table;
+end down_regulation;
+;
+begin estimation;
+	begin cptable;
+	  dim 55 81;
+	  file ./control/cp_table.txt;
+	end cptable;
+end estimation;
+;
+begin turbine_property;
+  ; reserved block for input turbine properties;
+end turbine_property;
+;
+begin mpc;
+  ; reserved block for mpc;
+end mpc;
+exit;

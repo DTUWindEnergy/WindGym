@@ -9,7 +9,6 @@ import gc
 import socket
 import shutil
 import math
-import warnings
 from pathlib import Path
 
 
@@ -31,6 +30,11 @@ from .core.turbulence_manager import TurbulenceManager
 from .core.renderer import WindFarmRenderer
 from .core.baseline_manager import BaselineManager
 from .core.probe_manager import ProbeManager
+from .core.derating import (
+    add_hawc2_derate_sensor,
+    check_htc_supports_derating,
+    check_turbine_supports_derating,
+)
 
 from py_wake.wind_turbines import WindTurbines as WindTurbinesPW
 from collections import deque, defaultdict
@@ -92,6 +96,8 @@ class WindFarmEnv(gym.Env):
         seed=None,
         dt_sim=1,  # Simulation timestep in seconds
         dt_env=1,  # Environment timestep in seconds
+        delay: float
+        | None = None,  # Agent action interval in seconds. None -> dt_env (no delay)
         yaw_step_sim=1,  # How many degrees the yaw angles can change pr. simulation step
         yaw_step_env=None,  # How many degrees the yaw angles can change pr. environment step
         fill_window=True,
@@ -100,7 +106,7 @@ class WindFarmEnv(gym.Env):
         reset_init=True,
         burn_in_passthroughs=2,  # number of passthroughs before episode starts
         max_time_steps: int
-        | None = None,  # fixed episode length in env steps; overrides the ws-derived time_max when set. None = use ws-derived time_max.
+        | None = None,  # fixed episode length in env steps; time_max becomes max_time_steps * delay seconds. None = use ws-derived time_max.
         cleanup_on_time_limit: bool = True,
         keep_hawc_results: bool = False,  # if True, never delete the HAWC2 res/htc/log folders
         wd_function=None,  # A function that takes in the timestep and returns the wind direction
@@ -126,11 +132,13 @@ class WindFarmEnv(gym.Env):
             seed: int: The seed for the environment. If None, then the seed will be random.
             dt_sim: float: The simulation timestep in seconds. Can be used to speed up the simulation, if the DWM solver can take larger steps
             dt_env: float: The environment timestep in seconds. This is the timestep that the agent sees. The environment will run the simulation for dt_sim/dt_env steps pr. timestep.
+            delay: float: The agent action interval in seconds. Each env step advances the simulation `delay` seconds, but the measurements averaged into the observation only cover the final `dt_env` window; the earlier sub-steps are simulated and discarded. Use delay > dt_env to let the agent act on a slower cadence than the sim, so slow wake propagation can reach downstream turbines between actions. Must be a positive multiple of dt_env. None (default) means delay = dt_env, i.e. no delay.
             yaw_step_sim: float: The step size for the yaw angles. How manny degress the yaw angles can change pr. step
             fill_window: bool: If True, then the measurements will be filled up at reset.
             sample_site: pywake site that includes information about the wind conditions. If None we sample uniformly from within the limits.
             HTC_path: str: The path to the high fidelity turbine model. If this is Not none, then we assume you want to use that instead of pywake turbines. Note you still need a pywake version of your turbine.
             reset_init: bool: If True, then the environment will be reset at initialization. This is used to save time for things that call the reset method anyways.
+            max_time_steps: int: Fixed episode length in env steps; the episode truncates after exactly this many steps, so parallel envs stay in sync regardless of wind conditions. Step counting starts after reset's flow burn-in and sensor fill (as with the n_passthrough method). Setting this disables the passthrough episode-length method: n_passthrough is ignored (a note is printed at construction). Internally time_max is set to max_time_steps * delay seconds (time_max is always in seconds). None (default) = use the ws-derived time_max from n_passthrough.
             cleanup_on_time_limit: bool: If True, then the environment will clean up the HAWC2 files when the maximum time is reached. This is to avoid filling up the disk with files.
             keep_hawc_results: bool: If True, the HAWC2 res/htc/log folders are never deleted (overrides all cleanup), so they can be kept for later inspection. Default False.
         """
@@ -171,6 +179,14 @@ class WindFarmEnv(gym.Env):
         if self.dt_env % self.dt_sim != 0:
             raise ValueError("dt_env must be a multiple of dt_sim")
 
+        # Agent action interval. Downstream projects may also overwrite
+        # env.delay directly after construction instead of passing the kwarg.
+        self.delay = dt_env if delay is None else delay
+        # delay must be a positive multiple of dt_env (floor division below would
+        # silently truncate otherwise) and can't be smaller than one env step.
+        if self.delay < self.dt_env or self.delay % self.dt_env != 0:
+            raise ValueError("delay must be a multiple of dt_env and >= dt_env")
+
         # If we use pywake as backend, then we need to make sure that the dt_sim and dt_env are the same. This is because pywake is a steady state solver, and therefore does not have a timestep.
         if self.backend == "pywake" and self.dt_env != self.dt_sim:
             raise ValueError(
@@ -180,7 +196,6 @@ class WindFarmEnv(gym.Env):
         self.x_pos = x_pos
         self.y_pos = y_pos
 
-        self.delay = dt_env  # The delay in seconds. By default just use the dt_env. We cant have smaller delays then this.
         self.sample_site = sample_site
         self.yaw_start = 15.0  # This is the limit for the initialization of the yaw angles. This is used to make sure that the yaw angles are not too large at the start, but still not zero
         # Max power pr turbine. Used in the measurement class
@@ -215,6 +230,17 @@ class WindFarmEnv(gym.Env):
         self.time_max = 0
         # The number of times the flow passes through the farm. This is used to calculate the maximum simulation time.
         self.n_passthrough = n_passthrough
+        if self.max_time_steps is not None:
+            # Fixed episode length: the passthrough method is disabled. Force
+            # n_passthrough so high that any code path still deriving an episode
+            # length from it can never truncate before max_time_steps.
+            self.n_passthrough = 999_999_999
+            print(
+                f"max_time_steps={self.max_time_steps}: episode length fixed to "
+                f"{self.max_time_steps} env steps "
+                f"({self.max_time_steps * self.delay} s of simulation); "
+                f"n_passthrough is ignored."
+            )
         self.timestep = 0
 
         # The initial yaw of the turbines. This is used if the yaw_init is "Defined"
@@ -224,10 +250,25 @@ class WindFarmEnv(gym.Env):
         cfg = self._normalize_config_input(config)
         self._apply_config(cfg)
 
-        self.n_turb = len(x_pos)  # The number of turbines
+        # Derating: extend the action space. The turbine itself must accept a
+        # 'derate' input — the env only forwards per-turbine derate values.
+        # With yaw_action=False the agent controls derating only (act_var=1).
+        if self.derate_action:
+            self.act_var = 2 if self.yaw_action else 1
+            if self.HTC_path is not None:
+                check_htc_supports_derating(self.HTC_path, self.derate_reference)
+            else:
+                check_turbine_supports_derating(turbine)
+            if self.derate_reference == "rated":
+                # Power-curve maximum, NOT self.rated_power (that one is the
+                # power at the episode inflow ws, set per-reset for rewards).
+                self.derate_rated_power = float(
+                    np.max(self.turbine.power(np.arange(0.0, 30.01, 0.1)))
+                )
+        elif not self.yaw_action:
+            raise ValueError("yaw_action=False requires derate_action=True")
 
-        # Will be set later after probe_manager is initialized
-        self.n_probes_per_turb = None
+        self.n_turb = len(x_pos)  # The number of turbines
 
         # Sets the yaw init method. If Random, then the yaw angles will be random. Else they will be zeros
         # Use yaw_init parameter if provided, otherwise use value from config
@@ -244,6 +285,8 @@ class WindFarmEnv(gym.Env):
             action_penalty_type=self.action_penalty_type,
             power_window_size=self.power_avg,
             tau=self.tau,
+            derate_penalty=self.derate_penalty,
+            derate_penalty_type=self.derate_penalty_type,
         )
 
         # Initialize the wind manager
@@ -401,12 +444,18 @@ class WindFarmEnv(gym.Env):
                 ),
                 expose=True,
             )
+            if self.derate_action:
+                # d <-> dr% mapping and sensor wiring live in core/derating.
+                add_hawc2_derate_sensor(self.wts, self.n_turb)
         else:  # If we have no HTC path, use the pywake turbine
             self.wts = PyWakeWindTurbines(
                 x=self.x_pos,
                 y=self.y_pos,  # x and y position of two wind turbines
                 windTurbine=self.turbine,
             )
+            if self.derate_action:
+                self.wts.add_sensor("derate", expose=True)
+                self.wts.sensors.derate = np.zeros(self.n_turb)
 
         # Initialize baseline turbines if needed
         if self.Baseline_comp and self.baseline_manager is not None:
@@ -499,14 +548,45 @@ class WindFarmEnv(gym.Env):
         self.wd_inflow_min = require_key(wind, "wd_min", "wind")
         self.wd_inflow_max = require_key(wind, "wd_max", "wind")
 
-        # Measurement & reward sections (optional but commonly expected)
+        # Measurement & reward sections. These are consumed by bare [...]
+        # indexing in _init_farm_mes / RewardCalculator, so validate here to
+        # get an actionable error instead of a KeyError deep in init.
         self.act_pen = config.get("act_pen", {}) or {}
-        self.power_def = config.get("power_def", {}) or {}
-        self.mes_level = config.get("mes_level", {}) or {}
-        self.ws_mes = config.get("ws_mes")
-        self.wd_mes = config.get("wd_mes")
-        self.yaw_mes = config.get("yaw_mes")
-        self.power_mes = config.get("power_mes")
+
+        self.power_def = require_section("power_def")
+        require_key(self.power_def, "Power_avg", "power_def")
+
+        self.mes_level = require_section("mes_level")
+        for key in (
+            "turb_ws",
+            "turb_wd",
+            "turb_TI",
+            "turb_power",
+            "farm_ws",
+            "farm_wd",
+            "farm_TI",
+            "farm_power",
+        ):
+            require_key(self.mes_level, key, "mes_level")
+
+        self.ws_mes = require_section("ws_mes")
+        self.wd_mes = require_section("wd_mes")
+        self.yaw_mes = require_section("yaw_mes")
+        self.power_mes = require_section("power_mes")
+        for prefix, section in (
+            ("ws", self.ws_mes),
+            ("wd", self.wd_mes),
+            ("yaw", self.yaw_mes),
+            ("power", self.power_mes),
+        ):
+            for suffix in (
+                "current",
+                "rolling_mean",
+                "history_N",
+                "history_length",
+                "window_length",
+            ):
+                require_key(section, f"{prefix}_{suffix}", f"{prefix}_mes")
 
         # Derived / convenience attributes with sensible fallbacks
         self.ti_sample_count = self.mes_level.get("ti_sample_count", 30)
@@ -516,6 +596,50 @@ class WindFarmEnv(gym.Env):
         self.power_avg = self.power_def.get("Power_avg")
         self.power_reward = self.power_def.get("Power_reward")
         self.tau = self.power_def.get("tau", 0.02)
+
+        # Derating action (optional, all default to off/zero)
+        self.derate_action = config.get("derate_action", False)
+        # yaw_action=False (with derate_action=True) gives a derate-only agent
+        self.yaw_action = config.get("yaw_action", True)
+        self.derate_min = config.get("derate_min", 0.0)
+        self.derate_max = config.get("derate_max", 1.0)
+        self.derate_penalty = config.get("derate_penalty", 0.0)
+        self.derate_penalty_type = config.get("derate_penalty_type", "change")
+
+        # How the derate action is applied:
+        #   "absolute": action is the setpoint, mapped to [derate_min, derate_max]
+        #   "step":     action is a delta, at most derate_step_env change per env step
+        self.derate_method = str(config.get("derate_method", "absolute")).lower()
+        if self.derate_method not in {"absolute", "step"}:
+            raise ValueError("derate_method must be 'absolute' or 'step'")
+        self.derate_step_env = config.get("derate_step_env", 0.1)
+        # Optional slew limit toward the setpoint, per sim substep (mirrors
+        # yaw_step_sim in the "wind" yaw method). None = setpoint applies
+        # instantly, matching a power-reference command executing in seconds.
+        self.derate_step_sim = config.get("derate_step_sim", None)
+        if self.derate_step_sim is not None and self.derate_step_sim <= 0:
+            raise ValueError("derate_step_sim must be positive (or None)")
+
+        # What the derate command means:
+        #   "available": fraction of locally available power (P = (1-d)*P_avail)
+        #   "rated":     fraction of rated power, i.e. an absolute power cap.
+        #                A cap above locally available power is a no-op (dead
+        #                zone), matching a real power-reference controller.
+        # Orthogonal to derate_method, which says how the command *evolves*.
+        self.derate_reference = str(config.get("derate_reference", "available")).lower()
+        if self.derate_reference not in {"available", "rated"}:
+            raise ValueError("derate_reference must be 'available' or 'rated'")
+
+        # Derate observation (per turbine, mirrors yaw_mes). Defaults to
+        # observing the current derate whenever the derate action is enabled.
+        derate_mes = config.get("derate_mes") or {}
+        self.derate_mes = {
+            "derate_current": derate_mes.get("derate_current", self.derate_action),
+            "derate_rolling_mean": derate_mes.get("derate_rolling_mean", False),
+            "derate_history_N": derate_mes.get("derate_history_N", 1),
+            "derate_history_length": derate_mes.get("derate_history_length", 10),
+            "derate_window_length": derate_mes.get("derate_window_length", 10),
+        }
 
         # Initialize probe manager
         probes_config = config.get("probes", [])
@@ -539,7 +663,6 @@ class WindFarmEnv(gym.Env):
         # TODO is history_N is 1 or larger, then it is kinda implied that the rolling_mean is true.. Therefore we can change the if self.rolling_mean: check in the Mes() class, to be a if self.history_N >= 1 check... or something like that
         self.farm_measurements = FarmMes(
             n_turbines=self.n_turb,
-            n_probes_per_turb=self.n_probes_per_turb,
             turb_ws=self.mes_level["turb_ws"],
             turb_wd=self.mes_level["turb_wd"],
             turb_TI=self.mes_level["turb_TI"],
@@ -563,6 +686,11 @@ class WindFarmEnv(gym.Env):
             yaw_history_N=self.yaw_mes["yaw_history_N"],
             yaw_history_length=self.yaw_mes["yaw_history_length"],
             yaw_window_length=self.yaw_mes["yaw_window_length"],
+            derate_current=self.derate_mes["derate_current"],
+            derate_rolling_mean=self.derate_mes["derate_rolling_mean"],
+            derate_history_N=self.derate_mes["derate_history_N"],
+            derate_history_length=self.derate_mes["derate_history_length"],
+            derate_window_length=self.derate_mes["derate_window_length"],
             power_current=self.power_mes["power_current"],
             power_rolling_mean=self.power_mes["power_rolling_mean"],
             power_history_N=self.power_mes["power_history_N"],
@@ -588,9 +716,11 @@ class WindFarmEnv(gym.Env):
         self.power_len = self.power_avg
 
         for i, tm in enumerate(self.farm_measurements.turb_mes):
-            probes = self.turbine_probes.get(i, [])
-            tm.probes = probes
-            tm.n_probes = len(probes)
+            # n_probes comes from the config counts (probe objects only exist
+            # after reset creates the flow sim); the actual probe objects are
+            # (re-)attached in reset() right after initialize_probes().
+            tm.probes = self.turbine_probes.get(i, [])
+            tm.n_probes = self.n_probes_per_turb.get(i, 0)
             tm.probe_min = self.ws_scaling_min
             tm.probe_max = self.ws_scaling_max
 
@@ -632,22 +762,6 @@ class WindFarmEnv(gym.Env):
         self.current_yaw = self.fs.windTurbines.yaw
         self.current_powers = self.fs.windTurbines.power()  # The Power pr turbine
 
-    def _update_measurements(self) -> None:
-        """
-        This function adds the current observations to the farm_measurements class
-        """
-
-        # Add a deprecation warning to this:
-        raise DeprecationWarning(
-            "This function is deprecated. Use _take_measurements instead, and then put them into the mes class yourself"
-        )
-
-        self._take_measurements()
-
-        self.farm_measurements.add_measurements(
-            self.current_ws, self.current_wd, self.current_yaw, self.powers
-        )
-
     def _get_obs(self) -> np.ndarray:
         """
         Gets the sensordata from the farm_measurements class, and scales it to be between -1 and 1
@@ -686,6 +800,11 @@ class WindFarmEnv(gym.Env):
             "Turbine y positions": self.fs.windTurbines.positions_xyz[1],
             "Turbulence intensity at turbines": self.farm_measurements.get_TI_turb(),
         }
+
+        if self.derate_action:
+            return_dict["derate agent"] = self.current_derate
+            return_dict["derate command"] = self.derate_command
+            return_dict["derate measured"] = self.farm_measurements.get_derate_turb()
 
         if self.Baseline_comp:
             return_dict["yaw angles base"] = self.fs_baseline.windTurbines.yaw
@@ -741,6 +860,11 @@ class WindFarmEnv(gym.Env):
 
         # 3) Turbines + main flow sim
         self._init_wts()
+        self.current_derate = np.zeros(self.n_turb)
+        # Commanded derate fraction (what the agent asked for). Differs from
+        # current_derate (the applied available-power fraction) in "rated"
+        # reference mode; identical in "available" mode.
+        self.derate_command = np.zeros(self.n_turb)
 
         # Set random generator for turbulence manager
         self.turbulence_manager.np_random = self.np_random
@@ -757,19 +881,16 @@ class WindFarmEnv(gym.Env):
             )
         )
 
-        # Optional fixed episode length: overrides the ws-derived time_max so that all
-        # parallel envs truncate (and therefore autoreset) on the same global step. This
-        # runs before make_wind_direction_list below, so the wind-direction series is sized
-        # to the fixed length and the flow never runs past it.
+        # Optional fixed episode length: replaces the ws-derived time_max (the
+        # passthrough method is disabled at construction) so that all parallel envs
+        # truncate (and therefore autoreset) on the same global step. This runs before
+        # make_wind_direction_list below, so the wind-direction series is sized to the
+        # fixed length and the flow never runs past it. time_max stays in seconds:
+        # each env step advances the sim `delay` seconds, so N steps need N * delay
+        # seconds of wind-direction series. The step counting (for both episode-length
+        # methods) only starts after reset's burn-in and sensor fill.
         if self.max_time_steps is not None:
-            if self.max_time_steps <= self.t_developed:
-                warnings.warn(
-                    f"max_time_steps ({self.max_time_steps}) <= t_developed "
-                    f"({self.t_developed}); the episode would end during/just after flow "
-                    "burn-in. Consider a larger max_time_steps.",
-                    stacklevel=2,
-                )
-            self.time_max = self.max_time_steps
+            self.time_max = self.max_time_steps * self.delay
 
         if self.backend == "dynamiks":
             # --- ORIGINAL dynamic backend ---
@@ -805,13 +926,23 @@ class WindFarmEnv(gym.Env):
                 create_baseline=self.Baseline_comp,
             )
 
+            # Ensure enough particles to cover at least 15D downstream.
+            # Dynamiks defaults to farm_size_x / d_particle, which is 0 for
+            # side-by-side layouts where all turbines share the same x position.
+            _n_particles = self.n_particles
+            if _n_particles is None:
+                _D = self.turbine.diameter()
+                _farm_x = max(self.x_pos) - min(self.x_pos)
+                _desired = max(_farm_x * 1.2, 15 * _D)
+                _n_particles = max(int(np.ceil(_desired / (self.d_particle * _D))), 10)
+
             self.fs = DWMFlowSimulation(
                 site=self.site,
                 windTurbines=self.wts,
                 wind_direction=self.wd,
                 particleDeficitGenerator=jDWMAinslieGenerator(),
                 dt=self.dt,
-                n_particles=self.n_particles,
+                n_particles=_n_particles,
                 d_particle=self.d_particle,
                 particleMotionModel=HillVortexParticleMotion(
                     temporal_filter=self.temporal_filter
@@ -860,17 +991,28 @@ class WindFarmEnv(gym.Env):
         # Update references to point to probe_manager's collections
         self.probes = self.probe_manager.probes
         self.turbine_probes = self.probe_manager.turbine_probes
+        # Re-attach the freshly created probes to the measurement classes
+        # (the ones attached in _init_farm_mes belong to the previous episode's
+        # flow simulation, or don't exist yet on the very first reset).
+        for i, tm in enumerate(self.farm_measurements.turb_mes):
+            tm.probes = self.turbine_probes.get(i, [])
 
         # 3b) Baseline flow sim (optional)
         if self.Baseline_comp:
             if self.backend == "dynamiks":
+                # Note: addedTurbulenceModel is intentionally shared with the
+                # agent sim. DWMFlowSimulation calls model.initialize(fs) at
+                # construction, and every attribute that sets (transport
+                # speed, Mann field, per-turbine offsets) is deterministic
+                # from the model seed and the (deep-copied) site, so both
+                # sims see identical added turbulence; __call__ is read-only.
                 self.fs_baseline = DWMFlowSimulation(
                     site=self.site_base,
                     windTurbines=self.wts_baseline,
                     wind_direction=self.wd,
                     particleDeficitGenerator=jDWMAinslieGenerator(),
                     dt=self.dt,
-                    n_particles=self.n_particles,
+                    n_particles=_n_particles,
                     d_particle=self.d_particle,
                     particleMotionModel=HillVortexParticleMotion(
                         temporal_filter=self.temporal_filter
@@ -930,6 +1072,7 @@ class WindFarmEnv(gym.Env):
                 out["mean_winddir"],
                 out["mean_yaw"],
                 out["mean_power"],
+                derates=self.current_derate,
             )
             # Power history (farm-level)
             self.farm_pow_deq.append(out["mean_power"].sum())
@@ -954,17 +1097,18 @@ class WindFarmEnv(gym.Env):
     def _advance_and_measure(
         self,
         n_sim_steps: int,
-        ignore_steps: int = 0,
         *,
         apply_agent_action: bool = False,
         action: np.ndarray | None = None,
         include_baseline: bool = False,
+        ignore_steps: int = 0,
     ):
         """
         Advance the simulation n_sim_steps times.
-        Optionally skip x ammount of measurements for what is meaned over.
         Optionally apply the agent action each sim step (yaw or wind method).
         Optionally step baseline using its controller.
+        ignore_steps: skip the first `ignore_steps` sub-step samples when
+        averaging - used to model the action delay (see `delay` in __init__).
 
         Returns:
             dict with keys:
@@ -975,6 +1119,13 @@ class WindFarmEnv(gym.Env):
             - baseline_power_mean (if include_baseline): scalar (farm sum) or (n_turb,) – here we return (n_turb,)
         """
         T = n_sim_steps
+        if ignore_steps < 0:
+            raise ValueError("ignore_steps must be non-negative")
+        if ignore_steps >= T:
+            raise ValueError(
+                "ignore_steps must be smaller than n_sim_steps, "
+                "otherwise no samples remain to average"
+            )
         n = self.n_turb
         time_array = np.zeros(T, dtype=np.float32)
         windspeeds = np.zeros((T, n), dtype=np.float32)
@@ -982,27 +1133,32 @@ class WindFarmEnv(gym.Env):
         yaws = np.zeros((T, n), dtype=np.float32)
         powers = np.zeros((T, n), dtype=np.float32)
 
-        # Make sure that ignore_steps is either none, or less than T
-        if ignore_steps >= T:
-            raise ValueError("ignore_steps must be less than n_sim_steps")
-        elif ignore_steps < 0:
-            raise ValueError("ignore_steps must be non-negative")
-
         if include_baseline:
             baseline_powers = np.zeros((T, n), dtype=np.float32)
             yaws_baseline = np.zeros((T, n), dtype=np.float32)
             windspeeds_baseline = np.zeros((T, n), dtype=np.float32)
 
-        # If in "yaw" mode, we have an action budget that spans the env step
-        if apply_agent_action and self.ActionMethod == "yaw":
+        # If in "yaw" mode, we have an action budget that spans the env step.
+        # Only the first n_turb entries are yaw; the rest (if any) are derate.
+        if apply_agent_action and self.yaw_action and self.ActionMethod == "yaw":
             self.action_remaining = (
-                action * self.yaw_step_env
+                action[: self.n_turb] * self.yaw_step_env
             )  # total budget for this env step
+
+        # Stepwise derating: snapshot the derate at env-step start so the
+        # per-substep application is idempotent (setpoint = base + delta).
+        if apply_agent_action and self.derate_action and self.derate_method == "step":
+            self._derate_step_base = np.asarray(
+                self.derate_command, dtype=np.float64
+            ).copy()
 
         for j in range(T):
             # 1) Agent yaw update (if any)
             if apply_agent_action:
-                self._adjust_yaws(action)
+                if self.yaw_action:
+                    self._adjust_yaws(action)
+                if self.derate_action:
+                    self._apply_derating(action)
 
             # 2) Step agent flow
             wd_old = self.fs.wind_direction
@@ -1060,9 +1216,11 @@ class WindFarmEnv(gym.Env):
                 )
                 # update probe positions to follow turbine
 
-        # 6) Aggregate to per-env-step means
+        # 6) Aggregate to per-env-step means (circular mean for wind direction).
+        # The first ignore_steps sub-step samples are discarded: with an action
+        # delay, only the final dt_env window feeds the observation.
         mean_windspeed = np.mean(windspeeds[ignore_steps:, :], axis=0)
-        mean_winddir = np.mean(winddirs[ignore_steps:, :], axis=0)
+        mean_winddir = utils.circ_mean_deg(winddirs[ignore_steps:, :], axis=0)
         mean_yaw = np.mean(yaws[ignore_steps:, :], axis=0)
         mean_power = np.mean(powers[ignore_steps:, :], axis=0)  # per-turbine
 
@@ -1091,6 +1249,9 @@ class WindFarmEnv(gym.Env):
         Heavily inspired from https://github.com/AlgTUDelft/wind-farm-env
         This function adjusts the yaw angles of the turbines, based on the actions given, but we now have differnt methods for the actions
         """
+        # When derate_action=True action is [yaw_0..yaw_n | derate_0..derate_n];
+        # yaw logic only operates on the first n_turb entries.
+        action = action[: self.n_turb]
 
         if self.ActionMethod == "yaw":
             # The new yaw angles are the old yaw angles + the action, scaled with the yaw_step
@@ -1146,6 +1307,74 @@ class WindFarmEnv(gym.Env):
         else:
             raise ValueError("The ActionMethod must be yaw, wind or absolute")
 
+    def _apply_derating(self, action):
+        """Apply per-turbine derating from the last n_turb entries of *action*.
+
+        Action layout when derate_action=True:
+            [yaw_0 .. yaw_n-1 | derate_0 .. derate_n-1]   (yaw_action=True)
+            [derate_0 .. derate_n-1]                       (yaw_action=False)
+
+        derate_method="absolute": each value in [-1, 1] is affine-mapped to a
+        setpoint in [derate_min, derate_max].
+        derate_method="step": each value in [-1, 1] is a delta of at most
+        derate_step_env per env step, added to the derate at env-step start.
+
+        If derate_step_sim is set, the derate slews toward the setpoint by at
+        most derate_step_sim per sim substep (like yaw_step_sim in the "wind"
+        yaw method); otherwise the setpoint applies instantly.
+
+        derate_reference="rated" reinterprets the commanded fraction as a
+        fraction of rated power (an absolute cap) and converts it to the
+        available-power fraction the turbine model expects; commands above
+        locally available power apply no derating. HAWC2 turbines skip that
+        conversion: the DTUWEC controller applies the rated-power cap (and its
+        dead zone) natively, so the command passes straight through and
+        current_derate reports the commanded cap fraction.
+        """
+        derate_raw = action[self.n_turb :] if self.yaw_action else action[: self.n_turb]
+        # float64 so the derate_step_env/derate_step_sim bounds hold exactly
+        # (agent actions arrive as float32)
+        derate_raw = np.asarray(derate_raw, dtype=np.float64)
+
+        if self.derate_method == "step":
+            delta = np.clip(derate_raw, -1.0, 1.0) * self.derate_step_env
+            cmd = np.clip(
+                self._derate_step_base + delta, self.derate_min, self.derate_max
+            ).astype(np.float64)
+        else:
+            # Affine map [-1, 1] → [derate_min, derate_max] so the full action
+            # range is useful even when derate_max < 1 (no saturated dead zone).
+            frac = np.clip((derate_raw + 1.0) / 2.0, 0.0, 1.0)
+            cmd = (self.derate_min + frac * (self.derate_max - self.derate_min)).astype(
+                np.float64
+            )
+        self.derate_command = cmd
+
+        if self.derate_reference == "rated" and self.HTC_path is None:
+            # cmd is a fraction of rated power → absolute target. Convert to
+            # the equivalent available-power fraction using the invariant
+            # P = (1 - d) * P_avail, so P_avail = current_power / (1 - d).
+            # A target above available power clips to d = 0 (dead zone).
+            p_target = (1.0 - cmd) * self.derate_rated_power
+            p_avail = self.current_powers / np.maximum(1.0 - self.current_derate, 1e-6)
+            derate = np.clip(
+                1.0 - p_target / np.maximum(p_avail, 1e-6), 0.0, self.derate_max
+            )
+        else:
+            derate = cmd
+
+        if self.derate_step_sim is not None:
+            prev = np.asarray(self.current_derate, dtype=np.float64)
+            derate = np.clip(
+                derate, prev - self.derate_step_sim, prev + self.derate_step_sim
+            )
+        self.current_derate = derate
+
+        if self.backend == "dynamiks":
+            self.wts.sensors.derate = derate
+        else:
+            self.fs._derate = derate
+
     def step(self, action):
         """
         The step function
@@ -1159,9 +1388,13 @@ class WindFarmEnv(gym.Env):
 
         # Save the old yaw angles, so we can calculate the change in yaw angles
         self.old_yaws = copy.copy(self.fs.windTurbines.yaw)
+        # Same for derate levels (used by the derate "change" penalty)
+        self.old_derate = copy.copy(self.current_derate)
 
-        # This is the ammount of steps we need to do, to ensure we have the correct delay
-        # Cast to int because floor division with floats returns float (e.g., 0.0 // 10.0 = 0.0)
+        # Advance the sim `delay` seconds per env step, but only average the final
+        # dt_env window into the observation. With delay > dt_env the agent acts on
+        # a slower cadence than the sim, giving wakes time to propagate downstream
+        # between actions. delay == dt_env (default) makes this a plain env step.
         steps_with_delay = int(
             self.sim_steps_per_env_step
             + ((self.delay - self.dt_env) // self.dt_env) * self.sim_steps_per_env_step
@@ -1170,10 +1403,10 @@ class WindFarmEnv(gym.Env):
 
         out = self._advance_and_measure(
             steps_with_delay,
-            ignore_steps=ignore_steps,
             apply_agent_action=True,
             action=action,
             include_baseline=self.Baseline_comp,
+            ignore_steps=ignore_steps,
         )
 
         # add to measurements/history
@@ -1182,6 +1415,7 @@ class WindFarmEnv(gym.Env):
             out["mean_winddir"],
             out["mean_yaw"],
             out["mean_power"],
+            derates=self.current_derate,
         )
         self.farm_pow_deq.append(out["mean_power"].sum())
         if self.Baseline_comp:
@@ -1217,6 +1451,9 @@ class WindFarmEnv(gym.Env):
             rated_power=self.rated_power,
             n_turbines=self.n_turb,
             nowake_power_deque=self.nowake_pow_deq if self.Baseline_comp else None,
+            old_derates=self.old_derate if self.derate_action else None,
+            new_derates=self.current_derate if self.derate_action else None,
+            derate_max=self.derate_max,
         )[0]  # [0] gets just the reward value, not the breakdown
 
         # If we are at the end of the simulation, we truncate the agents.
@@ -1224,16 +1461,19 @@ class WindFarmEnv(gym.Env):
         # https://farama.org/Gymnasium-Terminated-Truncated-Step-API#theory
         # https://arxiv.org/pdf/1712.00378
         # https://gymnasium.farama.org/tutorials/gymnasium_basics/handling_time_limits/
-        if self.timestep >= self.time_max:
-            # terminated = {a: True for a in self.agents}
+        self.timestep += 1
+        # time_max is always in seconds while timestep counts env steps of `delay`
+        # seconds each. With max_time_steps set, time_max == max_time_steps * delay,
+        # so this fires at exactly max_time_steps steps (same computation on both
+        # sides — float-exact). Keeping the single check also keeps time_max as the
+        # one truncation knob (FarmEval overwrites it to run "forever").
+        if self.timestep * self.delay >= self.time_max:
             truncated = True
             # Clean up the flow simulation. This is to make sure that we dont have a memory leak.
             if self.cleanup_on_time_limit:
                 self._cleanup_resources()
         else:
             truncated = False
-
-        self.timestep += 1
 
         terminated = False
 

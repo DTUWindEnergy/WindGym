@@ -368,6 +368,17 @@ class Coliseum:
         # Get environment bounds (use as defaults)
         temp_env = self.env_factory()
 
+        # Fixed-condition evaluation needs set_wind_vals (FarmEval has it;
+        # plain WindFarmEnv does not) — fail fast with a clear message.
+        if not hasattr(temp_env, "set_wind_vals"):
+            temp_env.close()
+            raise TypeError(
+                "run_wind_grid_evaluation requires an environment with a "
+                "set_wind_vals() method (e.g. FarmEval), got "
+                f"{type(temp_env).__name__}. Build your env_factory around "
+                "FarmEval instead of WindFarmEnv."
+            )
+
         # Use user-provided bounds or fall back to environment defaults
         wd_min_actual = wd_min if wd_min is not None else temp_env.wd_inflow_min
         wd_max_actual = wd_max if wd_max is not None else temp_env.wd_inflow_max
@@ -380,6 +391,10 @@ class Coliseum:
 
         # Create grids using actual bounds
         wd_grid = np.arange(wd_min_actual, wd_max_actual + 1, wd_step)
+        # A full-circle sweep (e.g. 0..360) would evaluate the same direction
+        # twice at both ends; drop the duplicate endpoint.
+        if len(wd_grid) > 1 and (wd_grid[-1] - wd_grid[0]) % 360 == 0:
+            wd_grid = wd_grid[:-1]
         ws_grid = np.arange(ws_min_actual, ws_max_actual + 1, ws_step)
         ti_grid = np.linspace(ti_min_actual, ti_max_actual, ti_points)
 
@@ -407,8 +422,14 @@ class Coliseum:
             for i, wd in enumerate(wd_grid):
                 for j, ws in enumerate(ws_grid):
                     for k, ti in enumerate(ti_grid):
-                        # Use condition-based seed for reproducibility
-                        condition_seed = int(wd * 100 + ws * 10 + ti * 1000) % (2**31)
+                        # Use condition-based seed for reproducibility. Mix
+                        # with distinct multipliers so nearby conditions
+                        # cannot collide (wd*100 + ws*10 + ti*1000 did).
+                        condition_seed = (
+                            int(round(wd * 1e3)) * 1_000_003
+                            + int(round(ws * 1e3)) * 1_009
+                            + int(round(ti * 1e4))
+                        ) % (2**31)
 
                         for agent_name in self.agent_names:
                             env = self.env_factory()
@@ -669,14 +690,18 @@ class Coliseum:
 
         Example:
             from py_wake.examples.data.hornsrev1 import Hornsrev1Site
+            from WindGym import FarmEval
 
             site = Hornsrev1Site()
             env_factory = Coliseum.create_env_factory_with_site(
-                WindFarmEnv, site,
+                FarmEval, site,
                 turbine=V80(), x_pos=x_pos, y_pos=y_pos,
                 config="config.yaml"
             )
             coliseum = Coliseum(env_factory, agents)
+
+        Note: run_wind_grid_evaluation needs an env with set_wind_vals(),
+        which FarmEval provides but plain WindFarmEnv does not.
         """
 
         def factory():

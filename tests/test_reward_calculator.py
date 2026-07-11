@@ -451,3 +451,22 @@ def test_total_reward_wake_recovery():
     assert abs(breakdown["action_penalty"] - 0.2) < 1e-6
     # total = 0.5 - 0.2 = 0.3
     assert abs(total_reward - 0.3) < 1e-6
+
+
+def test_power_diff_short_deque_does_not_crash():
+    """Power_diff with a deque much shorter than window//10 must not crash
+    (and compares latest vs oldest window, which coincide here)."""
+    calc = RewardCalculator(power_reward_type="Power_diff", power_window_size=50)
+    dq = deque([1.0e6], maxlen=50)  # much shorter than window//10
+    reward = calc.calculate_power_reward(farm_power_deque=dq, n_turbines=2)
+    assert reward == pytest.approx(0.0)  # latest window == oldest window
+
+
+def test_power_avg_zero_rated_power_returns_zero():
+    """rated_power=0 must give a finite zero reward, not a division blowup."""
+    calc = RewardCalculator(power_reward_type="Power_avg")
+    reward = calc.calculate_power_reward(
+        farm_power_deque=deque([0.0, 0.0]), rated_power=0.0, n_turbines=2
+    )
+    assert reward == 0.0
+    assert np.isfinite(reward)
