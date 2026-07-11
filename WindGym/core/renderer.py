@@ -486,5 +486,7 @@ class WindFarmRenderer:
 
     def close(self):
         """Close any open matplotlib figures."""
-        plt.close()
+        # close("all") so human-mode figures are released too, not just the
+        # current figure.
+        plt.close("all")
         self.view = None
