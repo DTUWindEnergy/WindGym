@@ -228,7 +228,9 @@ class TurbulenceManager:
             alphaepsilon=0.1,  # turbulence dissipation parameter
             L=33.6,  # length scale (m)
             Gamma=3.9,  # anisotropy parameter
-            Nxyz=(4096, 512, 64),  # grid points (x, y, z)
+            Nxyz=(1024, 512, 64),  # grid points (x, y, z); x wraps (Bounds.Repeat),
+            # so the ~9 km box recycles under longer episodes. 4096 was ~5.7 GB
+            # peak RSS to generate; 1024 is ~1.4 GB.
             dxyz=(
                 rotor_diameter / 20,
                 rotor_diameter / 10,
