@@ -214,9 +214,33 @@ def eval_single_fast(
         ws_max = env.ws + 2
         ws_min = 3
 
-        # Define the x and y values for the flow field plot
+        # Derating / tracking panels: for a derate-only agent the yaw-trainer's
+        # right column (yaw + local wind speed) is meaningless (yaw is fixed).
+        # Auto-detect the mode from the env and swap in derating + per-turbine
+        # power; a yaw run (derate_mode=False) keeps every original panel.
+        derate_mode = (
+            bool(getattr(env, "derate_action", False))
+            and getattr(env, "current_derate", None) is not None
+        )
+        if derate_mode:
+            derate_deq = deque(maxlen=max_deque)
+            powerT_deq = deque(maxlen=max_deque)
+            derate_deq.append(np.asarray(env.current_derate).copy())
+            powerT_deq.append(powerT_a[0].copy())
+            powT_max = powerT_a[0].max() * 1.2
+        if tracking:
+            pref_deq = deque(maxlen=max_deque)
+            pref_deq.append(p_ref[0])
+
+        # Flow-field extent. x spans the row + margins; y is padded +-2D so a
+        # single row sits in a ~3.7:1 rectangle that reads at true (equal) aspect
+        # (see below) instead of the old ~6x-stretched square. For multi-row
+        # farms this just pads 2D beyond the y-extent, so nothing is clipped.
+        D_view = float(np.atleast_1d(env.fs.windTurbines.diameter())[0])
         a = np.linspace(-200 + min(env.x_pos), 300 + max(env.x_pos), 200)
-        b = np.linspace(-200 + min(env.y_pos), 200 + max(env.y_pos), 200)
+        b = np.linspace(
+            min(env.y_pos) - 2 * D_view, max(env.y_pos) + 2 * D_view, 200
+        )
 
     # Run the simulation
     for i in range(0, total_steps):
@@ -304,6 +328,11 @@ def eval_single_fast(
             pow_deq.append(powerF_a[end_idx])
             yaw_deq.append(yaw_a[end_idx])
             ws_deq.append(ws_a[end_idx])
+            if derate_mode:
+                derate_deq.append(np.asarray(env.current_derate).copy())
+                powerT_deq.append(powerT_a[end_idx].copy())
+            if tracking:
+                pref_deq.append(p_ref[end_idx])
 
             fig = plt.figure(figsize=(12, 7.5))
             ax1 = plt.subplot2grid((3, 3), (0, 0), colspan=2, rowspan=3)
@@ -347,6 +376,7 @@ def eval_single_fast(
                         angle=90 - wd_ + yaw_,
                         ec=colors[t],
                         fc="None",
+                        lw=2.5,  # thicker rotor bar reads better at true aspect
                     )
                     ax1.add_artist(circle)
                     ax1.plot(x_, y_, ".", color=colors[t])
@@ -365,9 +395,30 @@ def eval_single_fast(
                         ]
                     )
 
+                    # Annotate each turbine with its live derating value.
+                    if derate_mode:
+                        dtext = ax1.annotate(
+                            f"{env.current_derate[ii]:.2f}",
+                            (x_ - r, y_ - r),
+                            fontsize=10,
+                            color="white",
+                        )
+                        dtext.set_path_effects(
+                            [
+                                path_effects.Stroke(linewidth=2, foreground="black"),
+                                path_effects.Normal(),
+                            ]
+                        )
+
             ax1.set_title("Flow field at {} s".format(env.fs.time))
-            plt.gca().xaxis.set_major_locator(plt.NullLocator())
-            plt.gca().yaxis.set_major_locator(plt.NullLocator())
+            # True aspect so wakes read as long horizontal streaks and rotors as
+            # correctly-proportioned cross-stream bars, instead of the old ~6x
+            # vertical smear. Keep the meter ticks the old NullLocator hid. A
+            # landscape row letterboxes to a band in the (square-ish) ax1 slot,
+            # which is expected for this framing.
+            ax1.set_aspect("equal")
+            ax1.set_xlabel("x [m]")
+            ax1.set_ylabel("y [m]")
 
             ax2 = plt.subplot2grid(
                 (3, 3),
@@ -382,22 +433,33 @@ def eval_single_fast(
                 (2, 2),
             )
 
-            # Plot the power in ax2
-            ax2.plot(time_deq, pow_deq, color="orange")
+            # Plot the power in ax2 (+ the tracking reference overlay).
+            ax2.plot(time_deq, pow_deq, color="orange", label="farm")
+            if tracking:
+                ax2.plot(time_deq, pref_deq, "k--", label="reference")
+                ax2.legend(loc="upper left", bbox_to_anchor=(1, 1))
             ax2.set_title("Farm power [W]")
 
-            # Plot the yaws in ax3
-            ax3.plot(time_deq, yaw_deq, label=np.arange(n_turb))
-            ax3.set_title("Turbine yaws [deg]")
+            # Plot per-turbine derating (or yaws) in ax3
+            if derate_mode:
+                ax3.plot(time_deq, derate_deq, label=np.arange(n_turb))
+                ax3.set_title("Turbine derating [-]")
+            else:
+                ax3.plot(time_deq, yaw_deq, label=np.arange(n_turb))
+                ax3.set_title("Turbine yaws [deg]")
             ax3.legend(
                 [f"T{i + 1}" for i in range(n_turb)],
                 loc="upper left",
                 bbox_to_anchor=(1, 1),
             )
 
-            # Plot the rotor windspeeds in ax4
-            ax4.plot(time_deq, ws_deq, label=np.arange(n_turb))
-            ax4.set_title("Local wind speed [m/s]")
+            # Plot per-turbine power (or rotor windspeeds) in ax4
+            if derate_mode:
+                ax4.plot(time_deq, powerT_deq, label=np.arange(n_turb))
+                ax4.set_title("Turbine power [W]")
+            else:
+                ax4.plot(time_deq, ws_deq, label=np.arange(n_turb))
+                ax4.set_title("Local wind speed [m/s]")
             ax4.set_xlabel("Time [s]")
 
             # Set the x limits for the plots
@@ -407,16 +469,28 @@ def eval_single_fast(
 
             pow_max = max(pow_max, powerF_a[end_idx] * 1.2)
             pow_min = min(pow_min, powerF_a[end_idx] * 0.8)
-            yaw_max = max(yaw_max, max(yaw_a[end_idx]) * 1.2)
-            # This value can be negative, so we multiply 1.2, instead of 0.8
-            yaw_min = min(yaw_min, min(yaw_a[end_idx]) * 1.2)
-            ws_max = max(ws_max, max(ws_a[end_idx]) * 1.2)
-            ws_min = min(ws_min, min(ws_a[end_idx]) * 0.8)
+            if tracking:
+                # Keep the reference line inside the frame even when the agent
+                # tracks it poorly early on.
+                pow_max = max(pow_max, p_ref[end_idx] * 1.2)
+                pow_min = min(pow_min, p_ref[end_idx] * 0.8)
 
             # Set the y limits for the plots. If we go over/under the limits, the plot will adjust the limits.
             ax2.set_ylim(pow_min, pow_max)
-            ax3.set_ylim(yaw_min, yaw_max)
-            ax4.set_ylim(ws_min, ws_max)
+            if derate_mode:
+                # Fixed derate range [derate_min, derate_max] (+/- epsilon); the
+                # per-turbine power axis grows to a running maximum like ax2.
+                ax3.set_ylim(env.derate_min - 0.05, env.derate_max + 0.05)
+                powT_max = max(powT_max, powerT_a[end_idx].max() * 1.2)
+                ax4.set_ylim(0.0, powT_max)
+            else:
+                yaw_max = max(yaw_max, max(yaw_a[end_idx]) * 1.2)
+                # This value can be negative, so we multiply 1.2, instead of 0.8
+                yaw_min = min(yaw_min, min(yaw_a[end_idx]) * 1.2)
+                ws_max = max(ws_max, max(ws_a[end_idx]) * 1.2)
+                ws_min = min(ws_min, min(ws_a[end_idx]) * 0.8)
+                ax3.set_ylim(yaw_min, yaw_max)
+                ax4.set_ylim(ws_min, ws_max)
             # ax2.set_xticks([])
             # ax3.set_xticks([])
 
