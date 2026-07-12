@@ -28,6 +28,7 @@ class FarmEval(WindFarmEnv):
         yaw_init="Zeros",
         TurbBox="Default",
         config=None,
+        power_ref_function=None,
         Baseline_comp=False,
         render_mode=None,
         turbtype="MannGenerate",
@@ -67,6 +68,7 @@ class FarmEval(WindFarmEnv):
             turbtype=turbtype,
             backend=backend,
             config=config,
+            power_ref_function=power_ref_function,
             Baseline_comp=Baseline_comp,  # UPDATE: Changed so that we dont need the baseline farm anymore. Before it was always true! #We always want to compare to the baseline, so this is true
             yaw_init=yaw_init,
             render_mode=render_mode,
@@ -87,10 +89,16 @@ class FarmEval(WindFarmEnv):
     def reset(self, seed=None, options=None):
         # Overwrite the reset function so that we never terminates.
         observation, info = super().reset(seed=seed, options=options)
-        # Only set an "infinite" time_max if the finite_episode flag is False.
+        # Only set a large "sandbox" time_max if the finite_episode flag is False.
         if not self.finite_episode:
-            # This maintains the original "sandbox" behavior for fixed-step evaluations.
-            self.time_max = 9999999
+            # Large enough that fixed-step evaluations never truncate (real eval
+            # horizons are ~10^3 steps), but not absurdly so: eval's memory-
+            # cleanup step sets timestep = time_max and takes one throwaway
+            # env.step, which for a callable power_ref_function lazily extends
+            # the reference trajectory up to that index. 9999999 made that a ~10M
+            # entry blow-up; 100_000 keeps it cheap. PowerTrackingManager also
+            # caps the extension defensively (MAX_TRAJECTORY_STEPS).
+            self.time_max = 100_000
 
         return observation, info
 

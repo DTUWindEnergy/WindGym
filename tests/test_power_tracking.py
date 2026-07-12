@@ -361,6 +361,36 @@ def test_manager_lazily_extends_with_callable():
 
 
 @pytest.mark.unit
+def test_manager_clamps_far_extension_with_callable():
+    """A far index clamps instead of materializing a pathological range.
+
+    Mirrors test_manager_clamps_past_horizon_without_callable but for a
+    callable manager: this is what defuses the eval memory-cleanup step, which
+    sets timestep = time_max (~1e7). A modest jump must still lazily extend.
+    """
+    calls = []
+
+    def ref(t, env):
+        calls.append(t)
+        return 2.0 * t
+
+    manager = PowerTrackingManager(ref_function=ref)
+    manager.reset_episode(_FakeEnv(), time_max=4, delay=1, power_avg=5)
+
+    # A modest jump still lazily extends the trajectory (contract preserved).
+    assert manager.reference(10) == 20.0
+    assert len(manager.trajectory) == 11
+
+    # A jump past MAX_TRAJECTORY_STEPS clamps to the last value: the trajectory
+    # does not grow and the callable is not evaluated for the sentinel range.
+    n_before = len(manager.trajectory)
+    n_calls_before = len(calls)
+    assert manager.reference(2_000_000) == manager.trajectory[-1]
+    assert len(manager.trajectory) == n_before
+    assert len(calls) == n_calls_before
+
+
+@pytest.mark.unit
 def test_manager_preview_length_and_values():
     manager = PowerTrackingManager(
         ref_function=lambda t, env: 10.0 * t, preview_steps=3
@@ -748,6 +778,57 @@ def test_agent_eval_tracking_metrics():
 
 
 @pytest.mark.integration
+def test_agent_eval_tracking_custom_reference():
+    """AgentEvalFast tracks a time-varying custom power_ref_function (ramp).
+
+    Also implicitly proves the eval memory-cleanup step (timestep = time_max)
+    no longer explodes for callable references. The cleanup jump is bounded
+    both by FarmEval capping time_max at 10_000 and by the defensive
+    MAX_TRAJECTORY_STEPS clamp; before either, that step materialized ~10M
+    trajectory entries and called the ramp ~10M times.
+    """
+    ramp = lambda t, env: 1.0e6 + 100.0 * t  # noqa: E731
+
+    turbine = V80()
+    d = turbine.diameter()
+    env = FarmEval(
+        turbine=turbine,
+        x_pos=np.arange(2) * 5 * d,
+        y_pos=np.zeros(2),
+        config=make_env_config(),
+        power_ref_function=ramp,
+        backend="pywake",
+        turbtype="None",
+        reset_init=False,
+    )
+    # The kwarg reached WindFarmEnv and is captured for clone/roundtrip.
+    assert env.kwargs["power_ref_function"] is ramp
+
+    agent = ConstantAgent(yaw_angles=np.zeros(2), yaw_max=30, yaw_min=-30)
+
+    ds = AgentEvalFast(env, agent, ws=9.0, ti=0.06, wd=270.0, t_sim=10)
+
+    assert "power_ref" in ds.data_vars
+    assert "track_err" in ds.data_vars
+    assert "track_mae" in ds.data_vars
+
+    # Negative control vs. the constant-sampler test above: a ramp reference is
+    # time-varying, not constant.
+    power_ref = ds.power_ref.values.flatten()
+    assert not np.allclose(power_ref, power_ref[0])
+    assert power_ref[0] == pytest.approx(1.0e6)  # ramp evaluated at t=0
+    assert np.all(np.diff(power_ref) >= -1e-3)  # monotonically increasing ramp
+    # Distinct references step up by the ramp slope per env step (100 * delay).
+    steps = np.diff(np.unique(power_ref))
+    np.testing.assert_allclose(steps, 100.0 * env.delay, rtol=1e-4)
+
+    # track_mae stays consistent with |track_err|.
+    track_err = ds.track_err.values
+    track_mae = float(ds.track_mae.values.squeeze())
+    assert np.isclose(track_mae, np.abs(track_err).mean())
+
+
+@pytest.mark.integration
 def test_agent_eval_non_tracking_unchanged():
     """A non-tracking eval dataset has no tracking variables."""
     turbine = V80()
@@ -775,3 +856,39 @@ def test_agent_eval_non_tracking_unchanged():
     assert "power_ref" not in ds.data_vars
     assert "track_err" not in ds.data_vars
     assert "track_mae" not in ds.data_vars
+
+
+@pytest.mark.integration
+def test_agent_eval_raises_on_truncation():
+    """An eval that overruns the env horizon fails loudly, not silently.
+
+    Truncation triggers _cleanup_resources() (frees the flow sim), so the eval
+    loop cannot continue past it. Guards the footgun of a too-small time_max:
+    force a tiny horizon and check the run raises instead of stepping into
+    freed state and returning corrupt results.
+    """
+    turbine = V80()
+    d = turbine.diameter()
+    env = FarmEval(
+        turbine=turbine,
+        x_pos=np.arange(2) * 5 * d,
+        y_pos=np.zeros(2),
+        config=make_env_config(),
+        backend="pywake",
+        turbtype="None",
+        reset_init=False,
+    )
+    agent = ConstantAgent(yaw_angles=np.zeros(2), yaw_max=30, yaw_min=-30)
+
+    # Shrink the sandbox horizon after reset so t_sim=10 overruns it.
+    base_reset = env.reset
+
+    def tiny_horizon_reset(seed=None, options=None):
+        obs, info = base_reset(seed=seed, options=options)
+        env.time_max = 3  # truncate after ~3 env steps (delay=1)
+        return obs, info
+
+    env.reset = tiny_horizon_reset
+
+    with pytest.raises(RuntimeError, match="truncated during evaluation"):
+        AgentEvalFast(env, agent, ws=9.0, ti=0.06, wd=270.0, t_sim=10)
