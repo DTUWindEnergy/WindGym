@@ -34,6 +34,16 @@ class PowerTrackingManager:
         preview_steps: Number of future setpoints exposed as observations.
     """
 
+    # Absolute ceiling on lazily-extended callable trajectories: a defensive
+    # backstop so a single far-out index can never materialize a runaway range
+    # of array entries / callable evaluations. The concrete trigger is eval's
+    # memory-cleanup step, which sets timestep = time_max and takes one throwaway
+    # env.step (result discarded); FarmEval now caps time_max at 10_000 so that
+    # jump is already cheap, but this bound guarantees it regardless of the
+    # sentinel's magnitude. Real evaluation horizons are ~10^3 steps, far below
+    # this cap, so normal stepping and legitimate lazy extension are unaffected.
+    MAX_TRAJECTORY_STEPS = 1_000_000
+
     def __init__(
         self,
         ref_function: Optional[Callable] = None,
@@ -116,6 +126,12 @@ class PowerTrackingManager:
             return float(self.trajectory[step_idx])
 
         if self.ref_function is None:
+            return float(self.trajectory[-1])
+
+        if step_idx >= self.MAX_TRAJECTORY_STEPS:
+            # Clamp instead of materializing a pathological range (see
+            # MAX_TRAJECTORY_STEPS). Far above any real eval horizon, so normal
+            # stepping and legitimate lazy extension are unaffected.
             return float(self.trajectory[-1])
 
         # Lazily extend the trajectory up to and including step_idx.
