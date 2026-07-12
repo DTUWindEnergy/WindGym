@@ -810,9 +810,7 @@ def test_tracking_multi_custom_reference():
 def test_multi_non_tracking_obs_len_unchanged():
     """A non-tracking multi env keeps obs_var / per-agent obs length equal to
     turbine + farm blocks only (0-width tracking tail)."""
-    env = make_env(
-        env_cls=WindFarmEnvMulti, config=make_env_config(Track_power=False)
-    )
+    env = make_env(env_cls=WindFarmEnvMulti, config=make_env_config(Track_power=False))
     turbine_obs_var = env.farm_measurements.turb_mes[0].observed_variables()
     farm_obs_var = env.farm_measurements.farm_mes.observed_variables()
     assert env.obs_var == turbine_obs_var + farm_obs_var

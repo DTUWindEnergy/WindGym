@@ -125,9 +125,7 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
         # 0-width when tracking is off (get_tracking() -> empty), leaving the
         # non-tracking obs_var unchanged.
         self.obs_var = (
-            turbine_obs_var
-            + farm_obs_var
-            + len(self.farm_measurements.get_tracking())
+            turbine_obs_var + farm_obs_var + len(self.farm_measurements.get_tracking())
         )
 
         self.timestep = 0

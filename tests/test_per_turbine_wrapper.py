@@ -437,7 +437,9 @@ class TestPerTurbineWrapperDerating:
         obs, _ = wrapped.reset(seed=0)
         # The broadcast farm column is identical across all turbine rows.
         farm_col = obs[:, -1]
-        np.testing.assert_array_equal(farm_col, np.full(wrapped.n_turbines, farm_col[0]))
+        np.testing.assert_array_equal(
+            farm_col, np.full(wrapped.n_turbines, farm_col[0])
+        )
         env.close()
 
 
@@ -452,7 +454,9 @@ class TestPerTurbineWrapperTracking:
         across rows, and it is a faithful copy of the unwrapped flat-obs tail."""
         # setpoint + error + preview steps
         n_track = 1 + 1 + track_obs_preview
-        config = make_tracking_config(track_def={"track_obs_preview": track_obs_preview})
+        config = make_tracking_config(
+            track_def={"track_obs_preview": track_obs_preview}
+        )
         env = make_derating_env(V80(), config=config)
         wrapped = PerTurbineObservationWrapper(env)
 
