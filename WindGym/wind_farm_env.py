@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import copy
 import os
 import gc
+import sys
 import socket
 import shutil
 import math
@@ -1746,7 +1747,16 @@ class WindFarmEnv(gym.Env):
         (level 3) it must also delete the htc/res/log folders. Previously folder deletion
         only happened on time-limit truncation, so stopping a job mid-episode left the
         HAWC2 folders behind on the node.
+
+        Gymnasium's ``VectorEnv.__del__`` also calls this at interpreter shutdown for
+        any env left unclosed. By then CPython has torn down module globals (``plt``,
+        ``gc``, ``shutil`` -> None), so the cleanup below would raise a spurious
+        "Exception ignored in __del__" TypeError. Skip it during finalization: the OS
+        reclaims memory/handles anyway, and real cleanup already ran on the explicit
+        ``close()`` path (where ``sys.is_finalizing()`` is False).
         """
+        if sys.is_finalizing():
+            return
         self.renderer.close()
         if getattr(self, "HTC_path", None) is not None:
             # Full cleanup: close h2 connections + delete HAWC2 folders + drop refs.
