@@ -179,6 +179,24 @@ def test_step_unknown_reward_type(MockPyWakeAgent, mock_env):
 
 
 @patch("WindGym.wrappers.power_wrapper.PyWakeAgent")
+def test_tracking_env_rejected(MockPyWakeAgent, mock_env):
+    """A power-tracking env (Track_power=True) is incompatible with PowerWrapper.
+
+    PowerWrapper blends in a PyWake power-maximization reward, which conflicts
+    with tracking a setpoint (tracking forces Power_reward="None"). The wrapper
+    must reject it at construction, before building the PyWake agent, rather
+    than failing later with an opaque "Unknown power_reward type: None".
+    """
+    mock_env.Track_power = True
+
+    with pytest.raises(ValueError, match="incompatible with power-tracking"):
+        PowerWrapper(env=mock_env, n_envs=1)
+
+    # Bailed out early: the PyWake agent is never constructed.
+    MockPyWakeAgent.assert_not_called()
+
+
+@patch("WindGym.wrappers.power_wrapper.PyWakeAgent")
 def test_step_reward_weighting(MockPyWakeAgent, mock_env):
     """Test the weighting between environment and wrapper rewards."""
     mock_agent_instance = MockPyWakeAgent.return_value

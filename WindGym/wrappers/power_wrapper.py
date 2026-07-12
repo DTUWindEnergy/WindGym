@@ -21,6 +21,20 @@ class PowerWrapper(gym.Wrapper):
     ):
         super().__init__(env)
 
+        # PowerWrapper blends in a PyWake power-maximization reward, which is
+        # mutually exclusive with power tracking: Track_power forces
+        # Power_reward="None" (so step() would hit the opaque "Unknown
+        # power_reward type: None" below), and its objective is to follow a
+        # setpoint, not maximize power. Fail fast at construction, mirroring the
+        # RewardCalculator mutual-exclusion guard, rather than at the first step.
+        if getattr(env, "Track_power", False):
+            raise ValueError(
+                "PowerWrapper is incompatible with power-tracking environments "
+                "(Track_power=True): it adds a PyWake power-maximization reward, "
+                "which conflicts with tracking a power setpoint. Remove "
+                "PowerWrapper for tracking runs."
+            )
+
         self.weight_function = weight_function
         self.n_envs = n_envs
         # initialize PyWake agent
