@@ -324,6 +324,33 @@ def make_derating_env(turbine, n_turb=3, config=None, **kwargs):
     )
 
 
+def make_tracking_config(track_def=None, **overrides):
+    """Config for a fast pywake-backend power-tracking env (yaw-only).
+
+    Mirrors make_derating_config but enables Track_power (which forces
+    Power_reward="None") and appends a farm-level tracking tail via track_def.
+    All farm_* sensors stay off, so the only trailing farm-level entries are the
+    tracking observations: setpoint + error + preview.
+    """
+    td = {
+        "track_obs_setpoint": True,
+        "track_obs_error": True,
+        "track_obs_preview": 0,
+    }
+    if track_def is not None:
+        td.update(track_def)
+
+    config = make_derating_config()
+    # Yaw-only tracking env: drop the derate action from make_derating_config.
+    for key in ("derate_action", "derate_min", "derate_max", "derate_method"):
+        config.pop(key, None)
+    config["Track_power"] = True
+    config["power_def"]["Power_reward"] = "None"
+    config["track_def"] = td
+    config.update(overrides)
+    return config
+
+
 class TestPerTurbineWrapperDerating:
     """Tests for yaw+derate and derate-only envs."""
 
@@ -392,14 +419,72 @@ class TestPerTurbineWrapperDerating:
             wrapped._flatten_action(np.zeros(3))  # needs n_turb * 2 = 6
         env.close()
 
-    def test_farm_level_obs_rejected(self, derating_turbine):
-        """The obs reshape assumes purely per-turbine obs; farm-level
-        measurements must be rejected at construction."""
+    def test_farm_level_obs_broadcast(self, derating_turbine):
+        """Farm-level measurements (e.g. farm_ws) are no longer rejected: the
+        trailing farm block is broadcast into every turbine row, widening the
+        obs space by n_farm and copying the same farm values to each row."""
         config = make_derating_config()
         config["mes_level"]["farm_ws"] = True
         env = make_derating_env(derating_turbine, config=config)
-        with pytest.raises(ValueError, match="obs_var"):
-            PerTurbineObservationWrapper(env)
+        wrapped = PerTurbineObservationWrapper(env)
+
+        # One farm-level entry (farm_ws) -> one extra column, broadcast.
+        assert wrapped.n_farm == 1
+        assert wrapped.observation_space.shape[1] == wrapped.n_farm + (
+            env.get_obs_dim_per_turbine()
+        )
+
+        obs, _ = wrapped.reset(seed=0)
+        # The broadcast farm column is identical across all turbine rows.
+        farm_col = obs[:, -1]
+        np.testing.assert_array_equal(farm_col, np.full(wrapped.n_turbines, farm_col[0]))
+        env.close()
+
+
+class TestPerTurbineWrapperTracking:
+    """Tests for power-tracking envs whose flat obs carries a farm-level
+    tracking tail (setpoint/error/preview) that must be broadcast per row."""
+
+    @pytest.mark.parametrize("track_obs_preview", [0, 2])
+    def test_tracking_obs_broadcast(self, track_obs_preview):
+        """The tracking tail is broadcast into every turbine row: obs space
+        widens by n_track, reset()/step() keep that shape, the tail is identical
+        across rows, and it is a faithful copy of the unwrapped flat-obs tail."""
+        # setpoint + error + preview steps
+        n_track = 1 + 1 + track_obs_preview
+        config = make_tracking_config(track_def={"track_obs_preview": track_obs_preview})
+        env = make_derating_env(V80(), config=config)
+        wrapped = PerTurbineObservationWrapper(env)
+
+        obs_dim = env.get_obs_dim_per_turbine()
+        assert wrapped.n_farm == n_track
+        assert wrapped.observation_space.shape == (
+            wrapped.n_turbines,
+            obs_dim + n_track,
+        )
+
+        # reset() returns the widened per-turbine shape.
+        obs, _ = wrapped.reset(seed=0)
+        assert obs.shape == (wrapped.n_turbines, obs_dim + n_track)
+
+        # The tracking tail is identical across all turbine rows...
+        tail = obs[:, -n_track:]
+        np.testing.assert_array_equal(tail, np.tile(tail[0], (wrapped.n_turbines, 1)))
+
+        # ...and equals the unwrapped env's flat-obs tail (faithful copy).
+        # Same seed -> tracking envs are seed-deterministic, so the flat obs
+        # recovered from a fresh reset matches what the wrapper reshaped.
+        flat_obs, _ = env.reset(seed=0)
+        np.testing.assert_array_equal(tail[0], flat_obs[-n_track:])
+
+        # step() preserves the widened shape too.
+        action = np.zeros((wrapped.n_turbines, wrapped.action_dim_per_turbine))
+        obs_step, _, _, _, _ = wrapped.step(action)
+        assert obs_step.shape == (wrapped.n_turbines, obs_dim + n_track)
+        step_tail = obs_step[:, -n_track:]
+        np.testing.assert_array_equal(
+            step_tail, np.tile(step_tail[0], (wrapped.n_turbines, 1))
+        )
         env.close()
 
 
