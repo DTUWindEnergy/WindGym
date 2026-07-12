@@ -108,6 +108,14 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
             max_turb_move=max_turb_move,
         )
 
+        # The multi-agent farm observation block is built from a TurbMes
+        # (farm_mes), not FarmMes.get_measurements, so the tracking
+        # observations would be silently missing from every agent's view.
+        if self.Track_power:
+            raise NotImplementedError(
+                "Power tracking is not supported in WindFarmEnvMulti yet."
+            )
+
         # self.act_var is inherited from WindFarmEnv (1, or 2 when
         # derate_action=True and yaw_action=True → per-agent [yaw, derate])
         # Define the observation and action space

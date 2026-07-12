@@ -476,6 +476,9 @@ class FarmMes:
         power_history_N: int = 1,
         power_history_length: int = 10,
         power_window_length: int = 10,
+        track_setpoint: bool = False,
+        track_error: bool = False,
+        track_preview: int = 0,
         ws_min: float = 7.0,
         ws_max: float = 20.0,
         wd_min: float = 270.0,
@@ -510,6 +513,17 @@ class FarmMes:
         self.yaw_max: float = yaw_max
         self.power_max: float = power_max
 
+        # Power tracking observations (farm level). These are commands, not
+        # sensor readings; the env pushes them via set_tracking each step.
+        # Initialize the raw state so observations are safe before the first
+        # push (e.g. during reset's measurement fill).
+        self.track_setpoint: bool = track_setpoint
+        self.track_error: bool = track_error
+        self.track_preview: int = int(track_preview)
+        self._track_setpoint_val: float = 0.0
+        self._track_error_val: float = 0.0
+        self._track_preview_vals = np.zeros(self.track_preview)
+
         if turb_TI or farm_TI:
             # If we return the TI, check the number of data points
             if ti_sample_count < 10:  # Small sample = noisy TI signal
@@ -525,6 +539,9 @@ class FarmMes:
             + farm_wd * (wd_current + wd_rolling_mean * wd_history_N)
             + farm_TI
             + farm_power * (power_current + power_rolling_mean * power_history_N)
+            + track_setpoint
+            + track_error
+            + track_preview
         )
 
         # For each turbine, create a class of turbine measurements
@@ -756,6 +773,55 @@ class FarmMes:
         # get the derate measurements
         return np.array([turb.get_derate(scaled) for turb in self.turb_mes]).flatten()
 
+    def set_tracking(
+        self,
+        setpoint: float,
+        error: float,
+        preview: NDArray[np.floating],
+    ) -> None:
+        """Update the tracking state (pushed by the env each step).
+
+        Args:
+            setpoint: Current farm power reference (W)
+            error: Farm power minus reference (W)
+            preview: References for the next track_preview env steps (W)
+        """
+        self._track_setpoint_val = float(setpoint)
+        self._track_error_val = float(error)
+        self._track_preview_vals = np.asarray(preview, dtype=np.float64)
+
+    def get_tracking(self, scaled: bool = False) -> NDArray[np.float32]:
+        """Return the enabled tracking observations [setpoint, error, preview].
+
+        Setpoint and preview scale over [0, power_max * n_turbines] and the
+        error over [-power_max * n_turbines, +power_max * n_turbines],
+        matching the farm power scaling in get_power_farm.
+        """
+        farm_power_max = self.power_max * self.n_turbines
+        values = np.array([])
+        if self.track_setpoint:
+            val = (
+                utils.scale_val(self._track_setpoint_val, 0, farm_power_max)
+                if scaled
+                else self._track_setpoint_val
+            )
+            values = np.append(values, val)
+        if self.track_error:
+            val = (
+                utils.scale_val(self._track_error_val, -farm_power_max, farm_power_max)
+                if scaled
+                else self._track_error_val
+            )
+            values = np.append(values, val)
+        if self.track_preview > 0:
+            vals = (
+                utils.scale_val(self._track_preview_vals, 0, farm_power_max)
+                if scaled
+                else self._track_preview_vals
+            )
+            values = np.append(values, vals)
+        return values
+
     def get_measurements(self, scaled: bool = False) -> NDArray[np.float32]:
         # get all the measurements
         # if scaled is true, then the measurements are scaled between -1 and 1
@@ -776,6 +842,10 @@ class FarmMes:
         if self.farm_power:
             power_farm = self.get_power_farm(scaled=scaled)
             farm_measurements = np.append(farm_measurements, power_farm)
+
+        if self.track_setpoint or self.track_error or self.track_preview > 0:
+            tracking = self.get_tracking(scaled=scaled)
+            farm_measurements = np.append(farm_measurements, tracking)
         turb_measurements = np.array(
             [turb.get_measurements(scaled=scaled) for turb in self.turb_mes]
         ).flatten()

@@ -30,6 +30,7 @@ from .core.turbulence_manager import TurbulenceManager
 from .core.renderer import WindFarmRenderer
 from .core.baseline_manager import BaselineManager
 from .core.probe_manager import ProbeManager
+from .core.power_tracking import PowerTrackingManager
 from .core.derating import (
     add_hawc2_derate_sensor,
     check_htc_supports_derating,
@@ -110,6 +111,7 @@ class WindFarmEnv(gym.Env):
         cleanup_on_time_limit: bool = True,
         keep_hawc_results: bool = False,  # if True, never delete the HAWC2 res/htc/log folders
         wd_function=None,  # A function that takes in the timestep and returns the wind direction
+        power_ref_function=None,  # A function (t_seconds, env) -> reference farm power in W. Only used when Track_power is True; None uses the default constant-setpoint sampler.
         max_turb_move=2,  # The maximum distance that the turbines can move in one timestep. This is used to avoid numerical issues with the DWM solver.
         **kwargs,
     ):
@@ -141,6 +143,7 @@ class WindFarmEnv(gym.Env):
             max_time_steps: int: Fixed episode length in env steps; the episode truncates after exactly this many steps, so parallel envs stay in sync regardless of wind conditions. Step counting starts after reset's flow burn-in and sensor fill (as with the n_passthrough method). Setting this disables the passthrough episode-length method: n_passthrough is ignored (a note is printed at construction). Internally time_max is set to max_time_steps * delay seconds (time_max is always in seconds). None (default) = use the ws-derived time_max from n_passthrough.
             cleanup_on_time_limit: bool: If True, then the environment will clean up the HAWC2 files when the maximum time is reached. This is to avoid filling up the disk with files.
             keep_hawc_results: bool: If True, the HAWC2 res/htc/log folders are never deleted (overrides all cleanup), so they can be kept for later inspection. Default False.
+            power_ref_function: callable(t_seconds, env) -> float: The farm power reference in watts at episode time t (t=0 is the first agent step; the callable is evaluated every `delay` seconds). May use env.np_random, env.ws, env.n_turb, env.rated_power. Only used when Track_power is True. None (default) samples a constant setpoint per episode, uniform in track_ref_range times the episode freestream farm power.
         """
         self.kwargs = locals()
         del self.kwargs["self"]  # Remove 'self' from the dictionary
@@ -154,6 +157,7 @@ class WindFarmEnv(gym.Env):
 
         self.max_turb_move = max_turb_move
         self.wd_function = wd_function
+        self.power_ref_function = power_ref_function
 
         # Predefined values
         self.wts = None
@@ -165,8 +169,10 @@ class WindFarmEnv(gym.Env):
         self.max_time_steps = max_time_steps
         self.cleanup_on_time_limit = cleanup_on_time_limit
         self.keep_hawc_results = keep_hawc_results
-        # The power setpoint for the farm. This is used if the Track_power is True. (Not used yet)
+        # The farm power reference (W) at the current env step and its preview,
+        # maintained by _push_tracking when Track_power is True.
         self.power_setpoint = 0.0
+        self.power_preview = np.zeros(0)
         self.act_var = (
             1  # number of actions pr. turbine. For now it is just the yaw angles
         )
@@ -287,6 +293,8 @@ class WindFarmEnv(gym.Env):
             tau=self.tau,
             derate_penalty=self.derate_penalty,
             derate_penalty_type=self.derate_penalty_type,
+            track_reward_type=self.track_reward_type,
+            track_sigma=self.track_sigma,
         )
 
         # Initialize the wind manager
@@ -298,6 +306,17 @@ class WindFarmEnv(gym.Env):
             ti_min=self.TI_inflow_min,
             ti_max=self.TI_inflow_max,
             sample_site=sample_site,
+        )
+
+        # Initialize the power tracking manager (reference generation)
+        self.power_tracking = (
+            PowerTrackingManager(
+                ref_function=self.power_ref_function,
+                ref_range=tuple(self.track_ref_range),
+                preview_steps=self.track_obs_preview,
+            )
+            if self.Track_power
+            else None
         )
 
         # Initialize the turbulence manager
@@ -620,6 +639,34 @@ class WindFarmEnv(gym.Env):
         if self.derate_step_sim is not None and self.derate_step_sim <= 0:
             raise ValueError("derate_step_sim must be positive (or None)")
 
+        # Power tracking (optional section; only consumed when Track_power is
+        # True). Track_reward selects the reward shape, track_sigma the width
+        # of the gaussian form, track_ref_range the default sampler's fraction
+        # range, and the track_obs_* keys toggle the farm-level observations.
+        track_def = config.get("track_def", {}) or {}
+        self.track_reward_type = track_def.get("Track_reward", "abs")
+        self.track_sigma = track_def.get("track_sigma", 0.1)
+        self.track_ref_range = track_def.get("track_ref_range", [0.2, 0.8])
+        self.track_obs_setpoint = track_def.get("track_obs_setpoint", True)
+        self.track_obs_error = track_def.get("track_obs_error", True)
+        self.track_obs_preview = track_def.get("track_obs_preview", 0)
+        if (
+            len(self.track_ref_range) != 2
+            or not 0 <= self.track_ref_range[0] <= self.track_ref_range[1]
+        ):
+            raise ValueError(
+                "track_ref_range must be a (low, high) pair with 0 <= low <= high, "
+                f"got {self.track_ref_range}"
+            )
+        if int(self.track_obs_preview) != self.track_obs_preview or (
+            self.track_obs_preview < 0
+        ):
+            raise ValueError(
+                f"track_obs_preview must be a non-negative integer, "
+                f"got {self.track_obs_preview}"
+            )
+        self.track_obs_preview = int(self.track_obs_preview)
+
         # What the derate command means:
         #   "available": fraction of locally available power (P = (1-d)*P_avail)
         #   "rated":     fraction of rated power, i.e. an absolute power cap.
@@ -696,6 +743,9 @@ class WindFarmEnv(gym.Env):
             power_history_N=self.power_mes["power_history_N"],
             power_history_length=self.power_mes["power_history_length"],
             power_window_length=self.power_mes["power_window_length"],
+            track_setpoint=bool(self.Track_power) and self.track_obs_setpoint,
+            track_error=bool(self.Track_power) and self.track_obs_error,
+            track_preview=self.track_obs_preview if self.Track_power else 0,
             ws_min=self.ws_scaling_min,
             ws_max=self.ws_scaling_max,
             # Max and min values for wind direction measurements   NOTE i have added 5 for some slack in the measurements. so the scaling is better.
@@ -806,6 +856,19 @@ class WindFarmEnv(gym.Env):
             return_dict["derate command"] = self.derate_command
             return_dict["derate measured"] = self.farm_measurements.get_derate_turb()
 
+        if self.power_tracking is not None:
+            return_dict["Power reference"] = self.power_setpoint
+            # Instantaneous error at the current env step (the reward uses
+            # window means of both sides instead).
+            return_dict["Tracking error"] = self.farm_pow_deq[-1] - self.power_setpoint
+            # Window-mean error — the exact quantity the reward normalizes
+            # (matches the `tracking_error` breakdown entry). Both deques are
+            # filled by reset's warm-up, so this runs after they are non-empty.
+            return_dict["Tracking error window mean"] = float(
+                np.mean(self.farm_pow_deq) - np.mean(self.power_tracking.ref_deque)
+            )
+            return_dict["Power reference preview"] = self.power_preview
+
         if self.Baseline_comp:
             return_dict["yaw angles base"] = self.fs_baseline.windTurbines.yaw
             return_dict["Power baseline"] = self.fs_baseline.windTurbines.power().sum()
@@ -842,6 +905,8 @@ class WindFarmEnv(gym.Env):
 
         # Set random generators for managers
         self.wind_manager.np_random = self.np_random
+        if self.power_tracking is not None:
+            self.power_tracking.np_random = self.np_random
 
         # 1) Global wind conditions + sites
         # wind_cond = self.wind_manager.sample_conditions()
@@ -891,6 +956,18 @@ class WindFarmEnv(gym.Env):
         # methods) only starts after reset's burn-in and sensor fill.
         if self.max_time_steps is not None:
             self.time_max = self.max_time_steps * self.delay
+
+        # Precompute the power reference trajectory for this episode (needs
+        # the final time_max and self.rated_power, both set above).
+        if self.power_tracking is not None:
+            self.power_tracking.reset_episode(
+                self,
+                time_max=self.time_max,
+                delay=self.delay,
+                power_avg=self.power_avg,
+            )
+            self.power_setpoint = self.power_tracking.reference(0)
+            self.power_preview = self.power_tracking.preview(0)
 
         if self.backend == "dynamiks":
             # --- ORIGINAL dynamic backend ---
@@ -1076,6 +1153,9 @@ class WindFarmEnv(gym.Env):
             )
             # Power history (farm-level)
             self.farm_pow_deq.append(out["mean_power"].sum())
+            # Warm-up fills the reference deque with the step-0 reference so it
+            # stays sample-aligned with farm_pow_deq.
+            self._push_tracking(0, out["mean_power"].sum())
             if self.Baseline_comp:
                 self.base_pow_deq.append(out["baseline_power_mean"].sum())
                 self.nowake_pow_deq.append(
@@ -1093,6 +1173,27 @@ class WindFarmEnv(gym.Env):
             self.init_render()
 
         return observation, info
+
+    def _push_tracking(self, step_idx: int, farm_power: float) -> None:
+        """
+        Advance the power-tracking state by one env step (no-op when tracking
+        is off): push the reference at *step_idx* into the window deque and
+        update the setpoint/preview state plus the tracking observations.
+
+        Args:
+            step_idx: Env-step index into the reference trajectory
+            farm_power: Farm power (W) just appended to farm_pow_deq
+        """
+        if self.power_tracking is None:
+            return
+        setpoint = self.power_tracking.push(step_idx)
+        self.power_setpoint = setpoint
+        self.power_preview = self.power_tracking.preview(step_idx)
+        self.farm_measurements.set_tracking(
+            setpoint=setpoint,
+            error=farm_power - setpoint,
+            preview=self.power_preview,
+        )
 
     def _advance_and_measure(
         self,
@@ -1418,6 +1519,9 @@ class WindFarmEnv(gym.Env):
             derates=self.current_derate,
         )
         self.farm_pow_deq.append(out["mean_power"].sum())
+        # timestep is incremented further down, so the step we just simulated
+        # has reference index timestep + 1 (reset's warm-up pushed index 0).
+        self._push_tracking(self.timestep + 1, out["mean_power"].sum())
         if self.Baseline_comp:
             self.base_pow_deq.append(out["baseline_power_mean"].sum())
             self.nowake_pow_deq.append(
@@ -1454,6 +1558,10 @@ class WindFarmEnv(gym.Env):
             old_derates=self.old_derate if self.derate_action else None,
             new_derates=self.current_derate if self.derate_action else None,
             derate_max=self.derate_max,
+            power_ref_deque=(
+                self.power_tracking.ref_deque if self.power_tracking else None
+            ),
+            power_norm=self.maxturbpower * self.n_turb,
         )[0]  # [0] gets just the reward value, not the breakdown
 
         # If we are at the end of the simulation, we truncate the agents.

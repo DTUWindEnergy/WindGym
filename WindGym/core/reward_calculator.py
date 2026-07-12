@@ -34,19 +34,25 @@ class RewardCalculator:
         tau: float = 0.02,
         derate_penalty: float = 0.0,
         derate_penalty_type: Optional[str] = None,
+        track_reward_type: str = "abs",
+        track_sigma: float = 0.1,
     ):
         """
         Initialize the reward calculator.
 
         Args:
             power_reward_type: Type of power reward ("Baseline", "Power_avg", "Power_diff", "None")
-            track_power: Whether to include power tracking reward (not yet implemented)
+            track_power: Whether to use the power tracking reward instead of a
+                power maximization reward (requires power_reward_type "None")
             power_scaling: Scaling factor for power reward
             action_penalty: Weight for action penalty (0 = no penalty)
             action_penalty_type: Type of penalty ("change" or "total")
             power_window_size: Window size for Power_diff reward type
             derate_penalty: Weight for derate penalty (0 = no penalty)
             derate_penalty_type: Type of derate penalty ("change" or "total")
+            track_reward_type: Shape of the tracking reward ("abs" or "gaussian")
+            track_sigma: Width of the gaussian tracking reward, as a fraction
+                of the power normalization (rated farm power)
         """
         self.power_reward_type = power_reward_type
         self.track_power = track_power
@@ -57,6 +63,8 @@ class RewardCalculator:
         self.tau = tau
         self.derate_penalty = derate_penalty
         self.derate_penalty_type = derate_penalty_type
+        self.track_reward_type = track_reward_type
+        self.track_sigma = track_sigma
 
         # Validate configuration
         self._validate_config()
@@ -86,7 +94,22 @@ class RewardCalculator:
                 )
 
         if self.track_power:
-            raise NotImplementedError("Power tracking reward is not yet implemented.")
+            # Tracking and maximization are mutually exclusive objectives.
+            if self.power_reward_type != "None":
+                raise ValueError(
+                    "Track_power is mutually exclusive with a power reward: "
+                    f"set Power_reward to 'None' (got '{self.power_reward_type}')."
+                )
+            valid_track_rewards = {"abs", "gaussian"}
+            if self.track_reward_type not in valid_track_rewards:
+                raise ValueError(
+                    f"track_reward_type must be one of {valid_track_rewards}, "
+                    f"got '{self.track_reward_type}'"
+                )
+            if self.track_sigma <= 0:
+                raise ValueError(
+                    f"track_sigma must be positive, got {self.track_sigma}"
+                )
 
         if self.action_penalty_type is not None:
             valid_penalty_types = {"change", "total"}
@@ -113,6 +136,8 @@ class RewardCalculator:
         rated_power: Optional[float] = None,
         n_turbines: int = 1,
         nowake_power_deque: Optional[object] = None,
+        power_ref_deque: Optional[object] = None,
+        power_norm: Optional[float] = None,
     ) -> float:
         """
         Calculate the power production reward.
@@ -123,10 +148,19 @@ class RewardCalculator:
             rated_power: Freestream power of a single turbine at the episode
                 inflow wind speed (for Power_avg reward)
             n_turbines: Number of turbines in the farm
+            power_ref_deque: Deque containing the power reference history
+                (for the tracking reward; same window as farm_power_deque)
+            power_norm: Power normalization for the tracking reward, the
+                rated (nameplate) farm power in watts
 
         Returns:
             float: The calculated power reward
         """
+        if self.track_power:
+            return self._power_reward_tracking(
+                farm_power_deque, power_ref_deque, power_norm
+            )
+
         if self.power_reward_type == "Baseline":
             if baseline_power_deque is None:
                 raise ValueError(
@@ -160,6 +194,44 @@ class RewardCalculator:
 
         else:
             raise ValueError(f"Unknown power_reward_type: {self.power_reward_type}")
+
+    def _power_reward_tracking(
+        self, farm_power_deque, power_ref_deque, power_norm
+    ) -> float:
+        """
+        Calculate the power tracking reward.
+
+        Compares the window mean of the farm power to the window mean of the
+        reference (both deques share the same window, so a reference step
+        change does not cause an unavoidable penalty spike):
+
+        - "abs":      r = -|P_farm - P_ref| / power_norm
+        - "gaussian": r = exp(-((P_farm - P_ref) / (sigma * power_norm))^2)
+
+        Args:
+            farm_power_deque: Farm power history
+            power_ref_deque: Power reference history (same window)
+            power_norm: Rated (nameplate) farm power in watts
+
+        Returns:
+            float: The tracking reward
+        """
+        if power_ref_deque is None or len(power_ref_deque) == 0:
+            raise ValueError(
+                "power_ref_deque required (and non-empty) for the tracking reward"
+            )
+        if power_norm is None or power_norm <= 0:
+            raise ValueError(
+                f"power_norm must be a positive number for the tracking reward, "
+                f"got {power_norm}"
+            )
+
+        err = np.mean(farm_power_deque) - np.mean(power_ref_deque)
+
+        if self.track_reward_type == "abs":
+            return -abs(err) / power_norm
+        else:  # "gaussian" (validated in _validate_config)
+            return float(np.exp(-((err / (self.track_sigma * power_norm)) ** 2)))
 
     def _power_reward_baseline(self, farm_power_deque, baseline_power_deque) -> float:
         """
@@ -365,6 +437,8 @@ class RewardCalculator:
         old_derates: Optional[np.ndarray] = None,
         new_derates: Optional[np.ndarray] = None,
         derate_max: float = 1.0,
+        power_ref_deque: Optional[object] = None,
+        power_norm: Optional[float] = None,
     ) -> tuple[float, dict]:
         """
         Calculate total reward including power reward and action penalties.
@@ -383,6 +457,8 @@ class RewardCalculator:
             old_derates: Derate levels at the previous env step (if derating)
             new_derates: Current derate levels (if derating)
             derate_max: Maximum allowed derate level
+            power_ref_deque: Power reference history (if tracking)
+            power_norm: Rated farm power in watts (if tracking)
 
         Returns:
             tuple: (total_reward, reward_breakdown_dict)
@@ -394,6 +470,8 @@ class RewardCalculator:
             rated_power=rated_power,
             n_turbines=n_turbines,
             nowake_power_deque=nowake_power_deque,
+            power_ref_deque=power_ref_deque,
+            power_norm=power_norm,
         )
 
         # Apply power scaling
@@ -424,5 +502,9 @@ class RewardCalculator:
             "derate_penalty": derate_penalty,
             "total_reward": total_reward,
         }
+        if self.track_power:
+            breakdown["tracking_error"] = float(
+                np.mean(farm_power_deque) - np.mean(power_ref_deque)
+            )
 
         return total_reward, breakdown
