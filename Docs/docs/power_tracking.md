@@ -23,9 +23,10 @@ a `ValueError` at construction — tracking and maximization are mutually
 exclusive objectives. Tracking does **not** require `Baseline_comp`: no
 baseline farm is simulated unless you ask for one.
 
-Multi-agent note: `WindFarmEnvMulti` raises `NotImplementedError` when
-`Track_power` is set — its per-agent farm observation block is built through a
-different path and would silently drop the tracking observations.
+Multi-agent note: multi-agent *training* with `WindFarmEnvMulti` also supports
+tracking — it takes the same `power_ref_function` kwarg, appends the farm-level
+tracking signal to every agent's observation, and shares the farm-level tracking
+reward across agents. Evaluation (`AgentEval`/`FarmEval`) remains single-agent.
 
 ## The reference signal
 

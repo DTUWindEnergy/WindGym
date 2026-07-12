@@ -696,12 +696,132 @@ def test_tracking_env_kwargs_clone_roundtrip():
 
 
 @pytest.mark.integration
-def test_tracking_multi_env_raises():
-    with pytest.raises(NotImplementedError, match="WindFarmEnvMulti"):
-        make_env(
-            env_cls=WindFarmEnvMulti,
-            config=make_env_config(),
-        )
+def test_tracking_multi_env_supported():
+    """Constructing a tracking WindFarmEnvMulti no longer raises, and its
+    obs_var grows by exactly the tracking-tail width."""
+    track_env = make_env(env_cls=WindFarmEnvMulti, config=make_env_config())
+    assert track_env.Track_power
+
+    plain_env = make_env(
+        env_cls=WindFarmEnvMulti,
+        config=make_env_config(Track_power=False),
+    )
+    n_track = len(track_env.farm_measurements.get_tracking())
+    assert n_track > 0
+    assert track_env.obs_var == plain_env.obs_var + n_track
+    track_env.close()
+    plain_env.close()
+
+
+@pytest.mark.integration
+def test_tracking_multi_obs_includes_reference():
+    """Each agent's obs matches its observation_space, and the trailing
+    tracking slice is identical across agents and reflects the pushed
+    reference (moves after a step under a ramp)."""
+    ramp = lambda t, env: 1.0e6 + 500.0 * t  # noqa: E731
+    env = make_env(
+        env_cls=WindFarmEnvMulti, config=make_env_config(), power_ref_function=ramp
+    )
+    observations, _ = env.reset(seed=0)
+
+    n_track = len(env.farm_measurements.get_tracking())
+    tails = {}
+    for a in env.agents:
+        obs = observations[a]
+        assert obs.shape[0] == env.observation_space(a).shape[0] == env.obs_var
+        tails[a] = obs[-n_track:]
+
+    # The tracking tail is the same farm-level command for every agent.
+    first = env.agents[0]
+    for a in env.agents[1:]:
+        np.testing.assert_array_equal(tails[a], tails[first])
+
+    # It matches the scaled reference the parent pushed onto FarmMes.
+    np.testing.assert_array_equal(
+        tails[first], env.farm_measurements.get_tracking(scaled=True).astype(np.float32)
+    )
+
+    # And it moves after a step because the ramp keeps rising.
+    actions = {a: np.zeros(env.action_space(a).shape, np.float32) for a in env.agents}
+    obs_after, *_ = env.step(actions)
+    assert not np.array_equal(obs_after[first][-n_track:], tails[first])
+    env.close()
+
+
+@pytest.mark.integration
+def test_tracking_multi_reward_shared():
+    """After a step, all agents receive the same finite (shared) reward."""
+    env = make_env(env_cls=WindFarmEnvMulti, config=make_env_config())
+    env.reset(seed=0)
+    actions = {a: np.zeros(env.action_space(a).shape, np.float32) for a in env.agents}
+    _, rewards, _, _, _ = env.step(actions)
+
+    values = list(rewards.values())
+    assert all(np.isfinite(v) for v in values)
+    assert all(v == values[0] for v in values)
+    env.close()
+
+
+@pytest.mark.integration
+def test_tracking_multi_info_keys():
+    """Every agent's info dict carries all four tracking keys, at reset and
+    after a step."""
+    keys = {
+        "Power reference",
+        "Tracking error",
+        "Tracking error window mean",
+        "Power reference preview",
+    }
+    env = make_env(env_cls=WindFarmEnvMulti, config=make_env_config())
+    _, infos = env.reset(seed=0)
+    for a in env.agents:
+        assert keys.issubset(infos[a].keys())
+
+    actions = {a: np.zeros(env.action_space(a).shape, np.float32) for a in env.agents}
+    _, _, _, _, infos = env.step(actions)
+    for a in env.agents:
+        assert keys.issubset(infos[a].keys())
+    env.close()
+
+
+@pytest.mark.integration
+def test_tracking_multi_custom_reference():
+    """A ramp power_ref_function reaches the multi env and drives a
+    time-varying setpoint across steps."""
+    ramp = lambda t, env: 1.0e6 + 500.0 * t  # noqa: E731
+    env = make_env(
+        env_cls=WindFarmEnvMulti, config=make_env_config(), power_ref_function=ramp
+    )
+    assert env.kwargs["power_ref_function"] is ramp
+
+    env.reset(seed=0)
+    actions = {a: np.zeros(env.action_space(a).shape, np.float32) for a in env.agents}
+    setpoints = []
+    for _ in range(3):
+        _, _, _, _, infos = env.step(actions)
+        setpoints.append(infos[env.agents[0]]["Power reference"])
+
+    # The ramp climbs, so consecutive setpoints strictly increase.
+    assert setpoints[0] < setpoints[1] < setpoints[2]
+    env.close()
+
+
+@pytest.mark.integration
+def test_multi_non_tracking_obs_len_unchanged():
+    """A non-tracking multi env keeps obs_var / per-agent obs length equal to
+    turbine + farm blocks only (0-width tracking tail)."""
+    env = make_env(
+        env_cls=WindFarmEnvMulti, config=make_env_config(Track_power=False)
+    )
+    turbine_obs_var = env.farm_measurements.turb_mes[0].observed_variables()
+    farm_obs_var = env.farm_measurements.farm_mes.observed_variables()
+    assert env.obs_var == turbine_obs_var + farm_obs_var
+    assert len(env.farm_measurements.get_tracking()) == 0
+
+    observations, _ = env.reset(seed=0)
+    for a in env.agents:
+        assert observations[a].shape[0] == env.obs_var
+    env.close()
 
 
 @pytest.mark.integration
