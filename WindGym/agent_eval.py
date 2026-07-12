@@ -134,6 +134,11 @@ def eval_single_fast(
     time_plot = np.zeros((time), dtype=int)
     rew_plot = np.zeros((time), dtype=np.float32)
 
+    tracking = bool(getattr(env, "Track_power", False))
+    if tracking:
+        p_ref = np.zeros((time), dtype=np.float32)
+        track_err = np.zeros((time), dtype=np.float32)
+
     if baseline_comp:
         powerF_b = np.zeros((time), dtype=np.float32)
         powerT_b = np.zeros((time, n_turb), dtype=np.float32)
@@ -162,6 +167,10 @@ def eval_single_fast(
     time_plot[0] = env.fs.time
     # There is no reward at the first time step, so we just set it to zero.
     rew_plot[0] = 0.0
+
+    if tracking:
+        p_ref[0] = env.power_setpoint
+        track_err[0] = powerF_a[0] - p_ref[0]
 
     if baseline_comp:
         powerF_b[0] = env.fs_baseline.windTurbines.power().sum()
@@ -233,6 +242,15 @@ def eval_single_fast(
         ws_a[i * step_val + 1 : i * step_val + step_val + 1] = info["windspeeds"]
         time_plot[i * step_val + 1 : i * step_val + step_val + 1] = info["time_array"]
         rew_plot[i * step_val + 1 : i * step_val + step_val + 1] = reward
+
+        if tracking:
+            # The reference is per env step; the error is at sim resolution.
+            p_ref[i * step_val + 1 : i * step_val + step_val + 1] = info[
+                "Power reference"
+            ]
+            track_err[i * step_val + 1 : i * step_val + step_val + 1] = (
+                info["powers"].sum(axis=1) - info["Power reference"]
+            )
 
         if baseline_comp:
             powerF_b[i * step_val + 1 : i * step_val + step_val + 1] = info[
@@ -506,6 +524,51 @@ def eval_single_fast(
             rew_plot,
         ),
     }
+
+    # Add tracking variables if applicable
+    if tracking:
+        p_ref = p_ref.reshape(time, n_ws, n_wd, n_TI, n_turbbox, 1, 1)
+        track_err = track_err.reshape(time, n_ws, n_wd, n_TI, n_turbbox, 1, 1)
+        # Per-condition scalar (no time dim) so it merges across conditions
+        # in eval_multiple like any other data variable.
+        track_mae = np.full(
+            (n_ws, n_wd, n_TI, n_turbbox, 1, 1),
+            np.abs(track_err).mean(),
+            dtype=np.float32,
+        )
+
+        data_vars.update(
+            {
+                "power_ref": (
+                    (
+                        "time",
+                        "ws",
+                        "wd",
+                        "TI",
+                        "turbbox",
+                        "model_step",
+                        "deterministic",
+                    ),
+                    p_ref,
+                ),
+                "track_err": (
+                    (
+                        "time",
+                        "ws",
+                        "wd",
+                        "TI",
+                        "turbbox",
+                        "model_step",
+                        "deterministic",
+                    ),
+                    track_err,
+                ),
+                "track_mae": (
+                    ("ws", "wd", "TI", "turbbox", "model_step", "deterministic"),
+                    track_mae,
+                ),
+            }
+        )
 
     # Add baseline variables if applicable
     if baseline_comp:
