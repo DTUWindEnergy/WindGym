@@ -298,12 +298,14 @@ def test_total_reward_with_all_components():
     assert abs(total_reward - 0.2) < 1e-6
 
 
-def test_track_power_not_implemented():
-    """Test that track_power=True raises NotImplementedError."""
-    with pytest.raises(
-        NotImplementedError, match="Power tracking reward is not yet implemented"
-    ):
+def test_track_power_excludes_power_reward():
+    """track_power=True is mutually exclusive with a power maximization reward."""
+    with pytest.raises(ValueError, match="mutually exclusive"):
         RewardCalculator(power_reward_type="Baseline", track_power=True)
+
+    # With Power_reward "None" the tracking configuration is valid.
+    rc = RewardCalculator(power_reward_type="None", track_power=True)
+    assert rc.track_power is True
 
 
 # ── Wake_recovery tests ──────────────────────────────────────────────

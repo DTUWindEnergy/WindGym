@@ -347,18 +347,17 @@ class TestSpecificFeatures:
         check_env(env, skip_render_check=True)
         env.close()
 
-    def test_track_power_not_implemented(
+    def test_track_power_requires_no_power_reward(
         self, temp_yaml_filepath_factory, mock_mann_methods
     ):
+        """Track_power is mutually exclusive with a power maximization reward."""
         config_dict = get_base_yaml_dict()
-        config_dict["Track_power"] = True
+        config_dict["Track_power"] = True  # Power_reward is "Baseline" here
         yaml_filepath = temp_yaml_filepath_factory(config_dict, "track_power_true")
         x_pos, y_pos = generate_square_grid(turbine=V80(), nx=2, ny=1, xDist=5, yDist=3)
 
-        with pytest.raises(
-            NotImplementedError, match="Power tracking reward is not yet implemented."
-        ):
-            env = WindFarmEnv(
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            WindFarmEnv(
                 turbine=V80(),
                 x_pos=x_pos,
                 y_pos=y_pos,
@@ -369,8 +368,32 @@ class TestSpecificFeatures:
                 n_passthrough=0.1,
                 burn_in_passthroughs=0.01,
             )
-            # If __init__ fails, env might not be assigned or closeable
-            # env.close() # Best practice to put close in a finally if env is successfully created
+
+    def test_track_power_env_construction(
+        self, temp_yaml_filepath_factory, mock_mann_methods
+    ):
+        """With Power_reward "None", a tracking env constructs and passes check_env."""
+        config_dict = get_base_yaml_dict()
+        config_dict["Track_power"] = True
+        config_dict["power_def"]["Power_reward"] = "None"
+        yaml_filepath = temp_yaml_filepath_factory(config_dict, "track_power_valid")
+        x_pos, y_pos = generate_square_grid(turbine=V80(), nx=2, ny=1, xDist=5, yDist=3)
+
+        env = WindFarmEnv(
+            turbine=V80(),
+            x_pos=x_pos,
+            y_pos=y_pos,
+            config=yaml_filepath,
+            reset_init=True,
+            seed=42,
+            turbtype="None",
+            n_passthrough=0.1,
+            burn_in_passthroughs=0.01,
+        )
+        try:
+            check_env(env, skip_render_check=True)
+        finally:
+            env.close()
 
 
 # ---------------------------------------------------------------------------
