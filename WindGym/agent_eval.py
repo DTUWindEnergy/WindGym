@@ -233,6 +233,22 @@ def eval_single_fast(
 
         obs, reward, terminated, truncated, info = env.step(action)
 
+        # The eval loop assumes the env runs as an untruncated "sandbox": it
+        # never resets mid-run. A truncation here means the requested t_sim
+        # exceeded the env's horizon (time_max) -- and truncation triggers
+        # _cleanup_resources(), which frees the flow simulation, so every
+        # subsequent step would read freed/garbage state. Fail loudly instead
+        # of silently returning corrupt results.
+        if truncated:
+            raise RuntimeError(
+                f"Environment truncated during evaluation at step {i + 1} of "
+                f"{total_steps} (env.time_max={env.time_max}s, delay={env.delay}s, "
+                f"t_sim={t_sim}s). The eval loop cannot continue past truncation "
+                "because the flow simulation is cleaned up on the time limit. "
+                "Reduce t_sim or raise the env's time_max/max_time_steps so the "
+                "full evaluation fits within one episode."
+            )
+
         # Put the values in the arrays
         powerF_a[i * step_val + 1 : i * step_val + step_val + 1] = info["powers"].sum(
             axis=1
