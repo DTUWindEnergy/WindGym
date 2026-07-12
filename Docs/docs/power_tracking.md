@@ -65,6 +65,11 @@ The callable may use `env.np_random`, `env.ws`, `env.n_turb` and
 speed, set per reset). It is evaluated in step order, once per step index, so
 RNG draws are reproducible from the env seed.
 
+`FarmEval` also accepts `power_ref_function`, so custom references are
+**evaluable** (via `AgentEval`/`AgentEvalFast`), not just trainable — pass the
+same callable you trained with to evaluate an agent against a time-varying
+command.
+
 Seeding caveat: enabling tracking adds one RNG draw at reset (the default
 sampler), so a tracking env is seed-deterministic internally but its episodes
 are not observation-identical to a non-tracking env with the same seed.
