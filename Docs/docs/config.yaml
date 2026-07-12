@@ -4,7 +4,16 @@ yaw_init: "Zeros" # Initial yaw angle method: "Zeros", "Random", or "Defined"
 noise: "None"     # Type of noise to add to measurements: "None", "Normal"
 BaseController: "Local" # Baseline controller type: "Local", "Global", "PyWake"
 ActionMethod: "wind"    # How agent actions are interpreted: "yaw", "wind" (or "absolute" - not implemented)
-Track_power: False      # Whether to track a power setpoint (not yet fully implemented)
+Track_power: False      # Whether to follow a power reference instead of maximizing power (requires Power_reward: "None")
+
+# --- Power Tracking Settings (only used when Track_power is True) ---
+# track_def:
+#   Track_reward: "abs"         # Tracking reward shape: "abs" or "gaussian"
+#   track_sigma: 0.1            # Width of the gaussian reward, as a fraction of rated farm power
+#   track_ref_range: [0.2, 0.8] # Default sampler range, as a fraction of the episode freestream farm power
+#   track_obs_setpoint: True    # Observe the current power reference
+#   track_obs_error: True       # Observe the tracking error (farm power - reference)
+#   track_obs_preview: 0        # Number of future reference steps to observe
 
 # --- Action Penalty Settings ---
 act_pen:
