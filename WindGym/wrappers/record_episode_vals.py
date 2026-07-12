@@ -20,10 +20,20 @@ class RecordEpisodeVals(gym.wrappers.vector.RecordEpisodeStatistics):
         self.mean_power_queue_nowake = deque(maxlen=buffer_length)
         self.mean_power_queue_baseline = deque(maxlen=buffer_length)
 
+        # Moving windows for power tracking (Track_power envs only)
+        # Mean absolute tracking error per episode (watts); named after eval's
+        # ``track_mae`` (agent_eval.eval_single_fast) so training curves are
+        # directly comparable to evaluation numbers.
+        self.track_mae_queue = deque(maxlen=buffer_length)
+        # Mean reference (setpoint) per episode (watts); mirrors mean_power_queue.
+        self.mean_power_ref_queue = deque(maxlen=buffer_length)
+
         # Per-episode accumulators
         self.episode_powers: np.ndarray = np.zeros(())
         self.episode_powers_nowake: np.ndarray = np.zeros(())
         self.episode_powers_baseline: np.ndarray = np.zeros(())
+        self.episode_track_abs_err: np.ndarray = np.zeros(())
+        self.episode_power_ref: np.ndarray = np.zeros(())
         self.last_dones: np.ndarray = np.zeros((), dtype=bool)
 
         # ---- Yaw tracking ----
@@ -42,6 +52,8 @@ class RecordEpisodeVals(gym.wrappers.vector.RecordEpisodeStatistics):
         self.episode_powers = np.zeros(self.num_envs)
         self.episode_powers_nowake = np.zeros(self.num_envs)
         self.episode_powers_baseline = np.zeros(self.num_envs)
+        self.episode_track_abs_err = np.zeros(self.num_envs)
+        self.episode_power_ref = np.zeros(self.num_envs)
         self.episode_yaw_travel = np.zeros(self.num_envs)
 
         self.last_dones = self.prev_dones.copy()
@@ -79,6 +91,22 @@ class RecordEpisodeVals(gym.wrappers.vector.RecordEpisodeStatistics):
         if "Power baseline" in infos:
             self.episode_powers_baseline[self.last_dones] = 0
             self.episode_powers_baseline[~self.last_dones] += infos["Power baseline"][
+                ~self.last_dones
+            ]
+
+        # ----------------- Tracking accumulation -----------------
+        # Instantaneous |error| (matches eval's track_mae) and the reference
+        # setpoint; both gated on the tracking info keys so a non-tracking env
+        # never touches these accumulators or queues.
+        if "Tracking error" in infos:
+            self.episode_track_abs_err[self.last_dones] = 0
+            self.episode_track_abs_err[~self.last_dones] += np.abs(
+                infos["Tracking error"]
+            )[~self.last_dones]
+
+        if "Power reference" in infos:
+            self.episode_power_ref[self.last_dones] = 0
+            self.episode_power_ref[~self.last_dones] += infos["Power reference"][
                 ~self.last_dones
             ]
 
@@ -125,6 +153,16 @@ class RecordEpisodeVals(gym.wrappers.vector.RecordEpisodeStatistics):
                     self.mean_power_queue_baseline.append(
                         self.episode_powers_baseline[i]
                         / max(1, self.episode_lengths[i])
+                    )
+
+                # Mean tracking error / reference of the episode (watts)
+                if "Tracking error" in infos:
+                    self.track_mae_queue.append(
+                        self.episode_track_abs_err[i] / max(1, self.episode_lengths[i])
+                    )
+                if "Power reference" in infos:
+                    self.mean_power_ref_queue.append(
+                        self.episode_power_ref[i] / max(1, self.episode_lengths[i])
                     )
 
                 # Total yaw travel of the episode (sum over turbines & steps)

@@ -216,9 +216,7 @@ def test_tracking_reward_invalid_config_raises():
             power_reward_type="None", track_power=True, track_reward_type="quadratic"
         )
     with pytest.raises(ValueError, match="track_sigma"):
-        RewardCalculator(
-            power_reward_type="None", track_power=True, track_sigma=0.0
-        )
+        RewardCalculator(power_reward_type="None", track_power=True, track_sigma=0.0)
     # Invalid tracking options are ignored when tracking is off
     RewardCalculator(power_reward_type="Baseline", track_reward_type="quadratic")
 
@@ -468,14 +466,17 @@ def test_tracking_obs_toggles_and_scaling(track_def, extra_obs):
     env_off = make_env(
         config=make_env_config(
             Track_power=False,
-            power_def={"Power_reward": "Power_avg", "Power_avg": 5, "Power_scaling": 1.0},
+            power_def={
+                "Power_reward": "Power_avg",
+                "Power_avg": 5,
+                "Power_scaling": 1.0,
+            },
         )
     )
     env = make_env(config=make_env_config(track_def=track_def))
 
     assert (
-        env.observation_space.shape[0]
-        == env_off.observation_space.shape[0] + extra_obs
+        env.observation_space.shape[0] == env_off.observation_space.shape[0] + extra_obs
     )
 
     if extra_obs > 0:
@@ -488,9 +489,7 @@ def test_tracking_obs_toggles_and_scaling(track_def, extra_obs):
             expected.append(utils.scale_val(env.power_setpoint, 0, norm))
         if track_def.get("track_obs_error"):
             expected.append(
-                utils.scale_val(
-                    env.farm_pow_deq[-1] - env.power_setpoint, -norm, norm
-                )
+                utils.scale_val(env.farm_pow_deq[-1] - env.power_setpoint, -norm, norm)
             )
         if track_def.get("track_obs_preview", 0) > 0:
             expected.extend(utils.scale_val(np.asarray(env.power_preview), 0, norm))
