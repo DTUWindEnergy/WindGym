@@ -238,9 +238,7 @@ def eval_single_fast(
         # farms this just pads 2D beyond the y-extent, so nothing is clipped.
         D_view = float(np.atleast_1d(env.fs.windTurbines.diameter())[0])
         a = np.linspace(-200 + min(env.x_pos), 300 + max(env.x_pos), 200)
-        b = np.linspace(
-            min(env.y_pos) - 2 * D_view, max(env.y_pos) + 2 * D_view, 200
-        )
+        b = np.linspace(min(env.y_pos) - 2 * D_view, max(env.y_pos) + 2 * D_view, 200)
 
     # Run the simulation
     for i in range(0, total_steps):
