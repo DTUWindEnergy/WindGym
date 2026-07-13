@@ -69,6 +69,11 @@ For now it only supports the PyWakeWindTurbines, but it should be easy to expand
 class WindFarmEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"]}
 
+    # Optional steady-state operating-point table (see core.operating_point).
+    # Class-level default so subclasses that don't forward kwargs (e.g.
+    # WindFarmEnvMulti) still expose the attribute.
+    op_lookup = None
+
     def __init__(
         self,
         turbine,
@@ -114,6 +119,7 @@ class WindFarmEnv(gym.Env):
         wd_function=None,  # A function that takes in the timestep and returns the wind direction
         power_ref_function=None,  # A function (t_seconds, env) -> reference farm power in W. Only used when Track_power is True; None uses the default constant-setpoint sampler.
         max_turb_move=2,  # The maximum distance that the turbines can move in one timestep. This is used to avoid numerical issues with the DWM solver.
+        op_lookup=None,  # Optional OperatingPointLookup: reports steady-state blade pitch / rotor RPM per turbine when derating.
         **kwargs,
     ):
         """
@@ -233,6 +239,11 @@ class WindFarmEnv(gym.Env):
         self.seed = seed
         self.TurbBox = TurbBox
         self.turbine = turbine
+        # Steady-state pitch/RPM lookup (None = feature off). The per-turbine
+        # values are refreshed in _take_measurements each sim step.
+        self.op_lookup = op_lookup
+        self.current_pitch = None
+        self.current_rpm = None
         # The maximum time of the simulation. This is used to make sure that the simulation doesnt run forever.
         self.time_max = 0
         # The number of times the flow passes through the farm. This is used to calculate the maximum simulation time.
@@ -813,6 +824,15 @@ class WindFarmEnv(gym.Env):
         self.current_yaw = self.fs.windTurbines.yaw
         self.current_powers = self.fs.windTurbines.power()  # The Power pr turbine
 
+        if self.op_lookup is not None:
+            # Same (ws, yaw, derate) triple the power surrogate sees, so the
+            # reported operating point is consistent with current_powers.
+            self.current_pitch, self.current_rpm = self.op_lookup.pitch_rpm(
+                self.current_ws,
+                self.current_yaw,
+                getattr(self, "current_derate", np.zeros(self.n_turb)),
+            )
+
     def _get_obs(self) -> np.ndarray:
         """
         Gets the sensordata from the farm_measurements class, and scales it to be between -1 and 1
@@ -1234,6 +1254,10 @@ class WindFarmEnv(gym.Env):
         winddirs = np.zeros((T, n), dtype=np.float32)
         yaws = np.zeros((T, n), dtype=np.float32)
         powers = np.zeros((T, n), dtype=np.float32)
+        derates = np.zeros((T, n), dtype=np.float32)
+        if self.op_lookup is not None:
+            pitches = np.zeros((T, n), dtype=np.float32)
+            rpms = np.zeros((T, n), dtype=np.float32)
 
         if include_baseline:
             baseline_powers = np.zeros((T, n), dtype=np.float32)
@@ -1304,6 +1328,10 @@ class WindFarmEnv(gym.Env):
             winddirs[j] = self.current_wd
             yaws[j] = self.current_yaw
             powers[j] = self.current_powers
+            derates[j] = self.current_derate
+            if self.op_lookup is not None:
+                pitches[j] = self.current_pitch
+                rpms[j] = self.current_rpm
             time_array[j] = self.fs.time
 
             self.probe_manager.update_probe_positions(self.fs, yaws[j])
@@ -1332,11 +1360,14 @@ class WindFarmEnv(gym.Env):
             winddirs=winddirs,
             yaws=yaws,
             powers=powers,
+            derates=derates,
             mean_windspeed=mean_windspeed,
             mean_winddir=mean_winddir,
             mean_yaw=mean_yaw,
             mean_power=mean_power,
         )
+        if self.op_lookup is not None:
+            result.update(pitches=pitches, rpms=rpms)
         if include_baseline:
             result.update(
                 baseline_powers=baseline_powers,
@@ -1541,6 +1572,10 @@ class WindFarmEnv(gym.Env):
         info["windspeeds"] = out["windspeeds"]
         info["yaws"] = out["yaws"]
         info["powers"] = out["powers"]
+        info["derates"] = out["derates"]
+        if self.op_lookup is not None:
+            info["pitches"] = out["pitches"]
+            info["rpms"] = out["rpms"]
         if self.Baseline_comp:
             info["baseline_powers"] = out["baseline_powers"]
             info["yaws_baseline"] = out["yaws_baseline"]

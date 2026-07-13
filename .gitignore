@@ -194,3 +194,5 @@ examples/images/derating_*.gif
 # or Example 5b; ~10-30 min + HAWC2 licence, but reproducible — keep out of git)
 /hawc2_derating_2wt.npz
 /hawc2_derating_2wt.png
+# Full derating surrogate (66 MB): kept local for now, pending an LFS decision
+examples/data/dtu10mw_derating_yaw_surrogate_full.nc

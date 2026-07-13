@@ -14,6 +14,7 @@ from .probe_manager import ProbeManager
 from .power_tracking import PowerTrackingManager
 from .mes_class import Mes, TurbMes, FarmMes
 from .wind_probe import WindProbe
+from .operating_point import OperatingPointLookup
 from .measurement_manager import (
     MeasurementType,
     MeasurementSpec,
@@ -39,6 +40,7 @@ __all__ = [
     "TurbMes",
     "FarmMes",
     "WindProbe",
+    "OperatingPointLookup",
     "MeasurementType",
     "MeasurementSpec",
     "NoiseModel",

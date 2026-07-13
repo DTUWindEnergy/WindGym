@@ -46,6 +46,7 @@ class FarmEval(WindFarmEnv):
         burn_in_passthroughs=2,
         cleanup_on_time_limit: bool = True,
         keep_hawc_results: bool = False,
+        op_lookup=None,
     ):
         self.finite_episode = finite_episode
         # TODO There must be a better way to set all these valuesm **kwargs???
@@ -83,6 +84,7 @@ class FarmEval(WindFarmEnv):
             sample_site=sample_site,
             cleanup_on_time_limit=cleanup_on_time_limit,
             keep_hawc_results=keep_hawc_results,
+            op_lookup=op_lookup,
         )
         self.yaml_path = config  # Saved for legacy reasons
 
