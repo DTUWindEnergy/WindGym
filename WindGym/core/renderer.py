@@ -58,9 +58,12 @@ class WindFarmRenderer:
             turbine: Turbine object (for hub_height)
         """
         x_turb, y_turb = fs.windTurbines.positions_xyz[:2]
+        # y margin scales with rotor size so large turbines (IEA22, D=280 m)
+        # keep their deflected wakes inside the view.
+        D = float(np.max(turbine.diameter()))
 
-        self.a = np.linspace(-200 + min(x_turb), 1000 + max(x_turb), 250)
-        self.b = np.linspace(-200 + min(y_turb), 200 + max(y_turb), 250)
+        self.a = np.linspace(-700 + min(x_turb), 1000 + max(x_turb), 250)
+        self.b = np.linspace(-2 * D + min(y_turb), 2 * D + max(y_turb), 250)
 
         self.view = XYView(z=turbine.hub_height(), x=self.a, y=self.b, adaptive=False)
 

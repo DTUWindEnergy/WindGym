@@ -1,10 +1,11 @@
 import xarray as xr
 import numpy as np
 import os
+import shutil
+import subprocess
 
 import matplotlib.pyplot as plt
-import matplotlib.patheffects as path_effects
-from matplotlib.patches import Ellipse
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from collections import deque
 from py_wake.wind_turbines import WindTurbines as WindTurbinesPW
@@ -19,6 +20,8 @@ from wetb.fatigue_tools.fatigue import eq_load
 from dynamiks.views import XYView, EastNorthView
 from dynamiks.visualizers.flow_visualizers import Flow2DVisualizer
 from py_wake.utils.plotting import setup_plot
+
+from .core.renderer import WindFarmRenderer
 
 # Import visualization functions from new modules
 from .visualization import (
@@ -47,6 +50,79 @@ Wind turbine has a lambda function, so we must use the pathos library to paralle
 """
 
 
+def _assemble_gif(folder, n_frames, fps):
+    """
+    Assemble the img_XXXXX.png frames in `folder` into an animated GIF.
+
+    The frames are first cropped to the smallest common size, since
+    bbox_inches="tight" lets the figure size drift a few pixels between
+    frames and GIFs need a uniform frame shape. Uses ffmpeg when available
+    (two-pass palette for better colors), otherwise falls back to imageio.
+
+    Returns the path of the written GIF, or None if no frames were found.
+    """
+    from PIL import Image  # matplotlib dependency, always available here
+
+    paths = [
+        os.path.join(folder, "img_{:05d}.png".format(i)) for i in range(n_frames)
+    ]
+    paths = [p for p in paths if os.path.exists(p)]
+    if not paths:
+        return None
+
+    sizes = []
+    for p in paths:
+        with Image.open(p) as im:
+            sizes.append(im.size)
+    w = min(s[0] for s in sizes)
+    h = min(s[1] for s in sizes)
+    for p, s in zip(paths, sizes):
+        if s != (w, h):
+            with Image.open(p) as im:
+                im.crop((0, 0, w, h)).save(p)
+
+    gif_path = os.path.join(folder, "animation.gif")
+    if shutil.which("ffmpeg") is not None:
+        # Scrub LD_LIBRARY_PATH for the child: conda envs put an older
+        # libstdc++ on it, which breaks the system ffmpeg's own libraries.
+        child_env = {
+            k: v for k, v in os.environ.items() if k != "LD_LIBRARY_PATH"
+        }
+        try:
+            subprocess.run(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-loglevel",
+                    "error",
+                    "-framerate",
+                    str(fps),
+                    "-i",
+                    os.path.join(folder, "img_%05d.png"),
+                    "-vf",
+                    "split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse",
+                    "-loop",
+                    "0",
+                    gif_path,
+                ],
+                check=True,
+                env=child_env,
+            )
+            return gif_path
+        except (subprocess.CalledProcessError, OSError) as e:
+            print(f"ffmpeg GIF assembly failed ({e}); falling back to imageio.")
+    try:
+        import imageio.v2 as imageio
+    except ImportError as e:
+        raise ImportError(
+            "GIF assembly needs either ffmpeg on the PATH or the imageio "
+            "package (pip install imageio)."
+        ) from e
+    frames = [imageio.imread(p) for p in paths]
+    imageio.mimsave(gif_path, frames, fps=fps, loop=0)
+    return gif_path
+
+
 def eval_single_fast(
     env,
     model,
@@ -63,6 +139,7 @@ def eval_single_fast(
     deterministic=False,
     return_loads=False,
     cleanup=True,
+    gif_fps=8,
 ):
     """
     This function evaluates the agent for a single wind direction, and then saves the results in a xarray dataset.
@@ -82,6 +159,8 @@ def eval_single_fast(
     name: The name of the evaluation.
     debug: If True, the function will print debug information on the plots.
     deterministic: If True, the agent will be deterministic.
+    gif_fps: Frames per second of the animated GIF assembled from the saved
+        figures (only used when save_figs is True).
 
     """
 
@@ -125,6 +204,7 @@ def eval_single_fast(
     powerT_a = np.zeros((time, n_turb), dtype=np.float32)
     yaw_a = np.zeros((time, n_turb), dtype=np.float32)
     ws_a = np.zeros((time, n_turb), dtype=np.float32)
+    wd_a = np.zeros((time, n_turb), dtype=np.float32)
     time_plot = np.zeros((time), dtype=int)
     rew_plot = np.zeros((time), dtype=np.float32)
 
@@ -153,6 +233,7 @@ def eval_single_fast(
     powerT_a[0] = env.fs.windTurbines.power()
     yaw_a[0] = env.fs.windTurbines.yaw
     ws_a[0] = np.linalg.norm(env.fs.windTurbines.rotor_avg_windspeed, axis=1)
+    wd_a[0] = env.current_wd
     time_plot[0] = env.fs.time
     # There is no reward at the first time step, so we just set it to zero.
     rew_plot[0] = 0.0
@@ -178,11 +259,13 @@ def eval_single_fast(
         pow_deq = deque(maxlen=max_deque)
         yaw_deq = deque(maxlen=max_deque)
         ws_deq = deque(maxlen=max_deque)
+        wd_deq = deque(maxlen=max_deque)
 
         time_deq.append(time_plot[0])
         pow_deq.append(powerF_a[0])
         yaw_deq.append(yaw_a[0])
         ws_deq.append(ws_a[0])
+        wd_deq.append(wd_a[0])
         # These are used for y limits on the plot.
         pow_max = powerF_a[0] * 1.2
         pow_min = powerF_a[0] * 0.8
@@ -190,10 +273,8 @@ def eval_single_fast(
         yaw_min = -5
         ws_max = env.ws + 2
         ws_min = 3
-
-        # Define the x and y values for the flow field plot
-        a = np.linspace(-200 + min(env.x_pos), 300 + max(env.x_pos), 200)
-        b = np.linspace(-200 + min(env.y_pos), 200 + max(env.y_pos), 200)
+        wd_plot_max = wd + 2
+        wd_plot_min = wd - 2
 
     # Run the simulation
     for i in range(0, total_steps):
@@ -217,6 +298,7 @@ def eval_single_fast(
         powerT_a[i * step_val + 1 : i * step_val + step_val + 1] = info["powers"]
         yaw_a[i * step_val + 1 : i * step_val + step_val + 1] = info["yaws"]
         ws_a[i * step_val + 1 : i * step_val + step_val + 1] = info["windspeeds"]
+        wd_a[i * step_val + 1 : i * step_val + step_val + 1] = info["winddirs"]
         time_plot[i * step_val + 1 : i * step_val + step_val + 1] = info["time_array"]
         rew_plot[i * step_val + 1 : i * step_val + step_val + 1] = reward
 
@@ -247,95 +329,70 @@ def eval_single_fast(
             pow_deq.append(powerF_a[i])
             yaw_deq.append(yaw_a[i])
             ws_deq.append(ws_a[i])
+            wd_deq.append(wd_a[i])
 
-            fig = plt.figure(figsize=(12, 7.5))
-            ax1 = plt.subplot2grid((3, 3), (0, 0), colspan=2, rowspan=3)
+            # Flow field spans the top at true aspect ratio (the farm domain is
+            # much wider than deep); timeseries panels sit in a row below.
+            fig = plt.figure(figsize=(15, 7))
+            gs = fig.add_gridspec(2, 4, height_ratios=[1.2, 1])
+            ax1 = fig.add_subplot(gs[0, :])
 
-            view = XYView(z=70, x=a, y=b, ax=fig.gca(), adaptive=False)
+            # Flow field data through the renderer (grid at the turbine hub height)
+            ff = env.renderer.get_flow_field(env.fs, turbine=env.turbine)
 
-            wt = env.fs.windTurbines
-            # x_turb, y_turb = wt.positions_xyz(self.env.fs.wind_direction, self.env.fs.center_offset)[:2]
-            x_turb, y_turb = wt.positions_xyz[:2]
-            yaw, tilt = wt.yaw_tilt()
-
-            # Plot the flowfield in ax1
-            uvw = env.fs.get_windspeed(view, include_wakes=True, xarray=True)
             # [0] is the u component of the wind speed
-            plt.pcolormesh(
-                uvw.x.values,
-                uvw.y.values,
-                uvw[0].T,
+            # Fixed color limits so the GIF colors stay stable across frames
+            mesh = ax1.pcolormesh(
+                ff["x"],
+                ff["y"],
+                ff["uvw"][0].T,
                 shading="nearest",
                 vmin=3,
                 vmax=env.ws + 2,
             )
-            plt.colorbar().set_label("Wind speed [m/s]")
+            # axes_divider keeps the colorbar the same height as the (aspect-
+            # shrunk) flow-field axes instead of filling the whole grid slot.
+            div = make_axes_locatable(ax1)
+            cax = div.append_axes("right", size="1.5%", pad=0.15)
+            fig.colorbar(mesh, cax=cax).set_label("Wind speed [m/s]")
+            # Anchor the whole divider (axes + colorbar) to the slot bottom so
+            # the aspect-shrunk strip sits next to the timeseries row instead
+            # of leaving a blank band.
+            div.set_anchor("S")
 
-            # This is code taken from PyWake, but slightly modified to fit our needs.
-            colors = ["k", "gray", "r", "g"] * 5
+            WindFarmRenderer._draw_turbines(
+                ax1,
+                ff["x_turb"],
+                ff["y_turb"],
+                ff["wind_turbines"].diameter() / 2,
+                ff["yaw_plot"],
+                ff["tilt"],
+                fontsize=10,
+            )
 
-            x, y, D = [np.asarray(v) for v in [x_turb, y_turb, wt.diameter()]]
-            R = D / 2
-            types = np.zeros_like(
-                x, dtype=int
-            )  # Assuming all turbines are of the same type
-            for ii, (x_, y_, r, t, yaw_, tilt_) in enumerate(
-                zip(x, y, R, types, yaw, tilt)
-            ):
-                for wd_ in np.atleast_1d(env.fs.wind_direction):
-                    circle = Ellipse(
-                        (x_, y_),
-                        2 * r * np.sin(np.deg2rad(tilt_)),
-                        2 * r,
-                        angle=90 - wd_ + yaw_,
-                        ec=colors[t],
-                        fc="None",
-                    )
-                    ax1.add_artist(circle)
-                    ax1.plot(x_, y_, ".", color=colors[t])
-
-                for ii, (x_, y_, r) in enumerate(zip(x, y, R)):
-                    text = ax1.annotate(
-                        ii + 1,
-                        (x_ - r, y_ + r),
-                        fontsize=10,
-                        color="white",
-                    )
-                    text.set_path_effects(
-                        [
-                            path_effects.Stroke(linewidth=2, foreground="black"),
-                            path_effects.Normal(),
-                        ]
-                    )
-
+            ax1.set_aspect("equal")
             ax1.set_title("Flow field at {} s".format(env.fs.time))
-            plt.gca().xaxis.set_major_locator(plt.NullLocator())
-            plt.gca().yaxis.set_major_locator(plt.NullLocator())
+            ax1.set_xlabel("x [m]")
+            ax1.set_ylabel("y [m]")
 
-            ax2 = plt.subplot2grid(
-                (3, 3),
-                (0, 2),
-            )
-            ax3 = plt.subplot2grid(
-                (3, 3),
-                (1, 2),
-            )
-            ax4 = plt.subplot2grid(
-                (3, 3),
-                (2, 2),
-            )
+            ax2 = fig.add_subplot(gs[1, 0])
+            ax3 = fig.add_subplot(gs[1, 1])
+            ax4 = fig.add_subplot(gs[1, 2])
+            ax5 = fig.add_subplot(gs[1, 3])
 
             # Plot the power in ax2
             ax2.plot(time_deq, pow_deq, color="orange")
             ax2.set_title("Farm power [W]")
+            ax2.set_xlabel("Time [s]")
 
             # Plot the yaws in ax3
             ax3.plot(time_deq, yaw_deq, label=np.arange(n_turb))
             ax3.set_title("Turbine yaws [deg]")
-            ax3.legend(
+            ax3.set_xlabel("Time [s]")
+            leg = ax3.legend(
                 [f"T{i + 1}" for i in range(n_turb)],
                 loc="upper left",
-                bbox_to_anchor=(1, 1),
+                fontsize=8,
             )
 
             # Plot the rotor windspeeds in ax4
@@ -343,10 +400,16 @@ def eval_single_fast(
             ax4.set_title("Local wind speed [m/s]")
             ax4.set_xlabel("Time [s]")
 
+            # Plot the local wind directions in ax5
+            ax5.plot(time_deq, wd_deq, label=np.arange(n_turb))
+            ax5.set_title("Local wind direction [deg]")
+            ax5.set_xlabel("Time [s]")
+
             # Set the x limits for the plots
             ax2.set_xlim(time_deq[0], time_deq[-1])
             ax3.set_xlim(time_deq[0], time_deq[-1])
             ax4.set_xlim(time_deq[0], time_deq[-1])
+            ax5.set_xlim(time_deq[0], time_deq[-1])
 
             pow_max = max(pow_max, powerF_a[i] * 1.2)
             pow_min = min(pow_min, powerF_a[i] * 0.8)
@@ -355,23 +418,27 @@ def eval_single_fast(
             yaw_min = min(yaw_min, min(yaw_a[i]) * 1.2)
             ws_max = max(ws_max, max(ws_a[i]) * 1.2)
             ws_min = min(ws_min, min(ws_a[i]) * 0.8)
+            # Additive padding: wind direction is a compass value, so the
+            # multiplicative expansion used above would blow up the range.
+            wd_plot_max = max(wd_plot_max, max(wd_a[i]) + 1)
+            wd_plot_min = min(wd_plot_min, min(wd_a[i]) - 1)
 
             # Set the y limits for the plots. If we go over/under the limits, the plot will adjust the limits.
             ax2.set_ylim(pow_min, pow_max)
             ax3.set_ylim(yaw_min, yaw_max)
             ax4.set_ylim(ws_min, ws_max)
-            # ax2.set_xticks([])
-            # ax3.set_xticks([])
-
-            ax2.tick_params(axis="x", colors="white")
-            ax3.tick_params(axis="x", colors="white")
+            ax5.set_ylim(wd_plot_min, wd_plot_max)
 
             # Set the number of ticks on the x-axis to 5
+            ax2.locator_params(axis="x", nbins=5)
+            ax3.locator_params(axis="x", nbins=5)
             ax4.locator_params(axis="x", nbins=5)
+            ax5.locator_params(axis="x", nbins=5)
 
             ax2.grid()
             ax3.grid()
             ax4.grid()
+            ax5.grid()
 
             img_name = FOLDER + "img_{:05d}.png".format(i)
 
@@ -384,7 +451,7 @@ def eval_single_fast(
                     turb_yaw = np.round(env.farm_measurements.get_yaw_turb(scale), 2)
                     farm_ws = np.round(env.farm_measurements.get_ws_farm(scale), 2)
                     farm_wd = np.round(env.farm_measurements.get_wd_farm(scale), 2)
-                    farm_TI = np.round(env.farm_measurements.get_TI(scale), 2)
+                    farm_TI = np.round(env.farm_measurements.get_TI_farm(scale), 2)
                     if scale:
                         text_plot = f" Agent observations scaled: \n Turbine level wind speed: {turb_ws} \n Turbine level wind direction: {turb_wd} \n Turbine level yaw: {turb_yaw} \n Turbine level TI: {turb_TI} \n Farm level wind speed: {farm_ws} \n Farm level wind direction: {farm_wd} \n Farm level TI: {farm_TI} "
                         ax1.text(
@@ -405,31 +472,26 @@ def eval_single_fast(
                             horizontalalignment="left",
                             transform=ax1.transAxes,
                         )
-            # So I coudnt figure out how to add some space to the left, so I added a white text, and then use that to stretch the plot. Whatever, it works
-            ax1.text(
-                1.95,
-                0.5,
-                "Hey",
-                verticalalignment="top",
-                horizontalalignment="left",
-                transform=ax1.transAxes,
-                color="white",
-            )
-
             plt.savefig(
                 img_name,
                 dpi=100,
-                bbox_extra_artists=(ax1, ax2, ax3, ax4),
+                bbox_extra_artists=(leg,),
                 bbox_inches="tight",
             )
             plt.clf()
             plt.close("all")
+
+    # Assemble the saved frames into an animated GIF
+    gif_path = None
+    if save_figs:
+        gif_path = _assemble_gif(FOLDER, total_steps, gif_fps)
 
     # Reshape the arrays and put them in a xarray dataset
     powerF_a = powerF_a.reshape(time, n_ws, n_wd, n_TI, n_turbbox, 1, 1)
     powerT_a = powerT_a.reshape(time, n_turb, n_ws, n_wd, n_TI, n_turbbox, 1, 1)
     yaw_a = yaw_a.reshape(time, n_turb, n_ws, n_wd, n_TI, n_turbbox, 1, 1)
     ws_a = ws_a.reshape(time, n_turb, n_ws, n_wd, n_TI, n_turbbox, 1, 1)
+    wd_a = wd_a.reshape(time, n_turb, n_ws, n_wd, n_TI, n_turbbox, 1, 1)
     rew_plot = rew_plot.reshape(time, n_ws, n_wd, n_TI, n_turbbox, 1, 1)
 
     # # Then create a xarray dataset with the results
@@ -477,6 +539,19 @@ def eval_single_fast(
                 "deterministic",
             ),
             ws_a,
+        ),
+        "wd_a": (
+            (
+                "time",
+                "turb",
+                "ws",
+                "wd",
+                "TI",
+                "turbbox",
+                "model_step",
+                "deterministic",
+            ),
+            wd_a,
         ),
         "reward": (
             ("time", "ws", "wd", "TI", "turbbox", "model_step", "deterministic"),
@@ -575,6 +650,8 @@ def eval_single_fast(
     # Create the dataset
     if not return_loads:
         ds = xr.Dataset(data_vars=data_vars, coords=coords)
+        if gif_path is not None:
+            ds.attrs["gif_path"] = gif_path
         # Do this to remove it from memory
         env.timestep = env.time_max
         obs, reward, terminated, truncated, info = env.step(action)

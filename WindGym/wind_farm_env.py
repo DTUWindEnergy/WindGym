@@ -1194,6 +1194,7 @@ class WindFarmEnv(gym.Env):
         info = self._get_info()
         info["time_array"] = out["time_array"]
         info["windspeeds"] = out["windspeeds"]
+        info["winddirs"] = out["winddirs"]
         info["yaws"] = out["yaws"]
         info["powers"] = out["powers"]
         if self.Baseline_comp:

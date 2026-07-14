@@ -168,7 +168,12 @@ class TurbulenceManager:
             # `_generate_turbulence_field` returns — `scale_TI` (its only
             # in-place mutator) has already run above. Revisit if any caller
             # scales TI per-field after `create_sites`.
-            memo = {id(tf_agent.uvw): tf_agent.uvw}
+            # RandomTurbulence has no `uvw` box and is cheap to copy outright.
+            memo = (
+                {id(tf_agent.uvw): tf_agent.uvw}
+                if hasattr(tf_agent, "uvw")
+                else None
+            )
             tf_base = copy.deepcopy(tf_agent, memo)
             site_baseline = MetmastSite(
                 ws=ws,
