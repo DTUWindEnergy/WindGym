@@ -120,6 +120,8 @@ class WindFarmEnv(gym.Env):
         power_ref_function=None,  # A function (t_seconds, env) -> reference farm power in W. Only used when Track_power is True; None uses the default constant-setpoint sampler.
         max_turb_move=2,  # The maximum distance that the turbines can move in one timestep. This is used to avoid numerical issues with the DWM solver.
         op_lookup=None,  # Optional OperatingPointLookup: reports steady-state blade pitch / rotor RPM per turbine when derating.
+        interpolation="linear",  # Particle trajectory interpolation in the DWM solver: 'linear' (fast) or 'pchip' (cubic, original)
+        lateral_cutoff=1.5,  # Skip wake deficit evaluation beyond this factor times the deficit profile half-width (r_max*R) from the meandered wake centerline. None disables (original behavior).
         **kwargs,
     ):
         """
@@ -219,6 +221,8 @@ class WindFarmEnv(gym.Env):
         self.d_particle = 0.2
         self.n_particles = None
         self.temporal_filter = CutOffFrqLio2021
+        self.interpolation = interpolation
+        self.lateral_cutoff = lateral_cutoff
         self.turbtype = turbtype
         self.yaw_step_sim = yaw_step_sim  # How many degrees the yaw angles can change pr. simulation step
 
@@ -1046,6 +1050,8 @@ class WindFarmEnv(gym.Env):
                     temporal_filter=self.temporal_filter
                 ),
                 addedTurbulenceModel=self.addedTurbulenceModel,
+                interpolation=self.interpolation,
+                lateral_cutoff=self.lateral_cutoff,
             )
             self.wd = self.fs._wind_direction  # Update to match wd_list first value
         else:
@@ -1116,6 +1122,8 @@ class WindFarmEnv(gym.Env):
                         temporal_filter=self.temporal_filter
                     ),
                     addedTurbulenceModel=self.addedTurbulenceModel,
+                    interpolation=self.interpolation,
+                    lateral_cutoff=self.lateral_cutoff,
                 )
             else:
                 if self.HTC_path is not None:
