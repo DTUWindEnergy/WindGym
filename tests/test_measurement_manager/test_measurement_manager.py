@@ -338,3 +338,144 @@ class TestNoisyPyWakeAgent:
         assert not np.allclose(
             action_perfect, action_noisy, atol=1e-5
         )  # Add a small tolerance
+
+
+def _make_fast_farm_env(extra_config=None):
+    """Fast pywake env with all farm-level measurements enabled."""
+    from py_wake.examples.data.hornsrev1 import V80
+    from WindGym import WindFarmEnv
+
+    config = {
+        "yaw_init": "Zeros",
+        "BaseController": "Local",
+        "ActionMethod": "yaw",
+        "farm": {"yaw_min": -30, "yaw_max": 30},
+        "wind": {
+            "ws_min": 10,
+            "ws_max": 10,
+            "TI_min": 0.07,
+            "TI_max": 0.07,
+            "wd_min": 270,
+            "wd_max": 270,
+        },
+        "act_pen": {"action_penalty": 0.0, "action_penalty_type": "Change"},
+        "power_def": {
+            "Power_reward": "Power_avg",
+            "Power_avg": 1,
+            "Power_scaling": 1.0,
+        },
+        "mes_level": {
+            "turb_ws": True,
+            "turb_wd": True,
+            "turb_TI": False,
+            "turb_power": False,
+            "farm_ws": True,
+            "farm_wd": True,
+            "farm_TI": True,
+            "farm_power": True,
+        },
+        "ws_mes": {
+            "ws_current": True,
+            "ws_rolling_mean": False,
+            "ws_history_N": 0,
+            "ws_history_length": 1,
+            "ws_window_length": 1,
+        },
+        "wd_mes": {
+            "wd_current": True,
+            "wd_rolling_mean": False,
+            "wd_history_N": 0,
+            "wd_history_length": 1,
+            "wd_window_length": 1,
+        },
+        "yaw_mes": {
+            "yaw_current": True,
+            "yaw_rolling_mean": False,
+            "yaw_history_N": 0,
+            "yaw_history_length": 1,
+            "yaw_window_length": 1,
+        },
+        "power_mes": {
+            "power_current": True,
+            "power_rolling_mean": False,
+            "power_history_N": 0,
+            "power_history_length": 1,
+            "power_window_length": 1,
+        },
+    }
+    if extra_config:
+        config.update(extra_config)
+    d = V80().diameter()
+    return WindFarmEnv(
+        turbine=V80(),
+        x_pos=np.arange(2) * 5.0 * d,
+        y_pos=np.zeros(2),
+        config=config,
+        backend="pywake",
+        turbtype="None",
+        reset_init=False,
+        n_passthrough=1,
+        fill_window=False,
+    )
+
+
+class TestFarmBlockSpecOrder:
+    """Regression test: with farm_TI and farm_power both enabled, the farm
+    block in the observation is ws, wd, TI, power (FarmMes.get_measurements),
+    and the specs built by MeasurementManager must use the same order.
+    Previously the manager emitted farm power specs before farm TI, silently
+    misaligning both indices."""
+
+    def test_specs_cover_obs_in_layout_order(self):
+        env = _make_fast_farm_env()
+        manager = MeasurementManager(env)
+
+        # Specs must tile the observation vector exactly, in index order
+        assert manager.specs[0].index_range[0] == 0
+        for prev, nxt in zip(manager.specs, manager.specs[1:]):
+            assert prev.index_range[1] == nxt.index_range[0]
+        assert manager.specs[-1].index_range[1] == env.observation_space.shape[0]
+
+        # Farm block order must match FarmMes.get_measurements: ws, wd, TI, power
+        farm_names = [s.name for s in manager.specs if s.name.startswith("farm/")]
+        assert farm_names == [
+            "farm/ws_current",
+            "farm/wd_current",
+            "farm/TI",
+            "farm/power_current",
+        ]
+
+    def test_decoded_farm_values_match_ground_truth(self):
+        env = _make_fast_farm_env()
+        manager = MeasurementManager(env)
+        obs, _ = env.reset(seed=0)
+
+        # Step past the TI warm-up: with fewer than 2 high-frequency samples
+        # calc_TI early-returns 0.0 without scaling, which is not the code
+        # path under test here.
+        for _ in range(3):
+            obs, *_ = env.step(np.zeros(env.action_space.shape, dtype=np.float32))
+
+        physical = manager._get_physical_values_from_obs_for_logging(obs)
+
+        true_ti = float(env.farm_measurements.get_TI_farm())
+        true_power = float(env.farm_measurements.get_power_farm()[0])
+
+        # Before the fix these two slots were swapped, so the decoded farm TI
+        # was a (rescaled) power reading and vice versa.
+        assert np.isclose(physical["farm/TI"], true_ti, atol=1e-4)
+        assert np.isclose(physical["farm/power_current"], true_power, rtol=1e-4)
+        env.close()
+
+
+class TestDerateObservationGuard:
+    def test_derate_observation_is_refused(self):
+        """Derate slots sit between yaw and TI in each turbine block but get
+        no MeasurementSpec, so the manager must refuse loudly instead of
+        silently misaligning every later spec. Note derate observation turns
+        on implicitly with derate_action (derate_mes defaults)."""
+        env = _make_fast_farm_env(
+            extra_config={"derate_mes": {"derate_current": True}}
+        )
+        with pytest.raises(NotImplementedError, match="derate"):
+            MeasurementManager(env)

@@ -466,6 +466,20 @@ class MeasurementManager:
                 "use the base environment without measurement noise."
             )
 
+        # Same story for derate observations: they sit between the yaw and TI
+        # slots of every turbine block but get no MeasurementSpec, so all
+        # later specs would be misaligned. Note derate observation is enabled
+        # implicitly whenever derate_action is on (derate_mes defaults).
+        if any(t.derate.current or t.derate.rolling_mean for t in fm.turb_mes):
+            raise NotImplementedError(
+                "NoisyWindFarmEnv / MeasurementManager does not support "
+                "environments that observe the derate level yet: derate "
+                "readings have no MeasurementSpec, so noise would be applied "
+                "to the wrong observation indices. Disable it via "
+                "derate_mes: {derate_current: False, derate_rolling_mean: "
+                "False} or use the base environment without measurement noise."
+            )
+
         def get_mes_names(mes_obj, prefix=""):
             names = []
             if mes_obj.current:
@@ -580,19 +594,7 @@ class MeasurementManager:
                 )
                 current_idx += 1
 
-        if fm.farm_power:
-            for name in get_mes_names(farm_mes_obj.power, "power"):
-                specs.append(
-                    MeasurementSpec(
-                        name=f"farm/{name}",
-                        measurement_type=MeasurementType.POWER,
-                        index_range=(current_idx, current_idx + 1),
-                        min_val=0,  # Min power is 0
-                        max_val=farm_mes_obj.power_max,
-                    )
-                )
-                current_idx += 1
-
+        # Farm block order must match FarmMes.get_measurements: ws, wd, TI, power.
         if fm.farm_TI:
             # Note: farm_TI doesn't use get_mes_names as it's a single value, not a history object
             specs.append(
@@ -605,6 +607,19 @@ class MeasurementManager:
                 )
             )
             current_idx += 1
+
+        if fm.farm_power:
+            for name in get_mes_names(farm_mes_obj.power, "power"):
+                specs.append(
+                    MeasurementSpec(
+                        name=f"farm/{name}",
+                        measurement_type=MeasurementType.POWER,
+                        index_range=(current_idx, current_idx + 1),
+                        min_val=0,  # Min power is 0
+                        max_val=farm_mes_obj.power_max,
+                    )
+                )
+                current_idx += 1
 
         return specs
 
