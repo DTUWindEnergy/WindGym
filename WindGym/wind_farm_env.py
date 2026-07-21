@@ -112,6 +112,7 @@ class WindFarmEnv(gym.Env):
         cleanup_on_time_limit: bool = True,
         wd_function=None,  # A function that takes in the timestep and returns the wind direction
         max_turb_move=2,  # The maximum distance that the turbines can move in one timestep. This is used to avoid numerical issues with the DWM solver.
+        tilt: Optional[float] = None,  # Fixed rotor tilt in deg for all turbines (positive deflects the wake upward in DWM). None -> use config `farm: tilt` (default 0). Needed for veer to create a yaw-sign asymmetry.
         dwm_params: Optional[dict] = None,  # Override DWM closure params (k1, k2, d_particle). Used for domain randomization; per-episode overrides go through reset(options={"dwm_params": ...}).
         **kwargs,
     ):
@@ -222,6 +223,10 @@ class WindFarmEnv(gym.Env):
         cfg = self._normalize_config_input(config)
         self._apply_config(cfg)
 
+        # Constructor kwarg overrides the config `farm: tilt` value
+        if tilt is not None:
+            self.tilt = float(tilt)
+
         self.n_turb = len(x_pos)  # The number of turbines
 
         # Will be set later after probe_manager is initialized
@@ -253,6 +258,8 @@ class WindFarmEnv(gym.Env):
             ti_min=self.TI_inflow_min,
             ti_max=self.TI_inflow_max,
             sample_site=sample_site,
+            veer_min=self.veer_inflow_min,
+            veer_max=self.veer_inflow_max,
         )
 
         # Initialize the turbulence manager
@@ -489,6 +496,9 @@ class WindFarmEnv(gym.Env):
         self.yaw_max = require_key(farm, "yaw_max", "farm")
         self.yaw_scaling_min = self.yaw_min
         self.yaw_scaling_max = self.yaw_max
+        # Optional fixed rotor tilt (deg, all turbines); positive deflects the
+        # wake upward in DWM. Required for veer to produce a yaw-sign asymmetry.
+        self.tilt = farm.get("tilt", 0.0)
 
         # Wind section (required keys)
         wind = require_section("wind")
@@ -498,6 +508,10 @@ class WindFarmEnv(gym.Env):
         self.TI_inflow_max = require_key(wind, "TI_max", "wind")
         self.wd_inflow_min = require_key(wind, "wd_min", "wind")
         self.wd_inflow_max = require_key(wind, "wd_max", "wind")
+        # Optional veer range (deg per 100 m, 0 at hub height); defaults keep
+        # existing configs byte-identical (no RNG draw when min == max).
+        self.veer_inflow_min = wind.get("veer_min", 0.0)
+        self.veer_inflow_max = wind.get("veer_max", 0.0)
 
         # Measurement & reward sections (optional but commonly expected)
         self.act_pen = config.get("act_pen", {}) or {}
@@ -674,6 +688,8 @@ class WindFarmEnv(gym.Env):
             "Wind direction at turbines measured": self.farm_measurements.get_wd_turb(),
             "Wind direction at farm measured": self.farm_measurements.get_wd_farm(),
             "Turbulence intensity": self.ti,
+            "Wind veer Global": self.veer,
+            "Turbine tilt": self.tilt,
             "Power agent": self.fs.windTurbines.power().sum(),
             "Power agent nowake": self.fs.windTurbines.power(include_wakes=False).sum(),
             "Power pr turbine agent": self.fs.windTurbines.power(),
@@ -700,6 +716,7 @@ class WindFarmEnv(gym.Env):
         """
         wind_cond = self.wind_manager.sample_conditions()
         self.ws, self.wd, self.ti = wind_cond.unpack()
+        self.veer = wind_cond.veer
 
     def reset(self, seed: Optional[int] = None, options: Optional[dict] = None):
         """
@@ -826,6 +843,9 @@ class WindFarmEnv(gym.Env):
                 burn_in_passthroughs=self.burn_in_passthroughs,
                 create_baseline=self.Baseline_comp,
                 mann_overrides=mann_overrides or None,
+                # User-facing veer is deg per 100 m; create_sites takes deg/m.
+                veer_rate=self.veer / 100.0,
+                veer_ref_height=float(self.turbine.hub_height()),
             )
 
             self.fs = make_dwm(
@@ -842,6 +862,10 @@ class WindFarmEnv(gym.Env):
             if self.HTC_path is not None:
                 raise NotImplementedError(
                     "pywake_steady backend does not support HAWC2WindTurbines."
+                )
+            if self.veer != 0:
+                raise NotImplementedError(
+                    "pywake_steady backend does not support wind veer."
                 )
             from .backend.pywake_adapter import (
                 PyWakeFlowSimulationAdapter,
@@ -864,6 +888,17 @@ class WindFarmEnv(gym.Env):
             n=self.n_turb,
             yaws=self.yaw_initial,
         )
+
+        # Fixed rotor tilt (deg). Only set when nonzero so default behavior is
+        # untouched. The tilt sensor exists on the PyWake turbines only; HAWC2
+        # models carry their own physical tilt.
+        if self.tilt != 0:
+            if self.backend != "dynamiks" or self.HTC_path is not None:
+                raise NotImplementedError(
+                    "tilt is only supported on the dynamiks backend with "
+                    "PyWake turbines."
+                )
+            self.fs.windTurbines.tilt = np.full(self.n_turb, float(self.tilt))
 
         # Must init probes after fs
         self.probe_manager.initialize_probes(self.fs, self.fs.windTurbines.yaw)
@@ -899,8 +934,12 @@ class WindFarmEnv(gym.Env):
                     dt=self.dt,
                 )
 
-            # Start baseline with same yaw as agent at reset
+            # Start baseline with same yaw (and tilt) as agent at reset
             self.fs_baseline.windTurbines.yaw = self.fs.windTurbines.yaw
+            if self.tilt != 0:
+                self.fs_baseline.windTurbines.tilt = np.full(
+                    self.n_turb, float(self.tilt)
+                )
 
         # 3c) Run the flow for the time it takes to develop
         if self.backend == "dynamiks":

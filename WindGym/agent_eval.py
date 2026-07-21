@@ -130,6 +130,7 @@ def eval_single_fast(
     ws=10.0,
     ti=0.05,
     wd=270,
+    veer=0.0,
     turbbox="Default",
     save_figs=False,
     scale_obs=None,
@@ -152,6 +153,8 @@ def eval_single_fast(
     ws: The wind speed to simulate.
     ti: The turbulence intensity to simulate.
     wd: The wind direction to simulate.
+    veer: Linear veer rate (deg per 100 m, positive = wd increases with
+        height, 0 at hub height).
     turbbox: The turbulence box to simulate.
     save_figs: If True, the function will save the figures.
     scale_obs: If True, the function will scale the observations for the plots.
@@ -171,7 +174,7 @@ def eval_single_fast(
             "The eval_single_fast function is not compatible with vectorized versions of the environment. Please use unvectorized envs instead."
         )
 
-    env.set_wind_vals(ws=ws, ti=ti, wd=wd)
+    env.set_wind_vals(ws=ws, ti=ti, wd=wd, veer=veer)
     baseline_comp = env.Baseline_comp
 
     if not isinstance(scale_obs, list):  # if not a list, make it one
@@ -826,6 +829,7 @@ class AgentEval:
         self.ws = 10.0
         self.ti = 0.05
         self.wd = 270
+        self.veer = 0.0  # deg per 100 m, 0 at hub height
         self.yaw = 0.0
         self.turbbox = "Default"
 
@@ -858,7 +862,7 @@ class AgentEval:
         if turbboxes:
             self.turbboxes = turbboxes
 
-    def set_condition(self, ws=None, ti=None, wd=None, yaw=None, turbbox=None):
+    def set_condition(self, ws=None, ti=None, wd=None, yaw=None, turbbox=None, veer=None):
         # Set the conditions for the individual evaluation, and then update the env with these values.
         if ws is not None:
             self.ws = ws
@@ -866,6 +870,8 @@ class AgentEval:
             self.ti = ti
         if wd is not None:
             self.wd = wd
+        if veer is not None:
+            self.veer = veer
         if yaw is not None:
             self.yaw = yaw
         if turbbox is not None:
@@ -878,7 +884,7 @@ class AgentEval:
         # First we initialize the environment with the specified conditions
         self.env.set_yaw_vals(self.yaw)  # Specified yaw vals
         # Set the wind values, used for initialization
-        self.env.set_wind_vals(ws=self.ws, ti=self.ti, wd=self.wd)
+        self.env.set_wind_vals(ws=self.ws, ti=self.ti, wd=self.wd, veer=self.veer)
         if self.turbbox != "Default":
             # NOTE you must make sure that the self.turbbox is set to a path with a turbulence box file.
             # Also it must point to a specific file, and not a folder.

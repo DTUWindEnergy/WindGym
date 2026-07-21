@@ -13,7 +13,8 @@ import copy
 import gc
 
 from dynamiks.sites.turbulence_fields import MannTurbulenceField, RandomTurbulence
-from dynamiks.sites._site import MetmastSite
+from dynamiks.sites._site import MetmastSite, TurbulenceFieldSite
+from dynamiks.sites.mean_wind import ConstantWindSpeedProfile
 from dynamiks.dwm.added_turbulence_models import (
     AutoScalingIsotropicMannTurbulence,
     BranlardScaling,
@@ -84,6 +85,8 @@ class TurbulenceManager:
         burn_in_passthroughs: int,
         create_baseline: bool = False,
         mann_overrides: Optional[dict] = None,
+        veer_rate: float = 0.0,
+        veer_ref_height: float = 0.0,
     ) -> tuple:
         """
         Create turbulence fields and sites for agent and optionally baseline.
@@ -91,7 +94,8 @@ class TurbulenceManager:
         This method:
         1. Generates turbulence field based on turbulence_type
         2. Calculates t_developed and time_max based on farm geometry
-        3. Creates MetmastSite with wind direction time series
+        3. Creates MetmastSite with wind direction time series (or a
+           TurbulenceFieldSite with a veered mean-wind profile if veer_rate != 0)
         4. Optionally creates baseline site (deep copy of turbulence field)
 
         Args:
@@ -111,6 +115,11 @@ class TurbulenceManager:
                 ``MannGenerate`` branch (other branches raise if non-empty —
                 this is defense-in-depth; ``WindFarmEnv.reset`` is the primary
                 guard).
+            veer_rate: Linear veer rate in deg per METER (callers pass
+                deg-per-100m values divided by 100). Positive = wd increases
+                with height. 0 disables veer (default, MetmastSite path).
+            veer_ref_height: Height (m) where the veer offset is zero,
+                normally hub height, so hub-height wd equals the nominal wd.
 
         Returns:
             tuple: (site, site_baseline, t_developed, time_max, added_turbulence_model)
@@ -147,15 +156,52 @@ class TurbulenceManager:
 
         d_theta_lim = self.max_turb_move * 360 / (2 * np.pi * max_dist)
 
+        if veer_rate and np.ptp(wd_list) > 0:
+            raise ValueError(
+                "Veer uses ConstantWindSpeedProfile, which does not support a "
+                "time-varying wind direction series. Disable veer or use a "
+                "constant wind direction."
+            )
+
+        def _make_site(tf):
+            if veer_rate:
+                # Veered inflow: use ConstantWindSpeedProfile instead of
+                # MetmastSite. MetmastSite hard-codes a height-independent
+                # mean wind (dynamiks _site.py, mean_wind), so it cannot
+                # express veer; the profile site cannot express a
+                # time-varying wind direction. We trade the latter for the
+                # former: veered episodes require a constant wd series
+                # (guarded above).
+                # wsTab is in the flow frame (+x downstream at nominal wd):
+                # a pure rotation theta(z) = veer_rate*(z - hub) keeps
+                # |U| = ws at every height and pins the hub-height wd to the
+                # nominal sampled wd. v = -sin gives wd increasing with
+                # height for positive veer_rate (NH meteorological veer).
+                z_tab = np.linspace(0.0, veer_ref_height + 2.0 * rotor_diameter, 64)
+                # Include the reference height as an exact node so the veer
+                # offset (and hence v) is exactly zero at hub height.
+                z_tab = np.union1d(z_tab, [veer_ref_height])
+                d_theta = np.deg2rad(veer_rate) * (z_tab - veer_ref_height)
+                ws_tab = np.array(
+                    [
+                        ws * np.cos(d_theta),
+                        -ws * np.sin(d_theta),
+                        np.zeros_like(d_theta),
+                    ]
+                )
+                profile = ConstantWindSpeedProfile(wsTab=ws_tab, zTab=z_tab, Uadv=ws)
+                return TurbulenceFieldSite(ws=profile, turbulenceField=tf)
+            return MetmastSite(
+                ws=ws,
+                turbulenceField=tf,
+                wd_lst=wd_list,
+                dt=dt_sim,
+                max_wd_step=d_theta_lim,
+                update_interval=dt_sim,
+            )
+
         # Create agent site
-        site = MetmastSite(
-            ws=ws,
-            turbulenceField=tf_agent,
-            wd_lst=wd_list,
-            dt=dt_sim,
-            max_wd_step=d_theta_lim,
-            update_interval=dt_sim,
-        )
+        site = _make_site(tf_agent)
 
         # Create baseline site if requested
         site_baseline = None
@@ -175,14 +221,7 @@ class TurbulenceManager:
                 else None
             )
             tf_base = copy.deepcopy(tf_agent, memo)
-            site_baseline = MetmastSite(
-                ws=ws,
-                turbulenceField=tf_base,
-                wd_lst=wd_list,
-                dt=dt_sim,
-                max_wd_step=d_theta_lim,
-                update_interval=dt_sim,
-            )
+            site_baseline = _make_site(tf_base)
             tf_base = None
 
         # Clean up
