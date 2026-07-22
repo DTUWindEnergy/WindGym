@@ -1,3 +1,5 @@
+import time
+
 from gymnasium.vector.vector_env import ArrayType, VectorEnv
 import numpy as np
 from collections import deque
@@ -70,13 +72,76 @@ class RecordEpisodeVals(gym.wrappers.vector.RecordEpisodeStatistics):
         self, actions: ActType
     ) -> tuple[ObsType, ArrayType, ArrayType, ArrayType, dict]:
         """Steps through the environment, recording the episode statistics."""
-        (
-            observations,
-            rewards,
-            terminations,
-            truncations,
-            infos,
-        ) = super().step(actions)
+        return self._record_step(*self.env.step(actions))
+
+    def step_async(self, actions: ActType):
+        """Dispatch the step to the vector env without blocking.
+
+        Together with :meth:`step_wait` this lets a trainer overlap env
+        stepping with other work (e.g. SAC gradient updates). All episode
+        accounting happens in step_wait, so step()/step_async+step_wait are
+        behaviorally identical.
+        """
+        self.env.step_async(actions)
+
+    def step_wait(self) -> tuple[ObsType, ArrayType, ArrayType, ArrayType, dict]:
+        """Collect the pending async step and record episode statistics."""
+        return self._record_step(*self.env.step_wait())
+
+    def _record_step(
+        self, observations, rewards, terminations, truncations, infos
+    ) -> tuple[ObsType, ArrayType, ArrayType, ArrayType, dict]:
+        """Episode accounting, applied to an already-collected step result.
+
+        Runs the parent (RecordEpisodeStatistics) accounting first — the
+        power/yaw accounting below reads ``self.episode_lengths`` that the
+        parent updates — then this wrapper's own accumulators/queues.
+
+        The parent block is copied from gymnasium 1.2.x
+        ``wrappers/vector/common.py`` ``RecordEpisodeStatistics.step()``
+        (everything after ``self.env.step(actions)``), because the parent
+        only exposes a blocking ``step()``. Re-check on gymnasium upgrade.
+        """
+        # ----------------- Parent accounting (RecordEpisodeStatistics) -----------------
+        assert isinstance(
+            infos, dict
+        ), f"`vector.RecordEpisodeStatistics` requires `info` type to be `dict`, its actual type is {type(infos)}. This may be due to usage of other wrappers in the wrong order."
+
+        self.episode_returns[self.prev_dones] = 0
+        self.episode_returns[np.logical_not(self.prev_dones)] += rewards[
+            np.logical_not(self.prev_dones)
+        ]
+
+        self.episode_lengths[self.prev_dones] = 0
+        self.episode_lengths[~self.prev_dones] += 1
+
+        self.episode_start_times[self.prev_dones] = time.perf_counter()
+
+        self.prev_dones = dones = np.logical_or(terminations, truncations)
+        num_dones = np.sum(dones)
+
+        if num_dones:
+            if self._stats_key in infos or f"_{self._stats_key}" in infos:
+                raise ValueError(
+                    f"Attempted to add episode stats with key '{self._stats_key}' but this key already exists in info: {list(infos.keys())}"
+                )
+            else:
+                episode_time_length = np.round(
+                    time.perf_counter() - self.episode_start_times, 6
+                )
+                infos[self._stats_key] = {
+                    "r": np.where(dones, self.episode_returns, 0.0),
+                    "l": np.where(dones, self.episode_lengths, 0),
+                    "t": np.where(dones, episode_time_length, 0.0),
+                }
+                infos[f"_{self._stats_key}"] = dones
+
+            self.episode_count += num_dones
+
+            for i in np.where(dones):
+                self.time_queue.extend(episode_time_length[i])
+                self.return_queue.extend(self.episode_returns[i])
+                self.length_queue.extend(self.episode_lengths[i])
 
         # ----------------- Power accumulation -----------------
         self.episode_powers[self.last_dones] = 0
