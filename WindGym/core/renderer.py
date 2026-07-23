@@ -61,7 +61,7 @@ class WindFarmRenderer:
 
         D = turbine.diameter()
         y_pad = max(3 * D, 0.2 * (max(y_turb) - min(y_turb) + 1))
-        self.a = np.linspace(-3 * D + min(x_turb), 1500 + max(x_turb), 250)
+        self.a = np.linspace(-3 * D + min(x_turb), 5 + max(x_turb), 250)
         self.b = np.linspace(-y_pad + min(y_turb), y_pad + max(y_turb), 250)
 
         self.view = XYView(z=turbine.hub_height(), x=self.a, y=self.b, adaptive=False)
