@@ -158,6 +158,7 @@ class PyWakeFlowSimulationAdapter:
         ti: float,
         dt: float = 1.0,
         model=None,
+        wd_lst=None,
     ):
         """
         Args:
@@ -166,6 +167,8 @@ class PyWakeFlowSimulationAdapter:
             ws, wd, ti: global inflow (m/s, deg, -)
             dt: time increment for .step()
             model: optional PyWake WindFarmModel. Default: BastankhahGaussian
+            wd_lst: optional wind direction per simulation step (deg). Entry i
+                applies at time i*dt; interpolated like MetmastSite.
         """
         self.dt = float(dt)
         self.time = 0.0
@@ -173,6 +176,13 @@ class PyWakeFlowSimulationAdapter:
         self.wd = float(wd)
         self.ti = float(ti)
         self.wind_direction = float(wd)  # used by your plotting call
+
+        if wd_lst is not None:
+            # unwrap so interpolation across 0/360 behaves like MetmastSite
+            self._wd_lst = np.unwrap(np.asarray(wd_lst, float), period=360)
+            self._time_lst = np.arange(len(self._wd_lst)) * self.dt
+        else:
+            self._wd_lst = None
 
         # World ENZ positions
         x = np.asarray(x, float)
@@ -211,15 +221,29 @@ class PyWakeFlowSimulationAdapter:
         self._compute_steady_state()
 
     # -------- public API to mirror DWMFlowSimulation --------
+    @property
+    def _wind_direction(self):
+        # read-only alias mirroring DWMFlowSimulation's private attribute
+        return self.wind_direction
+
+    def _update_wd(self):
+        """Set wd from the wd schedule at the current time (if provided)."""
+        if self._wd_lst is not None:
+            wd = float(np.interp(self.time, self._time_lst, self._wd_lst)) % 360
+            self.wd = wd
+            self.wind_direction = wd
+
     def run(self, T: int | float):
         """Advance 'time' by T (seconds) and recompute steady flow."""
         # steady -> nothing evolves but we update time for consistency
         self.time += float(T)
+        self._update_wd()
         self._compute_steady_state()
 
     def step(self):
         """One time increment."""
         self.time += self.dt
+        self._update_wd()
         self._compute_steady_state()
 
     def get_wind_direction(self, xyz=None, include_wakes=True):

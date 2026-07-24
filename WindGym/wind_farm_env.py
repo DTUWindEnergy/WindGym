@@ -994,20 +994,18 @@ class WindFarmEnv(gym.Env):
             self.power_setpoint = self.power_tracking.reference(0)
             self.power_preview = self.power_tracking.preview(0)
 
+        # Generate wind direction list for the episode (backend-agnostic)
+        wd_list = self.wind_manager.make_wind_direction_list(
+            base_wd=self.wd,
+            time_max=self.time_max,
+            dt_sim=self.dt_sim,
+            t_developed=self.t_developed,
+            steps_on_reset=self.steps_on_reset,
+            wd_function=self.wd_function,
+        )
+
         if self.backend == "dynamiks":
             # --- ORIGINAL dynamic backend ---
-            # Generate wind direction list for the episode
-
-            # Generate wind direction list
-            wd_list = self.wind_manager.make_wind_direction_list(
-                base_wd=self.wd,
-                time_max=self.time_max,
-                dt_sim=self.dt_sim,
-                t_developed=self.t_developed,
-                steps_on_reset=self.steps_on_reset,
-                wd_function=self.wd_function,
-            )
-
             # Create sites and turbulence fields
             (
                 self.site,
@@ -1072,6 +1070,7 @@ class WindFarmEnv(gym.Env):
                 wd=self.wd,
                 ti=self.ti,
                 dt=self.dt,
+                wd_lst=wd_list,
             )
 
         # Initial yaw set (bounded by yaw_start)
@@ -1140,6 +1139,7 @@ class WindFarmEnv(gym.Env):
                     wd=self.wd,
                     ti=self.ti,
                     dt=self.dt,
+                    wd_lst=wd_list,
                 )
 
             # Start baseline with same yaw as agent at reset
@@ -1151,10 +1151,11 @@ class WindFarmEnv(gym.Env):
             if self.Baseline_comp:
                 self.fs_baseline.run(self.t_developed)
         else:
-            # Steady-state: nothing to "develop", but keep API consistent
-            self.fs.run(0)
+            # Steady-state: nothing evolves, but advancing time keeps the
+            # adapter's wd_list indexing aligned with the dynamiks time base
+            self.fs.run(self.t_developed)
             if self.Baseline_comp:
-                self.fs_baseline.run(0)
+                self.fs_baseline.run(self.t_developed)
 
         if self.Baseline_comp and self.baseline_manager is not None:
             # Update baseline manager wind conditions
