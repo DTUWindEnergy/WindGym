@@ -7,6 +7,7 @@ including support for site-based sampling using PyWake sites.
 
 from typing import Optional, Callable
 from dataclasses import dataclass
+import inspect
 import numpy as np
 import math
 
@@ -179,7 +180,10 @@ class WindManager:
             dt_sim: Simulation timestep (seconds)
             t_developed: Time for flow to develop (seconds)
             steps_on_reset: Number of environment steps during reset
-            wd_function: Optional function(time) -> wd for time-varying wind
+            wd_function: Optional callable for time-varying wind. Either
+                ``f(t) -> wd`` (absolute schedule) or ``f(t, base_wd) -> wd``
+                (relative schedule, so the episode's randomized base direction
+                is preserved). The arity is detected automatically.
 
         Returns:
             list: Wind direction for each simulation timestep
@@ -200,15 +204,41 @@ class WindManager:
             # Constant wind direction
             wd_list.extend([base_wd] * num_sim_steps)
         else:
-            # Time-varying wind direction
+            # Time-varying wind direction. Relative schedules take base_wd as a
+            # second argument so they can return base_wd + delta(t) and leave
+            # the per-episode wd randomization intact; absolute schedules take
+            # time alone. Detect which we were handed (works for plain
+            # functions and for callable objects, whose signature resolves
+            # through __call__ with self already bound).
+            wants_base_wd = self._wd_function_takes_base_wd(wd_function)
             for i in range(num_sim_steps):
                 t = i * dt_sim
-                wd_list.append(wd_function(t))
+                if wants_base_wd:
+                    wd_list.append(wd_function(t, base_wd))
+                else:
+                    wd_list.append(wd_function(t))
 
         # Ensure first value matches base_wd for consistency
         wd_list[0] = base_wd
 
         return wd_list
+
+    @staticmethod
+    def _wd_function_takes_base_wd(wd_function: Callable) -> bool:
+        """True if ``wd_function`` accepts a second positional ``base_wd`` argument.
+
+        Falls back to the single-argument convention when the signature cannot
+        be introspected (builtins, C callables), which is the pre-existing
+        behaviour for every registered evaluation schedule.
+        """
+        try:
+            params = [
+                p for p in inspect.signature(wd_function).parameters.values()
+                if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
+            ]
+        except (TypeError, ValueError):
+            return False
+        return len(params) >= 2
 
     def _random_uniform(self, min_val: float, max_val: float) -> float:
         """
