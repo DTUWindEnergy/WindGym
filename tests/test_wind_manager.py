@@ -321,6 +321,102 @@ class TestWindDirectionList:
         assert len(wd_list) >= 1
         assert wd_list[0] == 270.0
 
+    def test_two_arg_wd_function_receives_base_wd(self):
+        """A ``wd_function(t, base_wd)`` gets the episode's base direction.
+
+        Randomized TRAINING schedules are relative -- they return
+        ``base_wd + delta(t)`` -- so that a time-varying wd composes with the
+        env's per-episode wd domain randomization instead of replacing it.
+        """
+        wm = WindManager(
+            ws_min=5.0,
+            ws_max=15.0,
+            wd_min=250.0,
+            wd_max=290.0,
+            ti_min=0.05,
+            ti_max=0.10,
+        )
+
+        def wd_function(t, base_wd):
+            return base_wd + t  # relative: delta(0) == 0
+
+        wd_list = wm.make_wind_direction_list(
+            base_wd=263.0,
+            time_max=5.0,
+            dt_sim=1.0,
+            t_developed=1.0,
+            steps_on_reset=0,
+            wd_function=wd_function,
+        )
+
+        burn_in_steps = 1  # ceil(t_developed/dt_sim) + steps_on_reset
+        for i, wd in enumerate(wd_list[burn_in_steps:]):
+            assert wd == 263.0 + i * 1.0, f"index {i}: got {wd}"
+
+    def test_two_arg_callable_object_receives_base_wd(self):
+        """Training schedules are callable *objects*, not plain functions.
+
+        ``inspect.signature`` must resolve through ``__call__`` (and drop
+        ``self``), otherwise the real schedules fall back to the 1-arg path and
+        raise at call time.
+        """
+
+        class Schedule:
+            def __call__(self, t, base_wd):
+                return base_wd + 2.0 * t
+
+        wm = WindManager(
+            ws_min=5.0,
+            ws_max=15.0,
+            wd_min=250.0,
+            wd_max=290.0,
+            ti_min=0.05,
+            ti_max=0.10,
+        )
+
+        wd_list = wm.make_wind_direction_list(
+            base_wd=270.0,
+            time_max=3.0,
+            dt_sim=1.0,
+            t_developed=0.0,
+            steps_on_reset=0,
+            wd_function=Schedule(),
+        )
+
+        assert wd_list[0] == 270.0
+        assert wd_list[1] == 272.0
+        assert wd_list[2] == 274.0
+
+    def test_wd_function_is_called_from_t_zero_once_per_list(self):
+        """Training schedules re-draw their episode on the t == 0.0 call, so the
+        list build must hit t=0 exactly once and then sweep upward."""
+        seen = []
+
+        def wd_function(t, base_wd):
+            seen.append(t)
+            return base_wd
+
+        wm = WindManager(
+            ws_min=5.0,
+            ws_max=15.0,
+            wd_min=250.0,
+            wd_max=290.0,
+            ti_min=0.05,
+            ti_max=0.10,
+        )
+
+        wm.make_wind_direction_list(
+            base_wd=270.0,
+            time_max=10.0,
+            dt_sim=1.0,
+            t_developed=2.0,
+            steps_on_reset=1,
+            wd_function=wd_function,
+        )
+
+        assert seen.count(0.0) == 1
+        assert seen == sorted(seen)
+
 
 class TestEdgeCases:
     """Edge case and boundary tests."""
