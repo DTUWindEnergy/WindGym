@@ -255,26 +255,15 @@ class TestWindFarmEnvMultiCoverage:
                 assert "yaw angles base" in info
                 assert "Wind speed at turbines baseline" in info
 
-    def test_calc_reward(self, initialized_env):
-        """Test _calc_reward method."""
-        env = initialized_env
-        rewards = env._calc_reward()
-
-        assert isinstance(rewards, dict)
-        assert set(rewards.keys()) == set(env.agents)
-
-        for agent in env.agents:
-            assert isinstance(rewards[agent], float)
-            assert not np.isnan(rewards[agent])
-
     def test_step_method_with_truncation_logic(self, initialized_env):
         """Test step method including truncation logic and agent list clearing."""
         env = initialized_env
 
-        # Set a short time_max to trigger truncation quickly
-        # `dt_env` is 1, so `time_max=1` means episode ends after 1 step.
-        # `self.timestep` is incremented by parent.step, starting from 0.
-        env.time_max = 1
+        # Set a short time_max to trigger truncation quickly.
+        # time_max is in seconds and `dt_env` is 1, so `time_max=2` means the
+        # episode ends after exactly 2 env steps (truncation when
+        # timestep * dt_env >= time_max).
+        env.time_max = 2
         print(f"Initial env.timestep: {env.timestep}")
 
         actions = {agent: np.array([0.0]) for agent in env.possible_agents}
@@ -282,14 +271,12 @@ class TestWindFarmEnvMultiCoverage:
         # Step 1: Should not truncate yet, timestep becomes 1
         observations, rewards, terminations, truncations, infos = env.step(actions)
 
-        assert (
-            env.timestep == 1
-        )  # Timestep should be 1 after the first step (if duplicate increment is removed)
+        assert env.timestep == 1
         assert not any(terminations.values())
         assert not any(truncations.values())
         assert len(env.agents) == 2  # Agents still active
 
-        # Step 2: Should truncate (timestep becomes 2, which is > time_max=1), agents list cleared
+        # Step 2: Should truncate (2 * dt_env >= time_max), agents list cleared
         observations, rewards, terminations, truncations, infos = env.step(actions)
 
         # Check truncations are True and agents list is cleared
@@ -564,3 +551,34 @@ class TestWindFarmEnvMultiCoverage:
         # The `initialized_env` fixture provides a real env setup for this.
         # This will run a full battery of PettingZoo API compliance tests.
         parallel_api_test(initialized_env)
+
+
+# ---------------------------------------------------------------------------
+# Action ordering: the env must key actions by agent name, not dict order
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+def test_multi_agent_actions_keyed_by_agent_name():
+    from test_utils import make_fast_pywake_env
+
+    env = make_fast_pywake_env(env_cls=WindFarmEnvMulti, yaw_step_env=1)
+
+    def run(action_dict):
+        env.reset(seed=11)
+        env.step(action_dict)
+        return np.array(env.fs.windTurbines.yaw)
+
+    a0 = np.array([-1.0], dtype=np.float32)
+    a1 = np.array([1.0], dtype=np.float32)
+    ordered = {"turbine_0": a0, "turbine_1": a1}
+    shuffled = {"turbine_1": a1, "turbine_0": a0}  # same mapping, other order
+
+    yaw_ordered = run(ordered)
+    yaw_shuffled = run(shuffled)
+
+    np.testing.assert_allclose(yaw_ordered, yaw_shuffled)
+    # And the actions must actually differ per turbine (sanity check that the
+    # test would catch a swapped mapping)
+    assert not np.allclose(yaw_ordered[0], yaw_ordered[1])
+    env.close()

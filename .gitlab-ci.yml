@@ -144,6 +144,10 @@ build_docs:
     # Now that both Python (via pixi) and Node.js (via apt) are set up
     - cd Docs # Navigate into the Docs directory
     - npm install # Install Node.js dependencies for Docusaurus
+    # Regenerate Docs/docs/api/ from docstrings via Sphinx, inside the default pixi env
+    # (so autodoc can import WindGym + numpy/xarray/gymnasium). build-api-docs.sh pip-installs
+    # the Sphinx toolchain from requirements-docs.txt into the env on first run.
+    - pixi run bash build-api-docs.sh
     - npm run build # This will run prebuild.sh (which now finds python/jupyter from pixi env) and then the Docusaurus build
   cache:
       - key:

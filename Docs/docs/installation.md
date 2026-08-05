@@ -19,7 +19,7 @@ cd windgym
 
 ## 3. Install WindGym
 
-### Option A — pip
+### Option A: pip
 
 The simplest way to install WindGym is with pip:
 
@@ -27,7 +27,7 @@ The simplest way to install WindGym is with pip:
 pip install -e .
 ```
 
-### Option B — pixi
+### Option B: pixi
 
 [Pixi](https://pixi.sh) is a modern package manager that automatically manages Python and all dependencies in an isolated environment. To install pixi:
 
@@ -59,7 +59,7 @@ You should see `(WindGym)` (or a similar prefix) appear in your terminal prompt,
 ## 4. Verify Your Installation
 
 ```bash
-python -c "from WindGym.Wind_Farm_Env import WindFarmEnv; print('WindGym installed successfully!')"
+python -c "from WindGym import WindFarmEnv; print('WindGym installed successfully!')"
 ```
 
 If you see "WindGym installed successfully!", your WindGym environment is ready!

@@ -9,6 +9,8 @@ import numpy as np
 from pathlib import Path
 
 from py_wake.examples.data.hornsrev1 import V80
+from py_wake.wind_turbines import WindTurbine
+from py_wake.wind_turbines.power_ct_functions import PowerCtNDTabular
 
 from WindGym import WindFarmEnv
 from WindGym.utils.generate_layouts import generate_square_grid
@@ -206,6 +208,199 @@ class TestPerTurbineWrapperObsReshaping:
 
         reshaped = wrapped_env._reshape_obs_to_per_turbine(flat_obs)
         assert reshaped.shape == (n_turb, obs_dim)
+
+
+# =============================================================================
+# Derating support (yaw+derate and derate-only envs)
+# =============================================================================
+
+
+@pytest.fixture(scope="module")
+def derating_turbine():
+    """Synthetic turbine whose powerCtFunction accepts a 'derate' input
+    (same shape as the fixture in test_derating.py)."""
+    ws = np.linspace(0.0, 30.0, 61)
+    derate = np.linspace(0.0, 0.8, 17)
+
+    p_avail = 2.0e6 * np.clip((ws - 3.0) / 9.0, 0.0, 1.0) ** 3
+    power = p_avail[:, None] * (1.0 - derate[None, :])
+    ct = 0.8 * (1.0 - derate[None, :]) ** 1.5 * np.ones_like(ws)[:, None]
+
+    pctf = PowerCtNDTabular(
+        input_keys=["ws", "derate"],
+        value_lst=[ws, derate],
+        power_arr=power,
+        power_unit="W",
+        ct_arr=ct,
+        default_value_dict={"derate": 0.0},
+    )
+    for gi in pctf.interp:
+        gi.bounds = "limit"
+
+    return WindTurbine(
+        name="SyntheticDerating",
+        diameter=80.0,
+        hub_height=70.0,
+        powerCtFunction=pctf,
+    )
+
+
+def make_derating_config(**overrides):
+    """Minimal config for a fast pywake-backend derating env."""
+    config = {
+        "derate_action": True,
+        "derate_min": 0.0,
+        "derate_max": 0.8,
+        "derate_method": "absolute",
+        "ActionMethod": "wind",
+        "farm": {"yaw_min": -30, "yaw_max": 30},
+        "wind": {
+            "ws_min": 9.0,
+            "ws_max": 9.0,
+            "TI_min": 0.06,
+            "TI_max": 0.06,
+            "wd_min": 270.0,
+            "wd_max": 270.0,
+        },
+        "act_pen": {"action_penalty": 0.0, "action_penalty_type": "change"},
+        "power_def": {
+            "Power_reward": "Power_avg",
+            "Power_avg": 5,
+            "Power_scaling": 1.0,
+        },
+        "mes_level": {
+            "turb_ws": True,
+            "turb_wd": False,
+            "turb_TI": False,
+            "turb_power": False,
+            "farm_ws": False,
+            "farm_wd": False,
+            "farm_TI": False,
+            "farm_power": False,
+        },
+        "ws_mes": {
+            "ws_current": True,
+            "ws_rolling_mean": False,
+            "ws_history_N": 1,
+            "ws_history_length": 10,
+            "ws_window_length": 10,
+        },
+        "wd_mes": {
+            "wd_current": True,
+            "wd_rolling_mean": False,
+            "wd_history_N": 1,
+            "wd_history_length": 10,
+            "wd_window_length": 10,
+        },
+        "yaw_mes": {
+            "yaw_current": True,
+            "yaw_rolling_mean": False,
+            "yaw_history_N": 1,
+            "yaw_history_length": 10,
+            "yaw_window_length": 10,
+        },
+        "power_mes": {
+            "power_current": False,
+            "power_rolling_mean": False,
+            "power_history_N": 1,
+            "power_history_length": 10,
+            "power_window_length": 10,
+        },
+    }
+    config.update(overrides)
+    return config
+
+
+def make_derating_env(turbine, n_turb=3, config=None, **kwargs):
+    d = turbine.diameter()
+    return WindFarmEnv(
+        turbine=turbine,
+        x_pos=np.arange(n_turb) * 5.0 * d,
+        y_pos=np.zeros(n_turb),
+        config=config if config is not None else make_derating_config(),
+        backend="pywake",
+        reset_init=False,
+        **kwargs,
+    )
+
+
+class TestPerTurbineWrapperDerating:
+    """Tests for yaw+derate and derate-only envs."""
+
+    def test_yaw_derate_action_space_shape(self, derating_turbine):
+        env = make_derating_env(derating_turbine)
+        wrapped = PerTurbineObservationWrapper(env)
+        assert wrapped.action_dim_per_turbine == 2
+        assert wrapped.action_space.shape == (3, 2)
+        env.close()
+
+    def test_yaw_derate_action_mapping_not_scrambled(self, derating_turbine):
+        """Derate only turbine 0 via [yaw_i, derate_i] rows: a wrong
+        (turbine-grouped) flattening would derate turbine 1 instead."""
+        env = make_derating_env(derating_turbine)
+        wrapped = PerTurbineObservationWrapper(env)
+        wrapped.reset(seed=0)
+
+        # derate action -1 maps to derate_min (=0), +1 to derate_max (=0.8)
+        action = np.array([[0.0, 1.0], [0.0, -1.0], [0.0, -1.0]], dtype=np.float32)
+        obs, _, _, _, _ = wrapped.step(action)
+
+        derate = np.asarray(env.unwrapped.current_derate)
+        assert derate[0] > 0.0
+        np.testing.assert_allclose(derate[1:], 0.0, atol=1e-12)
+        assert obs.shape == (
+            wrapped.n_turbines,
+            wrapped.observation_space.shape[1],
+        )
+        env.close()
+
+    def test_derate_only_env(self, derating_turbine):
+        """yaw_action=False gives 1 action per turbine (derate)."""
+        env = make_derating_env(
+            derating_turbine, config=make_derating_config(yaw_action=False)
+        )
+        wrapped = PerTurbineObservationWrapper(env)
+        assert wrapped.action_dim_per_turbine == 1
+        assert wrapped.action_space.shape == (3, 1)
+
+        wrapped.reset(seed=0)
+        action = np.array([[1.0], [-1.0], [-1.0]], dtype=np.float32)
+        obs, _, _, _, _ = wrapped.step(action)
+
+        derate = np.asarray(env.unwrapped.current_derate)
+        assert derate[0] > 0.0
+        np.testing.assert_allclose(derate[1:], 0.0, atol=1e-12)
+        assert obs.shape == (
+            wrapped.n_turbines,
+            wrapped.observation_space.shape[1],
+        )
+        env.close()
+
+    def test_wrong_2d_shape_raises(self, derating_turbine):
+        env = make_derating_env(derating_turbine)
+        wrapped = PerTurbineObservationWrapper(env)
+        with pytest.raises(ValueError, match="shape"):
+            wrapped._flatten_action(np.zeros((2, 2)))  # wrong n_turbines
+        with pytest.raises(ValueError, match="shape"):
+            wrapped._flatten_action(np.zeros((3, 1)))  # wrong act dim
+        env.close()
+
+    def test_wrong_flat_length_raises(self, derating_turbine):
+        env = make_derating_env(derating_turbine)
+        wrapped = PerTurbineObservationWrapper(env)
+        with pytest.raises(ValueError, match="length"):
+            wrapped._flatten_action(np.zeros(3))  # needs n_turb * 2 = 6
+        env.close()
+
+    def test_farm_level_obs_rejected(self, derating_turbine):
+        """The obs reshape assumes purely per-turbine obs; farm-level
+        measurements must be rejected at construction."""
+        config = make_derating_config()
+        config["mes_level"]["farm_ws"] = True
+        env = make_derating_env(derating_turbine, config=config)
+        with pytest.raises(ValueError, match="obs_var"):
+            PerTurbineObservationWrapper(env)
+        env.close()
 
 
 class TestPerTurbineWrapperMultipleSteps:

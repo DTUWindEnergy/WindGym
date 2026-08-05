@@ -15,6 +15,8 @@ that larger farms get more particles automatically.
 """
 from __future__ import annotations
 
+import numpy as np
+
 from dynamiks.dwm import DWMFlowSimulation
 from dynamiks.dwm.particle_deficit_profiles.ainslie import jDWMAinslieGenerator
 from dynamiks.dwm.particle_motion_models import HillVortexParticleMotion, XSpeed
@@ -124,3 +126,54 @@ def make_dwm(
         wind_direction=wind_direction,
         dt=dt,
     )
+
+
+def add_hawc2_yaw_sensor(wts, mode: str = "bearing2_slot", slot: int = 1):
+    """Attach the exposed ``yaw`` sensor pair to a HAWC2WindTurbines object.
+
+    The wiring must match the htc's yaw-servo DLL, so it is configurable:
+
+    - ``"bearing2_slot"`` (legacy WindGym default): read the yaw bearing via a
+      ``constraint bearing2 yaw_rot`` output sensor and write the setpoint
+      into HAWC2 general-variable ``slot``. Matches the DTU10MW/IEA22MW_yaw
+      htc files (slot 1, ``bearing2 yaw_rot`` constraint).
+    - ``"yaw_tilt"``: read via ``wt.yaw_tilt()[0]`` (generic h2lib rotor
+      orientation in degrees — no dependence on the htc's constraint naming,
+      HAWC2->dynamiks sign flip already applied) and write the setpoint into
+      general-variable ``slot``. Validated against
+      ``LEShawc2files/htc/input_hawc_yaw_actuator_tipcorr.htc`` (slot 4,
+      positive sign).
+
+    Getter returns MEASURED yaw in degrees; the setter writes a SETPOINT in
+    radians to the servo DLL. The two are intentionally asymmetric — see the
+    ``yaw_command`` invariant in ``wind_farm_env.py``.
+    """
+    if mode == "bearing2_slot":
+        wts.add_sensor(
+            name="yaw_getter",
+            getter="constraint bearing2 yaw_rot 1 only 1;",
+            expose=False,
+            ext_lst=["angle", "speed"],
+        )
+        wts.add_sensor(
+            "yaw",
+            getter=lambda wt: np.rad2deg(wt.sensors.yaw_getter[:, 0]),
+            setter=lambda wt, value: wt.h2.set_variable_sensor_value(
+                slot, np.deg2rad(value).tolist()
+            ),
+            expose=True,
+        )
+    elif mode == "yaw_tilt":
+        wts.add_sensor(
+            "yaw",
+            getter=lambda wt: wt.yaw_tilt()[0],
+            setter=lambda wt, value: wt.h2.set_variable_sensor_value(
+                slot, np.deg2rad(value).tolist()
+            ),
+            expose=True,
+        )
+    else:
+        raise ValueError(
+            f"Unknown hawc2_yaw_mode: {mode!r} "
+            "(expected 'bearing2_slot' or 'yaw_tilt')"
+        )

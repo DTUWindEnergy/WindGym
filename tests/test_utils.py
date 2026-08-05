@@ -146,3 +146,116 @@ def calculate_expected_obs_dim(config_dict, n_turbines):
         )
 
     return total_turbine_level_obs + farm_level_obs
+
+
+# ---------------------------------------------------------------------------
+# Fast pywake-backend env helpers (shared across test modules)
+# ---------------------------------------------------------------------------
+
+
+def get_fast_pywake_config(**overrides):
+    """Minimal yaw-only config for a fast pywake-backend env."""
+    config = {
+        "yaw_init": "Zeros",
+        "BaseController": "Local",
+        "ActionMethod": "wind",
+        "farm": {"yaw_min": -30, "yaw_max": 30},
+        "wind": {
+            "ws_min": 10.0,
+            "ws_max": 10.0,
+            "TI_min": 0.06,
+            "TI_max": 0.06,
+            "wd_min": 270.0,
+            "wd_max": 270.0,
+        },
+        "act_pen": {"action_penalty": 0.0, "action_penalty_type": "change"},
+        "power_def": {
+            "Power_reward": "Power_avg",
+            "Power_avg": 5,
+            "Power_scaling": 1.0,
+        },
+        "mes_level": {
+            "turb_ws": True,
+            "turb_wd": True,
+            "turb_TI": False,
+            "turb_power": False,
+            "farm_ws": False,
+            "farm_wd": False,
+            "farm_TI": False,
+            "farm_power": False,
+        },
+        "ws_mes": {
+            "ws_current": True,
+            "ws_rolling_mean": False,
+            "ws_history_N": 1,
+            "ws_history_length": 10,
+            "ws_window_length": 10,
+        },
+        "wd_mes": {
+            "wd_current": True,
+            "wd_rolling_mean": False,
+            "wd_history_N": 1,
+            "wd_history_length": 10,
+            "wd_window_length": 10,
+        },
+        "yaw_mes": {
+            "yaw_current": True,
+            "yaw_rolling_mean": False,
+            "yaw_history_N": 1,
+            "yaw_history_length": 10,
+            "yaw_window_length": 10,
+        },
+        "power_mes": {
+            "power_current": False,
+            "power_rolling_mean": False,
+            "power_history_N": 1,
+            "power_history_length": 10,
+            "power_window_length": 10,
+        },
+    }
+    config.update(overrides)
+    return config
+
+
+def make_fast_pywake_env(env_cls=None, n_turb=2, config=None, **kwargs):
+    """Small 1-row farm on the pywake backend; cheap to construct and step."""
+    import numpy as np
+    from py_wake.examples.data.hornsrev1 import V80
+
+    from WindGym import WindFarmEnv
+
+    if env_cls is None:
+        env_cls = WindFarmEnv
+    d = V80().diameter()
+    defaults = dict(
+        turbine=V80(),
+        x_pos=np.arange(n_turb) * 5.0 * d,
+        y_pos=np.zeros(n_turb),
+        config=config if config is not None else get_fast_pywake_config(),
+        backend="pywake",
+        reset_init=False,
+        n_passthrough=1,
+        fill_window=False,
+    )
+    defaults.update(kwargs)
+    return env_cls(**defaults)
+
+
+# ---------------------------------------------------------------------------
+# Tests for WindGym.utils
+# ---------------------------------------------------------------------------
+
+
+def test_circ_mean_deg_wraps_north():
+    import numpy as np
+    import pytest
+
+    from WindGym.utils import circ_mean_deg
+
+    assert circ_mean_deg([359.0, 1.0]) == pytest.approx(0.0, abs=1e-9)
+    assert circ_mean_deg([350.0, 10.0]) == pytest.approx(0.0, abs=1e-9)
+    # Away from the wrap it matches the arithmetic mean
+    assert circ_mean_deg([269.0, 271.0]) == pytest.approx(270.0, abs=1e-9)
+    # axis handling
+    a = np.array([[359.0, 270.0], [1.0, 272.0]])
+    np.testing.assert_allclose(circ_mean_deg(a, axis=0), [0.0, 271.0], atol=1e-9)

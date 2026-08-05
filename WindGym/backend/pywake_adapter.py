@@ -123,10 +123,14 @@ class _AdapterWindTurbines:
         return np.vstack([u, np.zeros_like(u), np.zeros_like(u)])
 
     def power(self, include_wakes=True):
-        return np.asarray(
-            self._power_eff if include_wakes else self.turbine.power(self._ws_nowake),
-            float,
-        )
+        if include_wakes:
+            return np.asarray(self._power_eff, float)
+        # No-wake reference must still honour any active derating, otherwise
+        # the Wake_recovery headroom is biased for derated farms.
+        derate = getattr(self.flowSimulation, "_derate", None)
+        if derate is not None and np.any(np.asarray(derate) != 0):
+            return np.asarray(self.turbine.power(self._ws_nowake, derate=derate), float)
+        return np.asarray(self.turbine.power(self._ws_nowake), float)
 
     # Convenience passthroughs
     def diameter(self, type=0):
@@ -199,6 +203,10 @@ class PyWakeFlowSimulationAdapter:
             flowSimulation=self,  # backref
         )
 
+        # Per-turbine derating fractions (0 = no derating).  Updated each step
+        # by _apply_derating() in wind_farm_env when derate_action=True.
+        self._derate = np.zeros(x.size)
+
         # Prime steady-state
         self._compute_steady_state()
 
@@ -235,14 +243,23 @@ class PyWakeFlowSimulationAdapter:
         y = np.asarray(view.y)
         grid = HorizontalGrid(x=x, y=y, h=self._wt.hub_height())
 
+        extra = {}
+        if np.any(self._derate != 0):
+            extra["derate"] = self._derate
+
+        # The view grid and positions_xyz are in the wind-aligned (XYView)
+        # frame, where the wind blows along +x. In PyWake that is wd=270
+        # (wind from west); passing wd=self.wd here would rotate the
+        # already-rotated coordinates a second time.
         fm = self._model(
             x=self.windTurbines.positions_xyz[0],
             y=self.windTurbines.positions_xyz[1],
-            wd=[270],
+            wd=[270.0],
             ws=[self.ws],
             TI=self.ti,
             tilt=0,
             yaw=self.windTurbines.yaw,
+            **extra,
         ).flow_map(grid=grid)
 
         ws_xy = fm.WS_eff.squeeze().T
@@ -261,6 +278,10 @@ class PyWakeFlowSimulationAdapter:
         # sim = self._model(self._x, self._y, wd=[self.wd], ws=[self.ws],
         #                   TI=self.ti, tilt=0,
         #                   yaw=self.windTurbines.yaw)
+        extra = {}
+        if np.any(self._derate != 0):
+            extra["derate"] = self._derate
+
         sim = self._model(
             self.windTurbines.positions_east_north[0],
             self.windTurbines.positions_east_north[1],
@@ -269,6 +290,7 @@ class PyWakeFlowSimulationAdapter:
             TI=self.ti,
             tilt=0,
             yaw=self.windTurbines.yaw,
+            **extra,
         )
 
         # Effective WS per turbine (i, l, k) -> (N,)

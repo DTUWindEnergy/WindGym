@@ -6,9 +6,9 @@ A brief overview of the physics models underlying WindGym simulations.
 
 ## Wake Effects
 
-When wind flows through a turbine rotor, the extraction of kinetic energy creates a **wake** — a region of reduced wind speed and increased turbulence downstream. In a wind farm, these wakes propagate to downstream turbines, reducing their power output and increasing structural loads. Wake losses can reduce total farm power by 10–20% depending on layout and wind conditions.
+When wind flows through a turbine rotor, the extraction of kinetic energy creates a **wake**, a region of reduced wind speed and increased turbulence downstream. In a wind farm, these wakes propagate to downstream turbines, reducing their power output and increasing structural loads. Wake losses can reduce total farm power by 10–20% depending on layout and wind conditions.
 
-**Wake steering** is a control strategy where upstream turbines are intentionally yawed (misaligned with the wind direction) to deflect their wakes away from downstream turbines. This is the core control action in WindGym — agents learn optimal yaw angles to maximize farm-level power production.
+**Wake steering** is a control strategy where upstream turbines are intentionally yawed (misaligned with the wind direction) to deflect their wakes away from downstream turbines. This is the core control action in WindGym: agents learn optimal yaw angles to maximize farm-level power production.
 
 ---
 
@@ -16,7 +16,7 @@ When wind flows through a turbine rotor, the extraction of kinetic energy create
 
 WindGym supports two interchangeable simulation backends, selectable via the `backend` parameter. Both can be used with the same RL code, enabling a multi-fidelity workflow: train with the fast backend and validate with the high-fidelity one.
 
-### DYNAMIKS — Dynamic Wake Meandering (High-Fidelity)
+### DYNAMIKS: Dynamic Wake Meandering (High-Fidelity)
 
 The default backend uses [DYNAMIKS](https://dynamiks.pages.windenergy.dtu.dk/dynamiks/), a multi-fidelity wind farm simulation framework implementing the Dynamic Wake Meandering (DWM) model. Key components include:
 
@@ -26,7 +26,7 @@ The default backend uses [DYNAMIKS](https://dynamiks.pages.windenergy.dtu.dk/dyn
 
 DYNAMIKS captures time-dependent wake behavior (wake recovery, meandering, dynamic interactions), making it suitable for studying temporal control strategies. For full details, see the [DYNAMIKS documentation](https://dynamiks.pages.windenergy.dtu.dk/dynamiks/).
 
-### PyWake — Steady-State (Fast)
+### PyWake: Steady-State (Fast)
 
 The alternative backend uses [PyWake](https://topfarm.pages.windenergy.dtu.dk/PyWake/), an analytical wake modeling framework. It employs:
 
@@ -40,7 +40,7 @@ PyWake computes the flow field analytically at each step with no temporal evolut
 
 | | DYNAMIKS (DWM) | PyWake |
 |---|---|---|
-| **Fidelity** | High — transient wake dynamics | Engineering — steady-state |
+| **Fidelity** | High (transient wake dynamics) | Engineering (steady-state) |
 | **Speed** | Slower (particle simulation) | Fast (analytical) |
 | **Wake meandering** | Yes | No |
 | **Temporal dynamics** | Yes | No |
@@ -50,7 +50,7 @@ PyWake computes the flow field analytically at each step with no temporal evolut
 
 ## Turbulence Modeling
 
-WindGym supports Mann turbulence boxes — 3D spectral turbulence fields that provide realistic, spatially and temporally correlated wind fluctuations. Five turbulence modes are available:
+WindGym supports Mann turbulence boxes, 3D spectral turbulence fields that provide realistic, spatially and temporally correlated wind fluctuations. Five turbulence modes are available:
 
 - **MannLoad**: Load pre-generated Mann boxes from files.
 - **MannGenerate**: Generate new Mann fields on-the-fly.

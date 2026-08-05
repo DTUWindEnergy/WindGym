@@ -16,8 +16,10 @@ const sidebars = {
       collapsed: false,
       items: [
         "concepts",
+        "environments",
         "theory",
         "rewards",
+        "derating",
         "simulations",
         "agents",
         "evaluations",
@@ -46,6 +48,7 @@ const sidebars = {
     },
 
     // Other Reference
+    "publications",
     "troubleshooting",
 
     // Contributing

@@ -197,3 +197,23 @@ def test_random_agent(base_example_data_path):
         action <= 1
     ), "Action values should be scaled between -1 and 1."
     env.close()
+
+
+# ---------------------------------------------------------------------------
+# PyWakeAgent yaw wrapping: optimizer output in [0, 360) must map to signed
+# degrees without losing the sign of negative offsets
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_wrap_to_signed_deg_keeps_sign():
+    from WindGym.Agents.PyWakeAgent import wrap_to_signed_deg
+
+    assert wrap_to_signed_deg(-25.0) == pytest.approx(-25.0)
+    assert wrap_to_signed_deg(335.0) == pytest.approx(-25.0)
+    assert wrap_to_signed_deg(25.0) == pytest.approx(25.0)
+    assert wrap_to_signed_deg(190.0) == pytest.approx(-170.0)
+    np.testing.assert_allclose(
+        wrap_to_signed_deg(np.array([-25.0, 335.0, 25.0, 190.0])),
+        [-25.0, -25.0, 25.0, -170.0],
+    )

@@ -8,9 +8,10 @@ for comparing agent performance against baseline control strategies.
 from typing import Optional, Callable, TYPE_CHECKING
 import numpy as np
 
-from dynamiks.wind_turbines.hawc2_windturbine import HAWC2WindTurbines
+from dynamiks.wind_turbines import PyWakeWindTurbines
+from ..backend.hawc2_adapter import HAWC2WindTurbinesW
 from ..BasicControllers import local_yaw_controller, global_yaw_controller
-from .dwm_defaults import make_wts
+from .dwm_defaults import make_wts, add_hawc2_yaw_sensor
 
 # Use TYPE_CHECKING to avoid circular import at runtime
 # PyWakeAgent is imported lazily in _setup_pywake_baseline
@@ -41,6 +42,8 @@ class BaselineManager:
         yaw_step_env: float,
         yaw_step_sim: float,
         htc_path: Optional[str] = None,
+        hawc2_yaw_mode: str = "bearing2_slot",
+        hawc2_yaw_slot: int = 1,
     ):
         """
         Initialize the baseline manager.
@@ -56,6 +59,9 @@ class BaselineManager:
             yaw_step_env: Yaw step per environment step (degrees)
             yaw_step_sim: Yaw step per simulation step (degrees)
             htc_path: Optional path to HAWC2 HTC file
+            hawc2_yaw_mode: Yaw sensor wiring for HAWC2 turbines (must match
+                            the htc's servo DLL; see add_hawc2_yaw_sensor)
+            hawc2_yaw_slot: HAWC2 general-variable index for the yaw setpoint
         """
         self.baseline_controller_type = baseline_controller_type
         self.x_pos = x_pos
@@ -66,6 +72,8 @@ class BaselineManager:
         self.yaw_step_env = yaw_step_env
         self.yaw_step_sim = yaw_step_sim
         self.htc_path = htc_path
+        self.hawc2_yaw_mode = hawc2_yaw_mode
+        self.hawc2_yaw_slot = int(hawc2_yaw_slot)
 
         # Controller function
         self._base_controller: Optional[Callable] = None
@@ -179,28 +187,24 @@ class BaselineManager:
                     "name_string is required when initializing HAWC2 baseline turbines"
                 )
             # HAWC2 high-fidelity turbines
-            self.wts_baseline = HAWC2WindTurbines(
-                x=self.x_pos,
-                y=self.y_pos,
-                htc_lst=[self.htc_path],
-                case_name=name_string + "_baseline",
-                suppress_output=True,
+            self.wts_baseline = (
+                HAWC2WindTurbinesW(  # power() normalized to W (native HAWC2 is kW)
+                    x=self.x_pos,
+                    y=self.y_pos,
+                    htc_lst=[self.htc_path],
+                    case_name=name_string + "_baseline",
+                    suppress_output=True,
+                )
             )
-            # Add yaw sensor
-            self.wts_baseline.add_sensor(
-                name="yaw_getter",
-                getter="constraint bearing2 yaw_rot 1 only 1;",
-                expose=False,
-                ext_lst=["angle", "speed"],
+            # Yaw sensor wiring is htc-specific; same configuration as the
+            # agent farm in wind_farm_env._init_wts.
+            add_hawc2_yaw_sensor(
+                self.wts_baseline,
+                mode=self.hawc2_yaw_mode,
+                slot=self.hawc2_yaw_slot,
             )
-            self.wts_baseline.add_sensor(
-                "yaw",
-                getter=lambda wt: np.rad2deg(wt.sensors.yaw_getter[:, 0]),
-                setter=lambda wt, value: wt.h2.set_variable_sensor_value(
-                    1, np.deg2rad(value).tolist()
-                ),
-                expose=True,
-            )
+            # No derate sensor: baseline turbines run greedy. Nothing writes
+            # "general variable 2", whose htc init value 100 means no derating.
         else:
             # PyWake turbines
             self.wts_baseline = make_wts(

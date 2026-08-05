@@ -220,12 +220,14 @@ def test_control_strategies_under_bias(
     BIAS = 90.0  # Define the bias constant
 
     if action_method == "wind":
-        # A vulnerable agent aligns with the PERCEIVED wind + the optimal OFFSET.
-        # Perceived wind = 272 (true) + 90 (bias) = 362, which is 2 degrees.
-        # So, the expected absolute heading is (2 + 19.69) = 21.69 degrees.
-        # perceived_wd = (TRUE_WIND_DIRECTION + BIAS) % 360
-        expected_final_yaw_t0 = BIAS
-        # expected_final_yaw_t0 = (perceived_wd + oracle_optimal_yaw_t0) % 360
+        # A vulnerable agent aligns with the PERCEIVED wind. Perceived wind
+        # = 272 (true) + 90 (bias) = 362 -> 2 degrees; at wd=2 the row layout
+        # has no wake overlap, so the optimal offset is ~0 and the agent just
+        # tracks the perceived wind. In the env's yaw convention (yaw grows
+        # with wd to hold absolute heading), aligning with a wind believed
+        # +90 above truth means a TRUE yaw of -90. (The old expectation of
+        # +90 encoded the unsigned-wrap bug fixed in the 2026-07 audit, A3.)
+        expected_final_yaw_t0 = -BIAS
     else:
         # The robust 'yaw' method should result in a 0 degree offset.
         expected_final_yaw_t0 = expected_yaw_func(oracle_optimal_yaw_t0)

@@ -109,7 +109,7 @@ env.close()
 
 ```python
 from WindGym.Agents import PyWakeAgent
-from WindGym.FarmEval import FarmEval
+from WindGym import FarmEval
 from py_wake.examples.data.hornsrev1 import V80
 
 # Turbine positions
@@ -206,6 +206,9 @@ If you find WindGym useful in your research, please cite our JOSS paper:
   journal = {Journal of Open Source Software}
 }
 ```
+
+For a list of research that uses WindGym — and how to add yours — see the
+[Publications page](https://sys.pages.windenergy.dtu.dk/windgym/publications).
 
 ---
 

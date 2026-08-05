@@ -237,17 +237,17 @@ def test_episodic_bias_scaled_bias_delta_array_zero_span():
 
     rng = np.random.default_rng(42)
 
-    # We need to *inspect* _resample_bias or check the result in current_bias_vector
     bias_model.reset_noise([spec_with_zero_span], rng)
 
-    # After reset_noise, _resample_bias should have been called.
-    # The current_bias_vector should have a 0.0 for this spec due to span==0.
-    assert np.allclose(bias_model.current_bias_vector[0], 0.0)
-    # The actual sampled unscaled bias value should be non-zero (from the range -5.0 to 5.0)
-    # This confirms that the zero-span logic overrode a potentially non-zero bias.
+    # The sampled unscaled bias value should be non-zero (from -5.0 to 5.0) ...
     assert (
         bias_model.current_unscaled_biases_by_spec_name[spec_with_zero_span.name] != 0.0
     )
+    # ... but applying it to a zero-span spec must be a no-op (the span==0
+    # guard in apply_noise skips the scaled delta).
+    clean_obs = np.array([0.25], dtype=np.float32)
+    noisy_obs = bias_model.apply_noise(clean_obs, [spec_with_zero_span], rng)
+    assert np.allclose(noisy_obs, clean_obs)
 
 
 def test_episodic_bias_physical_bias_value_for_slice_zero_span():
@@ -295,12 +295,11 @@ def test_episodic_bias_physical_bias_value_for_slice_zero_span():
     )
 
 
-def test_episodic_bias_initial_apply_noise_shape_mismatch_coverage():
+def test_episodic_bias_apply_noise_resamples_lazily():
     """
-    Covers the `if self.current_bias_vector is None or self.current_bias_vector.shape != observations.shape:`
-    branch in `EpisodicBiasNoiseModel.apply_noise` when a shape mismatch occurs.
+    apply_noise must lazily sample a bias when reset_noise was never called
+    (the `if not self._bias_resampled` branch).
     """
-    # Set up with one spec, so initial bias vector has size 1
     spec_initial = MeasurementSpec("val_1", MeasurementType.GENERIC, (0, 1), 0, 10)
     bias_model = EpisodicBiasNoiseModel({MeasurementType.GENERIC: (1.0, 1.0)})
 
@@ -310,26 +309,14 @@ def test_episodic_bias_initial_apply_noise_shape_mismatch_coverage():
 
     rng = np.random.default_rng(42)
 
-    # First call: current_bias_vector is None, so it gets initialized to shape (1,)
+    # No reset_noise() beforehand: apply_noise resamples on first use
+    assert not bias_model._bias_resampled
     obs_initial = np.array([0.0], dtype=np.float32)
-    bias_model.apply_noise(obs_initial, [spec_initial], rng)
-    assert bias_model.current_bias_vector.shape == (1,)
-
-    # Second call: provide observations of a different shape to trigger re-sampling
-    obs_mismatch = np.array([0.0, 0.0], dtype=np.float32)  # Shape (2,)
-    spec_mismatch_1 = MeasurementSpec("val_1", MeasurementType.GENERIC, (0, 1), 0, 10)
-    spec_mismatch_2 = MeasurementSpec("val_2", MeasurementType.GENERIC, (1, 2), 0, 10)
-
-    # _resample_bias will be called again due to shape mismatch
-    # It will use the provided specs ([spec_mismatch_1, spec_mismatch_2])
-    noisy_obs_mismatch = bias_model.apply_noise(
-        obs_mismatch, [spec_mismatch_1, spec_mismatch_2], rng
-    )
-
-    # Assert that the bias vector was indeed re-sampled to the new shape
-    assert bias_model.current_bias_vector.shape == (2,)
-    # Verify noise was applied (meaning the loop in apply_noise ran)
-    assert not np.allclose(noisy_obs_mismatch, obs_mismatch)
+    noisy = bias_model.apply_noise(obs_initial, [spec_initial], rng)
+    assert bias_model._bias_resampled
+    assert "val_1" in bias_model.current_unscaled_biases_by_spec_name
+    # Bias range is (1.0, 1.0) -> exactly +1 physical -> scaled delta 0.2
+    assert not np.allclose(noisy, obs_initial)
 
 
 def test_measurement_manager_scale_value_zero_span():
@@ -435,8 +422,8 @@ def test_get_physical_values_from_obs_for_logging_with_multi_element_spec():
 
 def test_episodic_bias_resample_bias_no_specs():
     """
-    Covers the `if not specs: self.current_bias_vector = np.array([], dtype=np.float32); return`
-    branch in `EpisodicBiasNoiseModel._resample_bias`.
+    _resample_bias with no specs samples nothing but still marks the bias
+    as resampled for the episode.
     """
     bias_model = EpisodicBiasNoiseModel(
         {
@@ -455,18 +442,15 @@ def test_episodic_bias_resample_bias_no_specs():
     # Call _resample_bias with an empty list of specs
     bias_model._resample_bias([], rng)
 
-    # Assert that current_bias_vector is an empty numpy array
-    assert bias_model.current_bias_vector is not None
-    assert bias_model.current_bias_vector.size == 0
-    assert bias_model.current_bias_vector.shape == (0,)
-    # Also verify that current_unscaled_biases_by_spec_name is empty
+    assert bias_model._bias_resampled
+    # No specs -> no biases sampled
     assert bias_model.current_unscaled_biases_by_spec_name == {}
 
 
 def test_episodic_bias_apply_noise_returns_copy_if_no_specs():
     """
-    Covers the `if self.current_bias_vector is None or self.current_bias_vector.size == 0: return observations.copy()`
-    branch in `EpisodicBiasNoiseModel.apply_noise` when _resample_bias results in an empty bias vector.
+    Covers the `if not specs: return observations.copy()` branch in
+    `EpisodicBiasNoiseModel.apply_noise`.
     """
     bias_model = EpisodicBiasNoiseModel(
         {
@@ -499,6 +483,48 @@ def test_episodic_bias_apply_noise_returns_copy_if_no_specs():
         returned_observations is not initial_observations
     )  # Ensure it's a copy, not the same object
 
-    # Also assert that the bias vector is indeed empty, confirming the path
-    assert bias_model.current_bias_vector.size == 0
     assert bias_model.current_unscaled_biases_by_spec_name == {}
+
+
+def test_circular_noise_narrow_sector_clips_to_near_boundary():
+    """Circular noise wrap with scaling ranges other than [0, 360]: narrow
+    sectors must clip to the circularly-nearest boundary, and full-circle
+    ranges like [-180, 180) must wrap instead of clipping."""
+    NoiseModel._unscale_value_static = MeasurementManager._unscale_value
+    NoiseModel._scale_value_static = MeasurementManager._scale_value
+    try:
+        model = WhiteNoiseModel({})
+        spec = MeasurementSpec(
+            name="turb_0/wd_current",
+            measurement_type=MeasurementType.WIND_DIRECTION,
+            index_range=(0, 1),
+            min_val=270.0,
+            max_val=360.0,
+            turbine_id=0,
+            is_circular=True,
+        )
+        # True wd 358 deg, +4 deg noise -> 362 deg = 2 deg. The sector cannot
+        # represent 2 deg; the nearest boundary (circularly) is 360, i.e.
+        # scaled +1. The old wrap collapsed this to 270 (scaled -1).
+        scaled_358 = np.array([2 * (358.0 - 270.0) / 90.0 - 1.0])
+        noisy = model._handle_circular_noise(scaled_358, np.array([4.0]), spec)
+        assert noisy[0] == pytest.approx(1.0)
+
+        # Full-circle range that is not [0, 360]: [-180, 180). 170 + 20 deg
+        # noise must wrap to -170, not clip at +180.
+        spec_pm = MeasurementSpec(
+            name="turb_0/wd_current",
+            measurement_type=MeasurementType.WIND_DIRECTION,
+            index_range=(0, 1),
+            min_val=-180.0,
+            max_val=180.0,
+            turbine_id=0,
+            is_circular=True,
+        )
+        scaled_170 = np.array([2 * (170.0 + 180.0) / 360.0 - 1.0])
+        noisy = model._handle_circular_noise(scaled_170, np.array([20.0]), spec_pm)
+        physical = MeasurementManager._unscale_value(noisy, -180.0, 180.0)
+        assert physical[0] == pytest.approx(-170.0)
+    finally:
+        NoiseModel._unscale_value_static = None
+        NoiseModel._scale_value_static = None

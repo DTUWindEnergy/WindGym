@@ -62,8 +62,9 @@ class WindFarmRenderer:
         # keep their deflected wakes inside the view.
         D = float(np.max(turbine.diameter()))
 
-        self.a = np.linspace(-700 + min(x_turb), 1000 + max(x_turb), 250)
-        self.b = np.linspace(-2 * D + min(y_turb), 2 * D + max(y_turb), 250)
+        y_pad = max(3 * D, 0.2 * (max(y_turb) - min(y_turb) + 1))
+        self.a = np.linspace(-3 * D + min(x_turb), 1500 + max(x_turb), 250)
+        self.b = np.linspace(-y_pad + min(y_turb), y_pad + max(y_turb), 250)
 
         self.view = XYView(z=turbine.hub_height(), x=self.a, y=self.b, adaptive=False)
 
@@ -487,5 +488,7 @@ class WindFarmRenderer:
 
     def close(self):
         """Close any open matplotlib figures."""
-        plt.close()
+        # close("all") so human-mode figures are released too, not just the
+        # current figure.
+        plt.close("all")
         self.view = None

@@ -141,6 +141,8 @@ def eval_single_fast(
     return_loads=False,
     cleanup=True,
     gif_fps=8,
+    seed=None,
+    fig_dir=None,
 ):
     """
     This function evaluates the agent for a single wind direction, and then saves the results in a xarray dataset.
@@ -164,6 +166,11 @@ def eval_single_fast(
     deterministic: If True, the agent will be deterministic.
     gif_fps: Frames per second of the animated GIF assembled from the saved
         figures (only used when save_figs is True).
+    seed: Seed passed to env.reset() for reproducible episodes. None keeps
+        the previous (unseeded) behaviour.
+    fig_dir: Directory for figures when save_figs=True. Defaults to
+        "./Temp_Figs_{name}_ws{ws}_wd{wd}/" in the current working directory
+        (the historical behaviour).
 
     """
 
@@ -177,14 +184,13 @@ def eval_single_fast(
     env.set_wind_vals(ws=ws, ti=ti, wd=wd, veer=veer)
     baseline_comp = env.Baseline_comp
 
-    if not isinstance(scale_obs, list):  # if not a list, make it one
-        scaling = [scale_obs]
+    scaling = scale_obs if isinstance(scale_obs, list) else [scale_obs]
     if debug:  # If debug, do both.
         scaling = [True, False]
         save_figs = True
 
     if model is None:
-        AssertionError("You need to specify a model to evaluate the agent.")
+        raise ValueError("You need to specify a model to evaluate the agent.")
 
     # Calculate the correct number of steps
     step_val = (
@@ -219,7 +225,7 @@ def eval_single_fast(
         pct_inc = np.zeros((time), dtype=np.float32)
 
     # Initialize the environment
-    obs, info = env.reset()
+    obs, info = env.reset(seed=seed)
 
     # This checks if we are using a pywakeagent. If we are, then we do this:
     if hasattr(model, "pywakeagent") or hasattr(model, "florisagent"):
@@ -248,13 +254,21 @@ def eval_single_fast(
         ws_b[0] = np.linalg.norm(
             env.fs_baseline.windTurbines.rotor_avg_windspeed, axis=1
         )
+        # Percentage increase in power output. This should be zero (or close
+        # to zero) at the first time step. Baseline power can be 0 (e.g.
+        # below cut-in), so guard the division.
         pct_inc[0] = (
             ((powerF_a[0] - powerF_b[0]) / powerF_b[0]) * 100
-        )  # Percentage increase in power output. This should be zero (or close to zero) at the first time step.
+            if powerF_b[0] != 0
+            else 0.0
+        )
 
     # If save_figs is True, initalize some parameters here.
     if save_figs:
-        FOLDER = "./Temp_Figs_{}_ws{}_wd{}/".format(name, env.ws, wd)
+        if fig_dir is not None:
+            FOLDER = os.path.join(fig_dir, "")
+        else:
+            FOLDER = "./Temp_Figs_{}_ws{}_wd{}/".format(name, env.ws, wd)
         if not os.path.exists(FOLDER):
             os.makedirs(FOLDER)
         max_deque = 70
@@ -319,20 +333,29 @@ def eval_single_fast(
                 "windspeeds_baseline"
             ]
 
+            # Percentage increase in power output. Guard against zero
+            # baseline power (e.g. below cut-in) -> report 0 instead of inf.
+            agent_farm_power = info["powers"].sum(axis=1)
+            base_farm_power = info["baseline_powers"].sum(axis=1)
             pct_inc[i * step_val + 1 : i * step_val + step_val + 1] = (
-                (
-                    (info["powers"].sum(axis=1) - info["baseline_powers"].sum(axis=1))
-                    / info["baseline_powers"].sum(axis=1)
+                np.divide(
+                    agent_farm_power - base_farm_power,
+                    base_farm_power,
+                    out=np.zeros_like(base_farm_power),
+                    where=base_farm_power != 0,
                 )
                 * 100
-            )  # Percentage increase in power output. This should be zero (or close to zero) at the first time step.
+            )
 
         if save_figs:
-            time_deq.append(time_plot[i])
-            pow_deq.append(powerF_a[i])
-            yaw_deq.append(yaw_a[i])
-            ws_deq.append(ws_a[i])
-            wd_deq.append(wd_a[i])
+            # The result arrays are at sim resolution while i counts env
+            # steps; index the end-of-step sample, not raw i.
+            end_idx = i * step_val + step_val
+            time_deq.append(time_plot[end_idx])
+            pow_deq.append(powerF_a[end_idx])
+            yaw_deq.append(yaw_a[end_idx])
+            ws_deq.append(ws_a[end_idx])
+            wd_deq.append(wd_a[end_idx])
 
             # Flow field spans the top at true aspect ratio (the farm domain is
             # much wider than deep); timeseries panels sit in a row below.
@@ -414,17 +437,17 @@ def eval_single_fast(
             ax4.set_xlim(time_deq[0], time_deq[-1])
             ax5.set_xlim(time_deq[0], time_deq[-1])
 
-            pow_max = max(pow_max, powerF_a[i] * 1.2)
-            pow_min = min(pow_min, powerF_a[i] * 0.8)
-            yaw_max = max(yaw_max, max(yaw_a[i]) * 1.2)
+            pow_max = max(pow_max, powerF_a[end_idx] * 1.2)
+            pow_min = min(pow_min, powerF_a[end_idx] * 0.8)
+            yaw_max = max(yaw_max, max(yaw_a[end_idx]) * 1.2)
             # This value can be negative, so we multiply 1.2, instead of 0.8
-            yaw_min = min(yaw_min, min(yaw_a[i]) * 1.2)
-            ws_max = max(ws_max, max(ws_a[i]) * 1.2)
-            ws_min = min(ws_min, min(ws_a[i]) * 0.8)
+            yaw_min = min(yaw_min, min(yaw_a[end_idx]) * 1.2)
+            ws_max = max(ws_max, max(ws_a[end_idx]) * 1.2)
+            ws_min = min(ws_min, min(ws_a[end_idx]) * 0.8)
             # Additive padding: wind direction is a compass value, so the
             # multiplicative expansion used above would blow up the range.
-            wd_plot_max = max(wd_plot_max, max(wd_a[i]) + 1)
-            wd_plot_min = min(wd_plot_min, min(wd_a[i]) - 1)
+            wd_plot_max = max(wd_plot_max, max(wd_a[end_idx]) + 1)
+            wd_plot_min = min(wd_plot_min, min(wd_a[end_idx]) - 1)
 
             # Set the y limits for the plots. If we go over/under the limits, the plot will adjust the limits.
             ax2.set_ylim(pow_min, pow_max)
@@ -824,7 +847,7 @@ def eval_single_fast(
 
 
 class AgentEval:
-    def __init__(self, env=None, model=None, name="NoName", t_sim=1000):
+    def __init__(self, env=None, model=None, name="NoName", t_sim=1000, seed=None):
         # Initialize the evaluater with some default values.
         self.ws = 10.0
         self.ti = 0.05
@@ -834,6 +857,9 @@ class AgentEval:
         self.turbbox = "Default"
 
         self.t_sim = t_sim
+        # Master seed. When set, eval_single/eval_multiple derive per-episode
+        # seeds from it for reproducible evaluations; None = unseeded.
+        self.seed = seed
 
         self.winddirs = [270]
         self.windspeeds = [10]
@@ -907,6 +933,7 @@ class AgentEval:
         debug=False,
         deterministic=False,
         return_loads=False,
+        seed=None,
     ):
         """
         Evaluate the agent on a single wind direction, wind speed, turbulence intensity and turbulence box.
@@ -926,6 +953,7 @@ class AgentEval:
             debug=debug,
             deterministic=deterministic,
             return_loads=return_loads,
+            seed=seed if seed is not None else self.seed,
         )
 
         self.env.close()  # Close the environment to make sure that we dont have any issues with the turbulence box being in memory.
@@ -952,6 +980,10 @@ class AgentEval:
         # Flag that we are running multiple evaluations.
         self.multiple_eval = True
 
+        # Derive one seed per episode from the master seed (if set), the same
+        # way utils/evaluate_PPO.py does, so multi-condition runs reproduce.
+        rng = np.random.default_rng(self.seed) if self.seed is not None else None
+
         # TODO this should be parallelized.
         ds_list = []
         for winddir in self.winddirs:
@@ -961,12 +993,16 @@ class AgentEval:
                         # For all these in the loop...
                         # Set the conditions
                         self.set_condition(ws=windspeed, ti=TI, wd=winddir, turbbox=box)
+                        episode_seed = (
+                            int(rng.integers(2**31)) if rng is not None else None
+                        )
                         # Run the simulation
                         ds = self.eval_single(
                             save_figs=save_figs,
                             scale_obs=scale_obs,
                             debug=debug,
                             return_loads=return_loads,
+                            seed=episode_seed,
                         )
                         ds_list.append(ds)
                         i -= 1

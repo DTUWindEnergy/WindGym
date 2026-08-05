@@ -82,7 +82,7 @@ By leveraging the `Coliseum` framework, you can rigorously test and validate you
 ### Basic Evaluation with AgentEval
 
 ```python
-from WindGym.FarmEval import FarmEval
+from WindGym import FarmEval
 from WindGym.Agents import PyWakeAgent
 from py_wake.examples.data.hornsrev1 import V80
 import numpy as np
@@ -128,7 +128,7 @@ print(f"Total power: {results['power'].mean():.2f} W")
 #### Step 1: Create Environment Factory
 
 ```python
-from WindGym.FarmEval import FarmEval
+from WindGym import FarmEval
 from py_wake.examples.data.hornsrev1 import V80
 from py_wake.site import UniformSite
 
@@ -304,7 +304,7 @@ for agent_name in agents.keys():
 ### Advanced: Custom Evaluation Metrics
 
 ```python
-from WindGym.FarmEval import FarmEval
+from WindGym import FarmEval
 from WindGym.Agents.PyWakeAgent import PyWakeAgent
 import numpy as np
 
@@ -413,7 +413,7 @@ print(loaded_ts.head())
 ### Comparing Against Baseline
 
 ```python
-from WindGym.FarmEval import FarmEval
+from WindGym import FarmEval
 from WindGym.Agents import PyWakeAgent
 from py_wake.examples.data.hornsrev1 import V80
 

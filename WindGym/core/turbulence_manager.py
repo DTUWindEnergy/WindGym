@@ -65,6 +65,13 @@ class TurbulenceManager:
         # Random number generator (set by environment)
         self.np_random = None
 
+        # Optional explicit Mann-box seed. When not None, MannGenerate uses THIS seed for the
+        # turbulence box instead of drawing one from np_random. Lets an evaluator pin a
+        # specific, reproducible, held-out box per episode (e.g. seeds >= 100000, which the
+        # training draw `np_random.integers(0, 100000)` can never produce). None = original
+        # behaviour (random box each reset).
+        self.box_seed = None
+
         # Discovered turbulence files (for MannLoad)
         self.turbulence_files = []
         if turbulence_type == "MannLoad":
@@ -297,7 +304,7 @@ class TurbulenceManager:
         self, ws: float, ti: float, rotor_diameter: float,
         mann_overrides: Optional[dict] = None,
     ) -> tuple:
-        """Generate new Mann turbulence box with random seed.
+        """Generate new Mann turbulence box (explicit box_seed if set, else random).
 
         ``rotor_diameter`` is unused (the calibrated grid in ``dwm_defaults``
         is uniform and not D-relative); kept on the signature for now so
@@ -319,7 +326,10 @@ class TurbulenceManager:
         mann_gamma_eff = float(overrides.get("mann_GAMMA", MANN_GAMMA))
         mann_ae_eff    = float(overrides.get("mann_AE",    MANN_AE))
 
-        tf_seed = self.np_random.integers(0, 100000)
+        if self.box_seed is not None:
+            tf_seed = int(self.box_seed)
+        else:
+            tf_seed = int(self.np_random.integers(0, 100000))
 
         tf = MannTurbulenceField.generate(
             alphaepsilon=mann_ae_eff,

@@ -31,6 +31,7 @@ class FarmEval(WindFarmEnv):
         Baseline_comp=False,
         render_mode=None,
         turbtype="MannGenerate",
+        backend: str = "dynamiks",
         seed=None,
         dt_sim=1,  # Simulation timestep in seconds
         dt_env=1,  # Environment timestep in seconds
@@ -43,6 +44,8 @@ class FarmEval(WindFarmEnv):
         sample_site=None,
         burn_in_passthroughs=2,
         tilt=None,
+        cleanup_on_time_limit: bool = True,
+        keep_hawc_results: bool = False,
     ):
         self.finite_episode = finite_episode
         # TODO There must be a better way to set all these valuesm **kwargs???
@@ -63,6 +66,7 @@ class FarmEval(WindFarmEnv):
             burn_in_passthroughs=burn_in_passthroughs,
             TurbBox=TurbBox,
             turbtype=turbtype,
+            backend=backend,
             config=config,
             Baseline_comp=Baseline_comp,  # UPDATE: Changed so that we dont need the baseline farm anymore. Before it was always true! #We always want to compare to the baseline, so this is true
             yaw_init=yaw_init,
@@ -77,6 +81,8 @@ class FarmEval(WindFarmEnv):
             fill_window=fill_window,
             sample_site=sample_site,
             tilt=tilt,
+            cleanup_on_time_limit=cleanup_on_time_limit,
+            keep_hawc_results=keep_hawc_results,
         )
         self.yaml_path = config  # Saved for legacy reasons
 
