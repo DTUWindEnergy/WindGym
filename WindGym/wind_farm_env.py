@@ -933,6 +933,21 @@ class WindFarmEnv(gym.Env):
         # self.ws, self.wd, self.ti = wind_cond.unpack()
         self._set_windconditions()
 
+        # Precursor inflow dictates the wind conditions: ws is the LES
+        # advection speed (drives rated_power, obs scaling and the time
+        # parameters), wd is the box orientation, ti the measured hub-height
+        # TI. Must run before rated_power below.
+        if self.turbtype == "Precursor":
+            if self.veer:
+                raise ValueError(
+                    "turbtype='Precursor' carries the LES shear/veer in the box "
+                    "itself; remove veer_min/veer_max from the wind config."
+                )
+            _meta = self.turbulence_manager.precursor_meta
+            self.ws = float(_meta["advection_speed"])
+            self.wd = 270.0
+            self.ti = float(_meta["ti_hub"])
+
         # 2) Fresh measurement buffers
         self._init_farm_mes()
         if hasattr(self, "farm_measurements") and self.farm_measurements is not None:
@@ -1013,6 +1028,13 @@ class WindFarmEnv(gym.Env):
                 # User-facing veer is deg per 100 m; create_sites takes deg/m.
                 veer_rate=self.veer / 100.0,
                 veer_ref_height=float(self.turbine.hub_height()),
+                # Total sim seconds this episode consumes (burn-in + sensor
+                # fill + episode). Only the Precursor branch uses it, to bound
+                # its random start-time window; passed from here because
+                # time_max was overridden above (max_time_steps).
+                episode_time_budget_s=(
+                    self.t_developed + self.steps_on_reset * self.delay + self.time_max
+                ),
             )
 
             self.fs = make_dwm(

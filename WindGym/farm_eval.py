@@ -46,6 +46,7 @@ class FarmEval(WindFarmEnv):
         tilt=None,
         cleanup_on_time_limit: bool = True,
         keep_hawc_results: bool = False,
+        max_time_steps=None,
     ):
         self.finite_episode = finite_episode
         # TODO There must be a better way to set all these valuesm **kwargs???
@@ -83,6 +84,11 @@ class FarmEval(WindFarmEnv):
             tilt=tilt,
             cleanup_on_time_limit=cleanup_on_time_limit,
             keep_hawc_results=keep_hawc_results,
+            # Sized episode budget; needed by turbtype="Precursor" so the
+            # random-window check sees the harness horizon rather than the
+            # passthrough-derived time_max (finite_episode=False still lifts
+            # time_max to "infinite" after reset).
+            max_time_steps=max_time_steps,
         )
         self.yaml_path = config  # Saved for legacy reasons
 
