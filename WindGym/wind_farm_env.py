@@ -120,6 +120,8 @@ class WindFarmEnv(gym.Env):
         power_ref_function=None,  # A function (t_seconds, env) -> reference farm power in W. Only used when Track_power is True; None uses the default constant-setpoint sampler.
         max_turb_move=2,  # The maximum distance that the turbines can move in one timestep. This is used to avoid numerical issues with the DWM solver.
         op_lookup=None,  # Optional OperatingPointLookup: reports steady-state blade pitch / rotor RPM per turbine when derating.
+        wd_est_tau=None,  # Sensor-derived wd estimator EWMA time constant (s). None = estimator off (env.wd_est unavailable).
+        wd_est_consensus="median",  # Cross-turbine consensus for the wd estimator: median / mean / front.
         interpolation="linear",  # Particle trajectory interpolation in the DWM solver: 'linear' (fast) or 'pchip' (cubic, original)
         lateral_cutoff=1.5,  # Skip wake deficit evaluation beyond this factor times the deficit profile half-width (r_max*R) from the meandered wake centerline. None disables (original behavior).
         **kwargs,
@@ -248,6 +250,12 @@ class WindFarmEnv(gym.Env):
         self.op_lookup = op_lookup
         self.current_pitch = None
         self.current_rpm = None
+        # Sensor-derived wd estimator (None = feature off). Built lazily per
+        # reset (needs n_turb / x_pos), updated in _take_measurements — zero
+        # extra flow queries. See core/wd_estimator.py.
+        self.wd_est_tau = wd_est_tau
+        self.wd_est_consensus = wd_est_consensus
+        self._wd_estimator = None
         # The maximum time of the simulation. This is used to make sure that the simulation doesnt run forever.
         self.time_max = 0
         # The number of times the flow passes through the farm. This is used to calculate the maximum simulation time.
@@ -825,6 +833,11 @@ class WindFarmEnv(gym.Env):
             xyz=xyz_turbines, include_wakes=True
         ).flatten()
 
+        # Sensor-derived wd estimate: fold the measured local directions into
+        # the circular EWMA every substep (zero extra flow queries).
+        if self._wd_estimator is not None:
+            self._wd_estimator.update(self.current_wd)
+
         self.current_yaw = self.fs.windTurbines.yaw
         self.current_powers = self.fs.windTurbines.power()  # The Power pr turbine
 
@@ -845,6 +858,26 @@ class WindFarmEnv(gym.Env):
 
         values = self.farm_measurements.get_measurements(scaled=True)
         return np.clip(values, -1.0, 1.0).astype(np.float32)
+
+    @property
+    def wd_est(self) -> float:
+        """Sensor-derived consensus wd estimate (deg). Only available when the
+        env was built with wd_est_tau; the trainer swaps this in for env.wd
+        under --wd_source est."""
+        if self._wd_estimator is None:
+            raise AttributeError(
+                "wd_est requires the env to be built with wd_est_tau "
+                "(the sensor-derived estimator is off)")
+        return self._wd_estimator.estimate
+
+    @property
+    def wd_est_per_turbine(self) -> np.ndarray:
+        """Per-turbine filtered wd (deg); see wd_est."""
+        if self._wd_estimator is None:
+            raise AttributeError(
+                "wd_est_per_turbine requires the env to be built with "
+                "wd_est_tau (the sensor-derived estimator is off)")
+        return self._wd_estimator.per_turbine
 
     def _get_info(self) -> dict[str, Any]:
         """
@@ -875,6 +908,12 @@ class WindFarmEnv(gym.Env):
             "Turbine y positions": self.fs.windTurbines.positions_xyz[1],
             "Turbulence intensity at turbines": self.farm_measurements.get_TI_turb(),
         }
+
+        if self._wd_estimator is not None:
+            return_dict["Wind direction estimate"] = self.wd_est
+            return_dict["Wind direction estimate per turbine"] = (
+                self.wd_est_per_turbine
+            )
 
         if self.derate_action:
             return_dict["derate agent"] = self.current_derate
@@ -950,6 +989,19 @@ class WindFarmEnv(gym.Env):
 
         # 3) Turbines + main flow sim
         self._init_wts()
+        # Fresh estimator per episode: lazy warm-start at the first
+        # _take_measurements (the burn-in holds base_wd, so the filter starts
+        # converged — no cold-start transient).
+        if self.wd_est_tau is not None:
+            from .core.wd_estimator import WdEstimator
+
+            self._wd_estimator = WdEstimator(
+                n_turb=self.n_turb,
+                dt=self.dt_sim,
+                tau=self.wd_est_tau,
+                consensus=self.wd_est_consensus,
+                x_pos=self.x_pos,
+            )
         self.current_derate = np.zeros(self.n_turb)
         # Commanded derate fraction (what the agent asked for). Differs from
         # current_derate (the applied available-power fraction) in "rated"
