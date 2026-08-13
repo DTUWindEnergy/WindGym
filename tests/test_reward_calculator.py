@@ -374,6 +374,25 @@ def test_wake_recovery_negative_gain():
     assert abs(reward - (-0.25)) < 1e-6, f"Expected -0.25, got {reward}"
 
 
+def test_wake_recovery_zero_power_farm_returns_zero():
+    """Whole farm at zero production -> reward 0, not an exception.
+
+    Reachable when wd MOVES during training: nacelles are world-fixed under
+    wd rotation, so during random exploration a large wd excursion pushes
+    every effective ws below cut-in and P_freestream == P_greedy == 0
+    (first hit by the wdest_est_drramp T3 arm; previously unreachable
+    because static-wd episodes keep yaw near aligned).
+    """
+    rc = RewardCalculator(power_reward_type="Wake_recovery", power_scaling=1.0)
+    zeros = deque([0.0, 0.0, 0.0])
+    reward = rc.calculate_power_reward(
+        farm_power_deque=deque([0.0, 0.0, 0.0]),
+        baseline_power_deque=deque([0.0, 0.0, 0.0]),
+        nowake_power_deque=zeros,
+    )
+    assert reward == 0.0
+
+
 def test_wake_recovery_missing_baseline():
     """Test ValueError without baseline deque."""
     rc = RewardCalculator(power_reward_type="Wake_recovery", power_scaling=1.0)

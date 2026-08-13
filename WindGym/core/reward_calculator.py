@@ -270,10 +270,17 @@ class RewardCalculator:
         headroom = max(P_freestream - P_greedy, self.tau * P_freestream)
 
         if headroom <= 0:
-            raise ValueError(
-                f"Wake_recovery headroom is non-positive ({headroom}). "
-                f"P_freestream={P_freestream}, P_greedy={P_greedy}, tau={self.tau}"
-            )
+            # headroom <= 0 iff P_freestream <= 0 (tau > 0): the whole farm is
+            # producing nothing, e.g. every nacelle > ~70 deg off the wind so
+            # effective ws is below cut-in. Unreachable under static wd (yaw
+            # starts aligned and stays within the policy's offset band), but a
+            # legitimate state when wd MOVES during training: nacelles are
+            # world-fixed under wd rotation, and during random exploration
+            # nothing tracks the wind, so a large wd excursion (train wd
+            # schedules can drift up to 90 deg off the initial heading) zeroes
+            # the farm. No production => no wake-recovery signal: reward 0,
+            # not an exception.
+            return 0.0
 
         return gain / headroom
 
