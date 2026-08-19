@@ -13,6 +13,31 @@ import copy
 import gc
 
 from dynamiks.sites.turbulence_fields import MannTurbulenceField, RandomTurbulence
+
+import inspect
+
+# Memory-saving box loading: dynamiks (marcus >= 55eeee9) MannTurbulenceField.
+# from_netcdf(memmap=True) = read-only np.memmap of a float32 .npy sidecar next
+# to the .nc (created once) + lazy TI scaling (hipersim >= 0.1.18).
+_HAS_MEMMAP = "memmap" in inspect.signature(MannTurbulenceField.from_netcdf).parameters
+
+# One Mann box specification for every Mann path (MannGenerate, and the
+# pre-generated MannLoad libraries written by loadproxy's scripts/make_boxes.py),
+# so box seed k is the same field whether generated on the fly or loaded.
+# Nxyz (4096, 256, 64) x dxyz (D/20, D/10, D/10): for D = 178 m that is
+# 36.5 x 4.6 x 1.1 km -- long enough that a 2000 s episode at 9 m/s (17.8 km of
+# advection) never wraps the x axis (Bounds.Repeat), ~0.8 GB float32 per box.
+# (Before 2026-08-19: (1024, 512, 64) -- 9 km wide for a 0.9 km farm and
+# recycling ~2x per episode.)
+MANN_ALPHAEPSILON = 0.1
+MANN_L = 33.6
+MANN_GAMMA = 3.9
+MANN_NXYZ = (4096, 256, 64)
+MANN_DXYZ_OVER_D = (1 / 20, 1 / 10, 1 / 10)
+
+
+def mann_box_dxyz(rotor_diameter: float, dxyz_over_D=MANN_DXYZ_OVER_D) -> tuple:
+    return tuple(float(rotor_diameter) * float(f) for f in dxyz_over_D)
 from dynamiks.sites._site import MetmastSite
 from dynamiks.dwm.added_turbulence_models import (
     SynchronizedAutoScalingIsotropicMannTurbulence,
@@ -30,6 +55,13 @@ class TurbulenceManager:
     - MannFixed: Generate a fixed Mann turbulence box (reproducible)
     - Random: Use random turbulence (faster, less realistic)
     - None: Zero turbulence (fastest, for testing)
+
+    memmap_boxes=True makes MannLoad open boxes as read-only np.memmaps of a
+    float32 .npy sidecar (created next to each .nc on first use) with lazy TI
+    scaling, so only the pages the interpolation touches fault into RAM, all
+    processes on a node share them through the OS page cache, and queries are as
+    fast as the in-memory field. The baseline site then gets its own memmap
+    handle on the same file instead of a deepcopy of the array.
     """
 
     def __init__(
@@ -37,6 +69,9 @@ class TurbulenceManager:
         turbulence_type: str,
         turbulence_box_path: Optional[Union[str, Path]] = None,
         max_turb_move: float = 2.0,
+        memmap_boxes: bool = False,
+        mann_nxyz=MANN_NXYZ,
+        mann_dxyz_over_D=MANN_DXYZ_OVER_D,
     ):
         """
         Initialize the turbulence manager.
@@ -52,6 +87,15 @@ class TurbulenceManager:
         self.turbulence_box_path = turbulence_box_path
         self.max_turb_move = max_turb_move
 
+        self.memmap_boxes = bool(memmap_boxes)
+        if self.memmap_boxes and not _HAS_MEMMAP:
+            raise ImportError(
+                "memmap_boxes=True needs dynamiks MannTurbulenceField.from_netcdf(memmap=) "
+                "(dynamiks marcus >= 55eeee9, hipersim >= 0.1.18)"
+            )
+        self.mann_nxyz = tuple(int(n) for n in mann_nxyz)
+        self.mann_dxyz_over_D = tuple(float(f) for f in mann_dxyz_over_D)
+        self.tf_file = None
         # Random number generator (set by environment)
         self.np_random = None
 
@@ -150,7 +194,12 @@ class TurbulenceManager:
         # Create baseline site if requested
         site_baseline = None
         if create_baseline:
-            tf_base = copy.deepcopy(tf_agent)
+            if self.turbulence_type == "MannLoad" and self.memmap_boxes:
+                # A second lazy handle on the same file (own advection offset),
+                # never a deepcopy -- that would materialise the whole box.
+                tf_base = self._load_mann_box(ws=ws, ti=ti)
+            else:
+                tf_base = copy.deepcopy(tf_agent)
             site_baseline = MetmastSite(
                 ws=ws,
                 turbulenceField=tf_base,
@@ -206,13 +255,21 @@ class TurbulenceManager:
 
         # Select random turbulence file
         self.tf_file = self.np_random.choice(self.turbulence_files)
-        tf = MannTurbulenceField.from_netcdf(filename=self.tf_file)
-        tf.scale_TI(TI=ti, U=ws)
+        tf = self._load_mann_box(ws=ws, ti=ti)
 
         added_turb_model = SynchronizedAutoScalingIsotropicMannTurbulence(
             cache_field=False
         )
         return tf, added_turb_model
+
+    def _load_mann_box(self, ws: float, ti: float):
+        """Open self.tf_file (eager or memmap) and scale it to (ti, ws)."""
+        if self.memmap_boxes:
+            tf = MannTurbulenceField.from_netcdf(filename=self.tf_file, memmap=True)
+        else:
+            tf = MannTurbulenceField.from_netcdf(filename=self.tf_file)
+        tf.scale_TI(TI=ti, U=ws)  # lazy (on read) for the memmap-backed field
+        return tf
 
     def _generate_mann_generate(
         self, ws: float, ti: float, rotor_diameter: float
@@ -224,18 +281,16 @@ class TurbulenceManager:
             tf_seed = int(self.np_random.integers(0, 100000))
         print(f"[TurbulenceManager] MannGenerate box seed = {tf_seed}", flush=True)
 
+        # Box spec: module constants / constructor overrides (mann_nxyz,
+        # mann_dxyz_over_D) -- shared with the MannLoad libraries. Generation
+        # peak RSS scales with Nx*Ny*Nz (1024x512x64 was ~1.4 GB, 4096x512x64
+        # ~5.7 GB; the default 4096x256x64 is ~3 GB).
         tf = MannTurbulenceField.generate(
-            alphaepsilon=0.1,  # turbulence dissipation parameter
-            L=33.6,  # length scale (m)
-            Gamma=3.9,  # anisotropy parameter
-            Nxyz=(1024, 512, 64),  # grid points (x, y, z); x wraps (Bounds.Repeat),
-            # so the ~9 km box recycles under longer episodes. 4096 was ~5.7 GB
-            # peak RSS to generate; 1024 is ~1.4 GB.
-            dxyz=(
-                rotor_diameter / 20,
-                rotor_diameter / 10,
-                rotor_diameter / 10,
-            ),  # grid spacing
+            alphaepsilon=MANN_ALPHAEPSILON,  # turbulence dissipation parameter
+            L=MANN_L,  # length scale (m)
+            Gamma=MANN_GAMMA,  # anisotropy parameter
+            Nxyz=self.mann_nxyz,  # grid points (x, y, z); x wraps (Bounds.Repeat)
+            dxyz=mann_box_dxyz(rotor_diameter, self.mann_dxyz_over_D),  # grid spacing
             seed=tf_seed,
         )
         tf.scale_TI(TI=ti, U=ws)

@@ -27,7 +27,11 @@ from . import utils
 from .core.mes_class import FarmMes
 from .core.reward_calculator import RewardCalculator
 from .core.wind_manager import WindManager
-from .core.turbulence_manager import TurbulenceManager
+from .core.turbulence_manager import (
+    TurbulenceManager,
+    MANN_NXYZ as _MANN_NXYZ,
+    MANN_DXYZ_OVER_D as _MANN_DXYZ_OVER_D,
+)
 from .core.renderer import WindFarmRenderer
 from .core.baseline_manager import BaselineManager
 from .core.probe_manager import ProbeManager
@@ -348,6 +352,9 @@ class WindFarmEnv(gym.Env):
             turbulence_type=turbtype,
             turbulence_box_path=TurbBox,
             max_turb_move=max_turb_move,
+            memmap_boxes=self.turb_memmap,
+            mann_nxyz=self.mann_nxyz,
+            mann_dxyz_over_D=self.mann_dxyz_over_D,
         )
         # Expose turbulence files list for compatibility
         self.TF_files = self.turbulence_manager.turbulence_files
@@ -641,6 +648,12 @@ class WindFarmEnv(gym.Env):
         self.tau = self.power_def.get("tau", 0.02)
 
         # Derating action (optional, all default to off/zero)
+        # Mann turbulence box options (see core.turbulence_manager):
+        #   turb_memmap: MannLoad opens boxes lazily (memmap) instead of reading
+        #   them into memory; mann_nxyz / mann_dxyz_over_D: box spec for MannGenerate.
+        self.turb_memmap = bool(config.get("turb_memmap", False))
+        self.mann_nxyz = tuple(config.get("mann_nxyz", _MANN_NXYZ))
+        self.mann_dxyz_over_D = tuple(config.get("mann_dxyz_over_D", _MANN_DXYZ_OVER_D))
         self.derate_action = config.get("derate_action", False)
         # yaw_action=False (with derate_action=True) gives a derate-only agent
         self.yaw_action = config.get("yaw_action", True)
