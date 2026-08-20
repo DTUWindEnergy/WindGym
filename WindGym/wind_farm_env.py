@@ -462,9 +462,14 @@ class WindFarmEnv(gym.Env):
             # TODO HTC stuff is not covered by the tests atm
             # If we have a high fidelity turbine model, then we need to load it in
 
-            # We need to make a unique string, such that the results file doenst get overwritten
+            # We need to make a unique string, such that the results file doenst get overwritten.
+            # The np_random draw alone is NOT unique across processes: two envs with the
+            # same (wd, ws, ti, seed) on one node draw the same value and then share a
+            # case dir, clobbering each other's res files (this killed 7/9 cells of the
+            # 2026-08-20 hawc2_campaign pilot). os.getpid() is unique among concurrently
+            # live processes; the draw is kept so downstream RNG streams are unchanged.
             node_string = socket.gethostname().split(".")[0]
-            name_string = f"{node_string}_{self.wd:.2f}_{self.ws:.2f}_{self.ti:.2f}_{self.np_random.integers(low=0, high=45000)}"
+            name_string = f"{node_string}_{self.wd:.2f}_{self.ws:.2f}_{self.ti:.2f}_{self.np_random.integers(low=0, high=45000)}_{os.getpid()}"
             name_string = name_string.replace(".", "p")
 
             # MultiH2Lib spawns one subprocess per turbine. Those children can only be
