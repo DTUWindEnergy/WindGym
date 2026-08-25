@@ -174,6 +174,68 @@ class TestUniformSampling:
         assert wc1.turbulence_intensity == wc2.turbulence_intensity
 
 
+class TestVeerSampling:
+    """Tests for per-episode veer sampling (deg per 100 m)."""
+
+    @staticmethod
+    def _make_wm(**kwargs):
+        return WindManager(
+            ws_min=8.0,
+            ws_max=12.0,
+            wd_min=260.0,
+            wd_max=280.0,
+            ti_min=0.05,
+            ti_max=0.10,
+            **kwargs,
+        )
+
+    def test_default_veer_is_zero(self):
+        """Without veer args, sampled veer is 0.0."""
+        wm = self._make_wm()
+        wm.np_random = np.random.default_rng(seed=42)
+        assert wm.sample_conditions().veer == 0.0
+
+    def test_default_veer_consumes_no_rng(self):
+        """Degenerate veer interval must not advance the RNG stream.
+
+        Regression guard: pre-veer seeded runs (ws, wd, ti = 3 uniform draws
+        per sample) must stay byte-identical when veer defaults are used.
+        """
+        wm = self._make_wm()
+        wm.np_random = np.random.default_rng(seed=42)
+        wm.sample_conditions()
+        next_draw = wm.np_random.uniform(0.0, 1.0)
+
+        reference = np.random.default_rng(seed=42)
+        reference.uniform(size=3)  # ws, wd, ti — and nothing else
+        assert next_draw == reference.uniform(0.0, 1.0)
+
+    def test_fixed_nonzero_veer(self):
+        """min == max != 0 returns the exact value (deterministic evals)."""
+        wm = self._make_wm(veer_min=1.5, veer_max=1.5)
+        wm.np_random = np.random.default_rng(seed=42)
+        assert wm.sample_conditions().veer == 1.5
+
+    def test_veer_sampled_within_bounds(self):
+        """Sampled veer stays inside [veer_min, veer_max] and varies."""
+        wm = self._make_wm(veer_min=0.0, veer_max=2.0)
+        wm.np_random = np.random.default_rng(seed=42)
+
+        veers = [wm.sample_conditions().veer for _ in range(20)]
+        assert all(0.0 <= v <= 2.0 for v in veers)
+        assert len(set(veers)) > 1
+
+    def test_veer_reproducibility(self):
+        """Same seed produces the same veer sequence."""
+        wm1 = self._make_wm(veer_min=0.0, veer_max=2.0)
+        wm1.np_random = np.random.default_rng(seed=123)
+        wm2 = self._make_wm(veer_min=0.0, veer_max=2.0)
+        wm2.np_random = np.random.default_rng(seed=123)
+
+        for _ in range(5):
+            assert wm1.sample_conditions().veer == wm2.sample_conditions().veer
+
+
 class TestSiteSampling:
     """Tests for site-based wind condition sampling."""
 

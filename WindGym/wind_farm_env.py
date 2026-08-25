@@ -14,10 +14,6 @@ from pathlib import Path
 
 
 # Dynamiks imports
-from dynamiks.dwm import DWMFlowSimulation
-from dynamiks.dwm.particle_deficit_profiles.ainslie import jDWMAinslieGenerator
-from dynamiks.dwm.particle_motion_models import HillVortexParticleMotion
-from dynamiks.wind_turbines import PyWakeWindTurbines
 from dynamiks.views import XYView
 
 from IPython import display
@@ -32,6 +28,7 @@ from .core.renderer import WindFarmRenderer
 from .core.baseline_manager import BaselineManager
 from .core.probe_manager import ProbeManager
 from .core.power_tracking import PowerTrackingManager
+from .core.dwm_defaults import make_wts, make_dwm, add_hawc2_yaw_sensor
 from .core.derating import (
     add_hawc2_derate_sensor,
     check_htc_supports_derating,
@@ -42,26 +39,17 @@ from py_wake.wind_turbines import WindTurbines as WindTurbinesPW
 from collections import deque, defaultdict
 import yaml
 from .backend.hawc2_adapter import HAWC2WindTurbinesW
-from dynamiks.dwm.particle_motion_models import CutOffFrq
 
 # For live plotting
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 
 from WindGym.core.wind_probe import WindProbe
 
-# import logging
-# logger = logging.getLogger(__name__)
-
-
-CutOffFrqLio2021 = CutOffFrq(4)
-
 """
 This is the base for the wind farm environment. This is where the magic happens.
 For now it only supports the PyWakeWindTurbines, but it should be easy to expand to other types of turbines.
 """
 
-
-# TODO make it so that the turbines can be other then a square grid
 # TODO thrust coefficient control
 # TODO for now I have just hardcoded this scaling value (1 and 25 for the wind_speed min and max). This is beacuse the wind speed is chosen from the normal distribution, but becasue of the wakes and the turbulence, we canhave cases where we go above or below these values.
 
@@ -73,6 +61,29 @@ class WindFarmEnv(gym.Env):
     # Class-level default so subclasses that don't forward kwargs (e.g.
     # WindFarmEnvMulti) still expose the attribute.
     op_lookup = None
+
+    # Allowed keys for `dwm_params` (constructor) and `options["dwm_params"]`
+    # (reset). Split so the reset path can partition closure overrides
+    # (forwarded to ``make_dwm``) from Mann-box overrides (forwarded to
+    # ``TurbulenceManager.create_sites``). Anything outside the union raises so
+    # DR typos don't silently no-op.
+    _CLOSURE_PARAM_KEYS = frozenset({"k1", "k2", "d_particle"})
+    _MANN_PARAM_KEYS    = frozenset({"mann_L", "mann_GAMMA", "mann_AE"})
+    _DWM_PARAM_KEYS     = _CLOSURE_PARAM_KEYS | _MANN_PARAM_KEYS
+
+    @classmethod
+    def _validate_dwm_keys(cls, params: dict, where: str = "") -> None:
+        """Raise ValueError if any key in ``params`` is outside ``_DWM_PARAM_KEYS``.
+
+        ``where`` is appended to the message (e.g. " in reset options") so the
+        caller is identifiable from the traceback.
+        """
+        bad = set(params) - cls._DWM_PARAM_KEYS
+        if bad:
+            raise ValueError(
+                f"Unknown dwm_params keys{where}: {sorted(bad)}. "
+                f"Allowed: {sorted(cls._DWM_PARAM_KEYS)}"
+            )
 
     def __init__(
         self,
@@ -116,6 +127,8 @@ class WindFarmEnv(gym.Env):
         | None = None,  # fixed episode length in env steps; time_max becomes max_time_steps * delay seconds. None = use ws-derived time_max.
         cleanup_on_time_limit: bool = True,
         keep_hawc_results: bool = False,  # if True, never delete the HAWC2 res/htc/log folders
+        hawc2_yaw_mode: str = "bearing2_slot",  # yaw sensor wiring, must match the htc servo DLL; see core.dwm_defaults.add_hawc2_yaw_sensor
+        hawc2_yaw_slot: int = 1,  # HAWC2 general-variable index the servo DLL reads the yaw setpoint from
         wd_function=None,  # A function that takes in the timestep and returns the wind direction
         power_ref_function=None,  # A function (t_seconds, env) -> reference farm power in W. Only used when Track_power is True; None uses the default constant-setpoint sampler.
         max_turb_move=2,  # The maximum distance that the turbines can move in one timestep. This is used to avoid numerical issues with the DWM solver.
@@ -124,6 +137,8 @@ class WindFarmEnv(gym.Env):
         wd_est_consensus="median",  # Cross-turbine consensus for the wd estimator: median / mean / front.
         interpolation="linear",  # Particle trajectory interpolation in the DWM solver: 'linear' (fast) or 'pchip' (cubic, original)
         lateral_cutoff=1.5,  # Skip wake deficit evaluation beyond this factor times the deficit profile half-width (r_max*R) from the meandered wake centerline. None disables (original behavior).
+        tilt: Optional[float] = None,  # Fixed rotor tilt in deg for all turbines (positive deflects the wake upward in DWM). None -> use config `farm: tilt` (default 0). Needed for veer to create a yaw-sign asymmetry.
+        dwm_params: Optional[dict] = None,  # Override DWM closure params (k1, k2, d_particle). Used for domain randomization; per-episode overrides go through reset(options={"dwm_params": ...}).
         **kwargs,
     ):
         """
@@ -180,6 +195,8 @@ class WindFarmEnv(gym.Env):
         self.max_time_steps = max_time_steps
         self.cleanup_on_time_limit = cleanup_on_time_limit
         self.keep_hawc_results = keep_hawc_results
+        self.hawc2_yaw_mode = hawc2_yaw_mode
+        self.hawc2_yaw_slot = int(hawc2_yaw_slot)
         # The farm power reference (W) at the current env step and its preview,
         # maintained by _push_tracking when Track_power is True.
         self.power_setpoint = 0.0
@@ -219,10 +236,6 @@ class WindFarmEnv(gym.Env):
         self.maxturbpower = max(turbine.power(np.arange(10, 25, 1)))
         self.baseline_wakes = True  # A flag that decides if we include the wakes in the baseline farm. For now always true.
         # The step size for the yaw angles. How manny degress the yaw angles can change pr. step
-        # The distance between the particles. This is used in the flow simulation.
-        self.d_particle = 0.2
-        self.n_particles = None
-        self.temporal_filter = CutOffFrqLio2021
         self.interpolation = interpolation
         self.lateral_cutoff = lateral_cutoff
         self.turbtype = turbtype
@@ -280,6 +293,10 @@ class WindFarmEnv(gym.Env):
         cfg = self._normalize_config_input(config)
         self._apply_config(cfg)
 
+        # Constructor kwarg overrides the config `farm: tilt` value
+        if tilt is not None:
+            self.tilt = float(tilt)
+
         # Derating: extend the action space. The turbine itself must accept a
         # 'derate' input — the env only forwards per-turbine derate values.
         # With yaw_action=False the agent controls derating only (act_var=1).
@@ -330,6 +347,8 @@ class WindFarmEnv(gym.Env):
             ti_min=self.TI_inflow_min,
             ti_max=self.TI_inflow_max,
             sample_site=sample_site,
+            veer_min=self.veer_inflow_min,
+            veer_max=self.veer_inflow_max,
         )
 
         # Initialize the power tracking manager (reference generation)
@@ -348,6 +367,7 @@ class WindFarmEnv(gym.Env):
             turbulence_type=turbtype,
             turbulence_box_path=TurbBox,
             max_turb_move=max_turb_move,
+            memmap_boxes=self.turb_memmap,
         )
         # Expose turbulence files list for compatibility
         self.TF_files = self.turbulence_manager.turbulence_files
@@ -382,6 +402,8 @@ class WindFarmEnv(gym.Env):
                 yaw_step_env=self.yaw_step_env,
                 yaw_step_sim=self.yaw_step_sim,
                 htc_path=HTC_path,
+                hawc2_yaw_mode=self.hawc2_yaw_mode,
+                hawc2_yaw_slot=self.hawc2_yaw_slot,
             )
 
         # #Initializing the measurements class with the specified values.
@@ -413,6 +435,13 @@ class WindFarmEnv(gym.Env):
         self.obs_var = self.farm_measurements.observed_variables()
 
         self._init_spaces()
+
+        # Base DWM closure-param overrides used at every reset unless an
+        # episode supplies its own via reset(options={"dwm_params": ...}).
+        # Unknown keys raise immediately.
+        self._base_dwm_params: dict = dict(dwm_params) if dwm_params else {}
+        self._validate_dwm_keys(self._base_dwm_params)
+        self._active_dwm_params: dict = dict(self._base_dwm_params)
 
         if reset_init:
             # We should have this here, to set the seeding correctly
@@ -455,9 +484,11 @@ class WindFarmEnv(gym.Env):
             # TODO HTC stuff is not covered by the tests atm
             # If we have a high fidelity turbine model, then we need to load it in
 
-            # We need to make a unique string, such that the results file doenst get overwritten
+            # We need to make a unique string, such that the results file doenst get overwritten.
+            # The pid makes it collision-proof across vectorized env workers on
+            # the same node (the random suffix alone can collide across 15 envs).
             node_string = socket.gethostname().split(".")[0]
-            name_string = f"{node_string}_{self.wd:.2f}_{self.ws:.2f}_{self.ti:.2f}_{self.np_random.integers(low=0, high=45000)}"
+            name_string = f"{node_string}_{os.getpid()}_{self.wd:.2f}_{self.ws:.2f}_{self.ti:.2f}_{self.np_random.integers(low=0, high=45000)}"
             name_string = name_string.replace(".", "p")
 
             # MultiH2Lib spawns one subprocess per turbine. Those children can only be
@@ -472,26 +503,18 @@ class WindFarmEnv(gym.Env):
                 case_name=name_string,  # subfolder name in the htc, res and log folders
                 suppress_output=True,  # don't show hawc2 output in console
             )
-            # Add the yaw sensor, but because the only keyword does not work with h2lib, we add another layer that then only returns the first values of them.
-            self.wts.add_sensor(
-                name="yaw_getter",
-                getter="constraint bearing2 yaw_rot 1 only 1;",  #
-                expose=False,
-                ext_lst=["angle", "speed"],
-            )
-            self.wts.add_sensor(
-                "yaw",
-                getter=lambda wt: np.rad2deg(wt.sensors.yaw_getter[:, 0]),
-                setter=lambda wt, value: wt.h2.set_variable_sensor_value(
-                    1, np.deg2rad(value).tolist()
-                ),
-                expose=True,
+            # Yaw sensor wiring is htc-specific (constraint naming + which
+            # general-variable slot the servo DLL reads), so it is configurable.
+            add_hawc2_yaw_sensor(
+                self.wts, mode=self.hawc2_yaw_mode, slot=self.hawc2_yaw_slot
             )
             if self.derate_action:
                 # d <-> dr% mapping and sensor wiring live in core/derating.
                 add_hawc2_derate_sensor(self.wts, self.n_turb)
         else:  # If we have no HTC path, use the pywake turbine
-            self.wts = PyWakeWindTurbines(
+            # Calibrated rotor-average (CGIRotorAvg) + transport-speed TI
+            # sensor -- the turbine wiring the LES calibration was run with.
+            self.wts = make_wts(
                 x=self.x_pos,
                 y=self.y_pos,  # x and y position of two wind turbines
                 windTurbine=self.turbine,
@@ -581,6 +604,27 @@ class WindFarmEnv(gym.Env):
         self.yaw_max = require_key(farm, "yaw_max", "farm")
         self.yaw_scaling_min = self.yaw_min
         self.yaw_scaling_max = self.yaw_max
+        # Optional fixed rotor tilt (deg, all turbines); positive deflects the
+        # wake upward in DWM. Required for veer to produce a yaw-sign asymmetry.
+        self.tilt = farm.get("tilt", 0.0)
+
+        # turb_memmap: MannLoad opens boxes lazily (memmap) instead of reading
+        # them into memory (see core.turbulence_manager).
+        self.turb_memmap = bool(config.get("turb_memmap", False))
+
+        # Legacy box-spec keys died with the legacy DWM path: the Mann box is
+        # pinned in core/dwm_defaults.py (calibrated spec). A config still
+        # carrying them would silently get the calibrated box instead of what
+        # it asks for — say so loudly.
+        import warnings as _warnings
+        for _legacy_key in ("mann_nxyz", "mann_dxyz_over_D"):
+            if _legacy_key in config:
+                _warnings.warn(
+                    f"config key '{_legacy_key}' is ignored: the Mann box spec "
+                    "is pinned to the calibrated values in core/dwm_defaults.py "
+                    "(the legacy configurable-box path was removed).",
+                    stacklevel=2,
+                )
 
         # Wind section (required keys)
         wind = require_section("wind")
@@ -590,6 +634,10 @@ class WindFarmEnv(gym.Env):
         self.TI_inflow_max = require_key(wind, "TI_max", "wind")
         self.wd_inflow_min = require_key(wind, "wd_min", "wind")
         self.wd_inflow_max = require_key(wind, "wd_max", "wind")
+        # Optional veer range (deg per 100 m, 0 at hub height); defaults keep
+        # existing configs byte-identical (no RNG draw when min == max).
+        self.veer_inflow_min = wind.get("veer_min", 0.0)
+        self.veer_inflow_max = wind.get("veer_max", 0.0)
 
         # Measurement & reward sections. These are consumed by bare [...]
         # indexing in _init_farm_mes / RewardCalculator, so validate here to
@@ -879,6 +927,41 @@ class WindFarmEnv(gym.Env):
                 "wd_est_tau (the sensor-derived estimator is off)")
         return self._wd_estimator.per_turbine
 
+    def _nowake_power(self, fs) -> float:
+        """Farm no-wake power in W for either turbine backend.
+
+        HAWC2WindTurbines asserts on ``power(include_wakes=False)`` (the aero
+        power sensor always sees the waked inflow), so for HAWC2 we evaluate
+        the PyWake power curve at the free-stream rotor-average wind speed the
+        DWM already computes every step (``rotor_avg_freestream``, set in
+        dynamiks' ``update_wind_turbine_sensors``). This mirrors what
+        PyWakeWindTurbines.power(include_wakes=False) does internally, minus
+        the yaw-cosine kwargs — negligible for the greedy (≈0° yaw) baseline
+        farm this feeds via ``nowake_pow_deq`` (the Wake_recovery headroom).
+        Units are W in both branches (HAWC2 path goes through the PyWake curve;
+        the waked HAWC2 path is W via HAWC2WindTurbinesW).
+        """
+        if self.HTC_path is None:
+            return fs.windTurbines.power(include_wakes=False).sum()
+        ws_free = np.asarray(fs.windTurbines.rotor_avg_freestream)[:, 0]
+        return float(np.sum(self.turbine.power(ws_free)))
+
+    def _build_dwm_fs(self, site, windTurbines, closure_overrides):
+        """Construct the DWM flow simulation: dwm_defaults.make_dwm -- the
+        closure the LES/SBI calibration was run against; closure_overrides
+        (k1, k2, d_particle) are the per-episode DR draws (empty dict =
+        calibrated nominal)."""
+        return make_dwm(
+            site=site,
+            windTurbines=windTurbines,
+            wind_direction=self.wd,
+            dt=self.dt,
+            addedTurbulenceModel=self.addedTurbulenceModel,
+            interpolation=self.interpolation,
+            lateral_cutoff=self.lateral_cutoff,
+            **closure_overrides,
+        )
+
     def _get_info(self) -> dict[str, Any]:
         """
         Return info dictionary.
@@ -896,13 +979,10 @@ class WindFarmEnv(gym.Env):
             "Wind direction at turbines measured": self.farm_measurements.get_wd_turb(),
             "Wind direction at farm measured": self.farm_measurements.get_wd_farm(),
             "Turbulence intensity": self.ti,
+            "Wind veer Global": self.veer,
+            "Turbine tilt": self.tilt,
             "Power agent": self.fs.windTurbines.power().sum(),
-            # HAWC2WindTurbines cannot compute power without wakes; report NaN there.
-            "Power agent nowake": (
-                np.nan
-                if self.HTC_path is not None
-                else self.fs.windTurbines.power(include_wakes=False).sum()
-            ),
+            "Power agent nowake": self._nowake_power(self.fs),
             "Power pr turbine agent": self.fs.windTurbines.power(),
             "Turbine x positions": self.fs.windTurbines.positions_xyz[0],
             "Turbine y positions": self.fs.windTurbines.positions_xyz[1],
@@ -951,6 +1031,7 @@ class WindFarmEnv(gym.Env):
         """
         wind_cond = self.wind_manager.sample_conditions()
         self.ws, self.wd, self.ti = wind_cond.unpack()
+        self.veer = wind_cond.veer
 
     def reset(self, seed: Optional[int] = None, options: Optional[dict] = None):
         """
@@ -959,7 +1040,48 @@ class WindFarmEnv(gym.Env):
         - The flow simulation is run for the time it takes for the flow to develop.
         - The measurements are filled up with the initial values.
 
+        Domain-randomization hook: pass
+        ``options={"dwm_params": {"k1": ..., "mann_L": ..., ...}}`` to override
+        DWM parameters for this episode only. Two parameter groups are
+        supported:
+
+        * **Closure** (``k1``, ``k2``, ``d_particle``) — forwarded to
+          ``make_dwm``. Honored under any ``turbtype``.
+        * **Mann box** (``mann_L``, ``mann_GAMMA``, ``mann_AE``) — forwarded to
+          ``TurbulenceManager.create_sites`` and used by ``MannGenerate`` to
+          rebuild the box per reset. **Only honored under
+          ``turbtype="MannGenerate"``** — under other turbtypes the box is not
+          regenerated from these statistics and the env raises rather than
+          silently dropping them.
+
+        Under DR with any Mann key set, ``self.ti`` (sampled by
+        ``wind_manager``) is no longer authoritative for the box's ambient TI —
+        ``mann_AE`` is. ``self.ti`` is kept as a nominal value for observations
+        and normalization.
         """
+        # Episode-level override of DWM params (domain randomization).
+        # Done before any heavy work so a typo fails fast.
+        episode_overrides = (options or {}).get("dwm_params") or {}
+        self._validate_dwm_keys(episode_overrides, " in reset options")
+        self._active_dwm_params = {**self._base_dwm_params, **episode_overrides}
+
+        # Partition into the two subsystems that consume these keys.
+        closure_overrides = {k: v for k, v in self._active_dwm_params.items()
+                             if k in self._CLOSURE_PARAM_KEYS}
+        mann_overrides    = {k: v for k, v in self._active_dwm_params.items()
+                             if k in self._MANN_PARAM_KEYS}
+
+        # Per-episode Mann statistics only take effect when the turbulence
+        # manager actually regenerates the box. Fail loud rather than silently
+        # ignoring them under the other branches.
+        if mann_overrides and self.turbtype != "MannGenerate":
+            raise ValueError(
+                f"dwm_params contains Mann keys {sorted(mann_overrides)} but "
+                f"turbtype={self.turbtype!r} does not regenerate the box from "
+                "those statistics. Set turbtype='MannGenerate' on env "
+                "construction, or remove the Mann keys from the DR sampler."
+            )
+
         # Clean up previous episode resources FIRST
         self._soft_cleanup()
 
@@ -976,6 +1098,21 @@ class WindFarmEnv(gym.Env):
         # wind_cond = self.wind_manager.sample_conditions()
         # self.ws, self.wd, self.ti = wind_cond.unpack()
         self._set_windconditions()
+
+        # Precursor inflow dictates the wind conditions: ws is the LES
+        # advection speed (drives rated_power, obs scaling and the time
+        # parameters), wd is the box orientation, ti the measured hub-height
+        # TI. Must run before rated_power below.
+        if self.turbtype == "Precursor":
+            if self.veer:
+                raise ValueError(
+                    "turbtype='Precursor' carries the LES shear/veer in the box "
+                    "itself; remove veer_min/veer_max from the wind config."
+                )
+            _meta = self.turbulence_manager.precursor_meta
+            self.ws = float(_meta["advection_speed"])
+            self.wd = 270.0
+            self.ti = float(_meta["ti_hub"])
 
         # 2) Fresh measurement buffers
         self._init_farm_mes()
@@ -1076,32 +1213,23 @@ class WindFarmEnv(gym.Env):
                 n_passthrough=self.n_passthrough,
                 burn_in_passthroughs=self.burn_in_passthroughs,
                 create_baseline=self.Baseline_comp,
+                mann_overrides=mann_overrides or None,
+                # User-facing veer is deg per 100 m; create_sites takes deg/m.
+                veer_rate=self.veer / 100.0,
+                veer_ref_height=float(self.turbine.hub_height()),
+                # Total sim seconds this episode consumes (burn-in + sensor
+                # fill + episode). Only the Precursor branch uses it, to bound
+                # its random start-time window; passed from here because
+                # time_max was overridden above (max_time_steps).
+                episode_time_budget_s=(
+                    self.t_developed + self.steps_on_reset * self.delay + self.time_max
+                ),
             )
 
-            # Ensure enough particles to cover at least 15D downstream.
-            # Dynamiks defaults to farm_size_x / d_particle, which is 0 for
-            # side-by-side layouts where all turbines share the same x position.
-            _n_particles = self.n_particles
-            if _n_particles is None:
-                _D = self.turbine.diameter()
-                _farm_x = max(self.x_pos) - min(self.x_pos)
-                _desired = max(_farm_x * 1.2, 15 * _D)
-                _n_particles = max(int(np.ceil(_desired / (self.d_particle * _D))), 10)
-
-            self.fs = DWMFlowSimulation(
+            self.fs = self._build_dwm_fs(
                 site=self.site,
                 windTurbines=self.wts,
-                wind_direction=self.wd,
-                particleDeficitGenerator=jDWMAinslieGenerator(),
-                dt=self.dt,
-                n_particles=_n_particles,
-                d_particle=self.d_particle,
-                particleMotionModel=HillVortexParticleMotion(
-                    temporal_filter=self.temporal_filter
-                ),
-                addedTurbulenceModel=self.addedTurbulenceModel,
-                interpolation=self.interpolation,
-                lateral_cutoff=self.lateral_cutoff,
+                closure_overrides=closure_overrides,
             )
             self.wd = self.fs._wind_direction  # Update to match wd_list first value
         else:
@@ -1109,6 +1237,10 @@ class WindFarmEnv(gym.Env):
             if self.HTC_path is not None:
                 raise NotImplementedError(
                     "pywake_steady backend does not support HAWC2WindTurbines."
+                )
+            if self.veer != 0:
+                raise NotImplementedError(
+                    "pywake_steady backend does not support wind veer."
                 )
             from .backend.pywake_adapter import (
                 PyWakeFlowSimulationAdapter,
@@ -1141,6 +1273,17 @@ class WindFarmEnv(gym.Env):
         ).copy()
         self.fs.windTurbines.yaw = self.yaw_command
 
+        # Fixed rotor tilt (deg). Only set when nonzero so default behavior is
+        # untouched. The tilt sensor exists on the PyWake turbines only; HAWC2
+        # models carry their own physical tilt.
+        if self.tilt != 0:
+            if self.backend != "dynamiks" or self.HTC_path is not None:
+                raise NotImplementedError(
+                    "tilt is only supported on the dynamiks backend with "
+                    "PyWake turbines."
+                )
+            self.fs.windTurbines.tilt = np.full(self.n_turb, float(self.tilt))
+
         # Must init probes after fs
         self.probe_manager.initialize_probes(self.fs, self.fs.windTurbines.yaw)
         # Update references to point to probe_manager's collections
@@ -1161,20 +1304,10 @@ class WindFarmEnv(gym.Env):
                 # speed, Mann field, per-turbine offsets) is deterministic
                 # from the model seed and the (deep-copied) site, so both
                 # sims see identical added turbulence; __call__ is read-only.
-                self.fs_baseline = DWMFlowSimulation(
+                self.fs_baseline = self._build_dwm_fs(
                     site=self.site_base,
                     windTurbines=self.wts_baseline,
-                    wind_direction=self.wd,
-                    particleDeficitGenerator=jDWMAinslieGenerator(),
-                    dt=self.dt,
-                    n_particles=_n_particles,
-                    d_particle=self.d_particle,
-                    particleMotionModel=HillVortexParticleMotion(
-                        temporal_filter=self.temporal_filter
-                    ),
-                    addedTurbulenceModel=self.addedTurbulenceModel,
-                    interpolation=self.interpolation,
-                    lateral_cutoff=self.lateral_cutoff,
+                    closure_overrides=closure_overrides,
                 )
             else:
                 if self.HTC_path is not None:
@@ -1194,8 +1327,12 @@ class WindFarmEnv(gym.Env):
                     wd_lst=wd_list,
                 )
 
-            # Start baseline with same yaw as agent at reset
+            # Start baseline with same yaw (and tilt) as agent at reset
             self.fs_baseline.windTurbines.yaw = self.fs.windTurbines.yaw
+            if self.tilt != 0:
+                self.fs_baseline.windTurbines.tilt = np.full(
+                    self.n_turb, float(self.tilt)
+                )
 
         # 3c) Run the flow for the time it takes to develop
         if self.backend == "dynamiks":
@@ -1240,11 +1377,7 @@ class WindFarmEnv(gym.Env):
             self._push_tracking(0, out["mean_power"].sum())
             if self.Baseline_comp:
                 self.base_pow_deq.append(out["baseline_power_mean"].sum())
-                self.nowake_pow_deq.append(
-                    np.nan
-                    if self.HTC_path is not None
-                    else self.fs_baseline.windTurbines.power(include_wakes=False).sum()
-                )
+                self.nowake_pow_deq.append(self._nowake_power(self.fs_baseline))
 
         # 5) Get observation and info
         observation = self._get_obs()
@@ -1617,11 +1750,7 @@ class WindFarmEnv(gym.Env):
         self._push_tracking(self.timestep + 1, out["mean_power"].sum())
         if self.Baseline_comp:
             self.base_pow_deq.append(out["baseline_power_mean"].sum())
-            self.nowake_pow_deq.append(
-                np.nan
-                if self.HTC_path is not None
-                else self.fs_baseline.windTurbines.power(include_wakes=False).sum()
-            )
+            self.nowake_pow_deq.append(self._nowake_power(self.fs_baseline))
 
         if np.any(np.isnan(self.farm_pow_deq)):
             raise Exception("NaN Power")
@@ -1631,6 +1760,7 @@ class WindFarmEnv(gym.Env):
         info = self._get_info()
         info["time_array"] = out["time_array"]
         info["windspeeds"] = out["windspeeds"]
+        info["winddirs"] = out["winddirs"]
         info["yaws"] = out["yaws"]
         info["powers"] = out["powers"]
         info["derates"] = out["derates"]
@@ -1832,8 +1962,11 @@ class WindFarmEnv(gym.Env):
         """Renders the current environment state and returns the frame - delegates to renderer."""
         fs_baseline = self.fs_baseline if self.Baseline_comp else None
         probes = self.probes if hasattr(self, "probes") else None
+        # NB: keyword args — the renderer signature has no ws parameter, and a
+        # positional self.ws used to land in fix_turbines, silently forcing
+        # EastNorthView for any nonzero wind speed.
         return self.renderer._render_frame(
-            self.fs, fs_baseline, probes, baseline, self.turbine, self.ws
+            self.fs, fs_baseline, probes=probes, baseline=baseline, turbine=self.turbine
         )
 
     def close(self):

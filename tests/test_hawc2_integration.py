@@ -174,6 +174,11 @@ def mock_hawc2_wind_turbines():
         type(collection_mock).rotor_avg_windspeed = PropertyMock(
             return_value=np.zeros((num_turbines, 3))
         )
+        # (n_turb, 3) uvw free-stream rotor average, as dynamiks'
+        # update_wind_turbine_sensors stores it; consumed by _nowake_power.
+        type(collection_mock).rotor_avg_freestream = PropertyMock(
+            return_value=np.tile(np.array([10.0, 0.0, 0.0]), (num_turbines, 1))
+        )
 
         # --- Configure nested mock objects ---
         collection_mock.h2 = MagicMock(close=MagicMock(), write_output=MagicMock())

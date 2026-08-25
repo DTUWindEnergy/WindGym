@@ -58,8 +58,10 @@ class WindFarmRenderer:
             turbine: Turbine object (for hub_height)
         """
         x_turb, y_turb = fs.windTurbines.positions_xyz[:2]
+        # y margin scales with rotor size so large turbines (IEA22, D=280 m)
+        # keep their deflected wakes inside the view.
+        D = float(np.max(turbine.diameter()))
 
-        D = turbine.diameter()
         y_pad = max(3 * D, 0.2 * (max(y_turb) - min(y_turb) + 1))
         self.a = np.linspace(-3 * D + min(x_turb), 1500 + max(x_turb), 250)
         self.b = np.linspace(-y_pad + min(y_turb), y_pad + max(y_turb), 250)
@@ -228,7 +230,6 @@ class WindFarmRenderer:
             probes: Optional list of wind probes
             baseline: Whether to render baseline instead of agent
             turbine: Turbine object (for view if not initialized)
-            ws: Approximate free-stream wind speed used to set colorbar vmax
             fix_turbines: If True use EastNorthView (farm fixed, wind rotates)
 
         Returns:

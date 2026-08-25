@@ -44,9 +44,11 @@ class FarmEval(WindFarmEnv):
         fill_window=True,
         sample_site=None,
         burn_in_passthroughs=2,
+        tilt=None,
         cleanup_on_time_limit: bool = True,
         keep_hawc_results: bool = False,
         op_lookup=None,
+        max_time_steps=None,
     ):
         self.finite_episode = finite_episode
         # TODO There must be a better way to set all these valuesm **kwargs???
@@ -82,9 +84,15 @@ class FarmEval(WindFarmEnv):
             reset_init=reset_init,
             fill_window=fill_window,
             sample_site=sample_site,
+            tilt=tilt,
             cleanup_on_time_limit=cleanup_on_time_limit,
             keep_hawc_results=keep_hawc_results,
             op_lookup=op_lookup,
+            # Sized episode budget; needed by turbtype="Precursor" so the
+            # random-window check sees the harness horizon rather than the
+            # passthrough-derived time_max (finite_episode=False still lifts
+            # time_max to "infinite" after reset).
+            max_time_steps=max_time_steps,
         )
         self.yaml_path = config  # Saved for legacy reasons
 
@@ -104,9 +112,10 @@ class FarmEval(WindFarmEnv):
 
         return observation, info
 
-    def set_wind_vals(self, ws=None, ti=None, wd=None):
+    def set_wind_vals(self, ws=None, ti=None, wd=None, veer=None):
         """
-        Set the wind values to be used in the evaluation
+        Set the wind values to be used in the evaluation.
+        veer is the linear veer rate in deg per 100 m (0 at hub height).
         """
         if ws is not None:
             self.ws = ws
@@ -129,6 +138,13 @@ class FarmEval(WindFarmEnv):
             # Update wind_manager to use exact values
             self.wind_manager.wd_min = wd
             self.wind_manager.wd_max = wd
+        if veer is not None:
+            self.veer = veer
+            self.veer_inflow_min = veer
+            self.veer_inflow_max = veer
+            # Degenerate interval -> deterministic value, no RNG draw
+            self.wind_manager.veer_min = veer
+            self.wind_manager.veer_max = veer
 
     def set_yaw_vals(self, yaw_vals):
         """

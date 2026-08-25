@@ -25,6 +25,10 @@ farm:
   yDist: 3
   nx: 2
   ny: 2
+  # Optional fixed rotor tilt [deg] for all turbines (default 0). Positive
+  # deflects the wake upward in DWM; needed for veer to give a yaw-sign
+  # asymmetry. Realistic shaft tilt ~5 deg.
+  # tilt: 5.0
 
 #Wind conditions
 wind:
@@ -34,6 +38,12 @@ wind:
   TI_max: 0.15
   wd_min: 255
   wd_max: 285
+  # Optional linear veer rate range [deg per 100 m], sampled per episode.
+  # Positive = wd increases with height; pinned to 0 at hub height.
+  # Veer lives in the site's vertical wind profile (MetmastSite) and composes
+  # with any wd series, including a time-varying wd_function.
+  # veer_min: 0.0
+  # veer_max: 2.0
 
 #Penalty parameters
 act_pen:

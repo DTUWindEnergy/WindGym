@@ -19,9 +19,10 @@ class WindConditions:
     wind_speed: float  # m/s
     wind_direction: float  # degrees
     turbulence_intensity: float  # fraction (0-1)
+    veer: float = 0.0  # linear veer rate (deg per 100 m), 0 at hub height
 
     def unpack(self):
-        """Unpack wind conditions as tuple."""
+        """Unpack wind conditions as tuple (veer accessed explicitly via .veer)."""
         return self.wind_speed, self.wind_direction, self.turbulence_intensity
 
 
@@ -45,6 +46,8 @@ class WindManager:
         ti_min: float,
         ti_max: float,
         sample_site: Optional[object] = None,
+        veer_min: float = 0.0,
+        veer_max: float = 0.0,
     ):
         """
         Initialize the wind manager.
@@ -57,6 +60,9 @@ class WindManager:
             ti_min: Minimum turbulence intensity (fraction)
             ti_max: Maximum turbulence intensity (fraction)
             sample_site: Optional PyWake site for realistic wind sampling
+            veer_min: Minimum veer rate (deg per 100 m, positive = wd
+                increases with height, 0 at hub height)
+            veer_max: Maximum veer rate (deg per 100 m)
         """
         self.ws_min = ws_min
         self.ws_max = ws_max
@@ -65,6 +71,8 @@ class WindManager:
         self.ti_min = ti_min
         self.ti_max = ti_max
         self.sample_site = sample_site
+        self.veer_min = veer_min
+        self.veer_max = veer_max
 
         # Random number generator (set by environment)
         self.np_random = None
@@ -97,8 +105,11 @@ class WindManager:
         ws = self._random_uniform(self.ws_min, self.ws_max)
         wd = self._random_uniform(self.wd_min, self.wd_max)
         ti = self._random_uniform(self.ti_min, self.ti_max)
+        veer = self._sample_veer()
 
-        return WindConditions(wind_speed=ws, wind_direction=wd, turbulence_intensity=ti)
+        return WindConditions(
+            wind_speed=ws, wind_direction=wd, turbulence_intensity=ti, veer=veer
+        )
 
     def _sample_from_site(self) -> WindConditions:
         """
@@ -129,8 +140,22 @@ class WindManager:
 
         # TI is still uniformly sampled (not provided by site)
         ti = self._random_uniform(self.ti_min, self.ti_max)
+        veer = self._sample_veer()
 
-        return WindConditions(wind_speed=ws, wind_direction=wd, turbulence_intensity=ti)
+        return WindConditions(
+            wind_speed=ws, wind_direction=wd, turbulence_intensity=ti, veer=veer
+        )
+
+    def _sample_veer(self) -> float:
+        """
+        Sample the veer rate (deg per 100 m).
+
+        When the interval is degenerate (min == max, the default 0/0) no RNG
+        draw is made, so pre-veer seeded runs keep an identical random stream.
+        """
+        if self.veer_min == self.veer_max:
+            return float(self.veer_min)
+        return self._random_uniform(self.veer_min, self.veer_max)
 
     def _sample_weibull_wind(self, dirs, As, ks, freqs):
         """
