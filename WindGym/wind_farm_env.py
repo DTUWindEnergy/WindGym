@@ -4,12 +4,14 @@ import numpy as np
 import gymnasium as gym
 import matplotlib.pyplot as plt
 import copy
+import inspect
 import os
 import gc
 import sys
 import socket
 import shutil
 import math
+import warnings
 from pathlib import Path
 
 
@@ -54,6 +56,38 @@ from WindGym.core.wind_probe import WindProbe
 
 
 CutOffFrqLio2021 = CutOffFrq(4)
+
+# Set once a dropped-kwargs warning has been emitted, so we only warn once per
+# process even though a construction site may run once per episode reset.
+_dwm_speed_kwargs_warned = False
+
+
+def _dwm_speed_kwargs(interpolation, lateral_cutoff) -> dict:
+    """Build the DWMFlowSimulation kwargs for the proj/fast speedups.
+
+    The installed `dynamiks` submodule may predate the `interpolation` /
+    `lateral_cutoff` speedups (they live on a separate `dynamiks` branch that
+    cannot currently be merged into the pinned one). Only pass kwargs that
+    `DWMFlowSimulation.__init__` actually accepts, so WindGym keeps working
+    against an older dynamiks; warn once per process about anything dropped.
+    """
+    global _dwm_speed_kwargs_warned
+
+    candidates = {"interpolation": interpolation, "lateral_cutoff": lateral_cutoff}
+    supported = inspect.signature(DWMFlowSimulation.__init__).parameters
+    kwargs = {name: value for name, value in candidates.items() if name in supported}
+    dropped = [name for name in candidates if name not in supported]
+
+    if dropped and not _dwm_speed_kwargs_warned:
+        _dwm_speed_kwargs_warned = True
+        warnings.warn(
+            f"The installed dynamiks predates the proj/fast DWM speedups; "
+            f"dropping unsupported DWMFlowSimulation kwarg(s): {', '.join(dropped)}.",
+            stacklevel=2,
+        )
+
+    return kwargs
+
 
 """
 This is the base for the wind farm environment. This is where the magic happens.
@@ -1050,8 +1084,7 @@ class WindFarmEnv(gym.Env):
                     temporal_filter=self.temporal_filter
                 ),
                 addedTurbulenceModel=self.addedTurbulenceModel,
-                interpolation=self.interpolation,
-                lateral_cutoff=self.lateral_cutoff,
+                **_dwm_speed_kwargs(self.interpolation, self.lateral_cutoff),
             )
             self.wd = self.fs._wind_direction  # Update to match wd_list first value
         else:
@@ -1122,8 +1155,7 @@ class WindFarmEnv(gym.Env):
                         temporal_filter=self.temporal_filter
                     ),
                     addedTurbulenceModel=self.addedTurbulenceModel,
-                    interpolation=self.interpolation,
-                    lateral_cutoff=self.lateral_cutoff,
+                    **_dwm_speed_kwargs(self.interpolation, self.lateral_cutoff),
                 )
             else:
                 if self.HTC_path is not None:
