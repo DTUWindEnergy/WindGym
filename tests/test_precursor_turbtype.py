@@ -9,14 +9,22 @@ from py_wake.examples.data.hornsrev1 import V80
 
 import dynamiks
 from dynamiks.sites._site import TurbulenceFieldSite
-from dynamiks.sites.precursor import convert_precursor
 
 from WindGym import WindFarmEnv
 from WindGym.utils.generate_layouts import generate_square_grid
 
+convert_precursor = pytest.importorskip(
+    "dynamiks.sites.precursor", reason="needs the dev dynamiks build"
+).convert_precursor
+
 FIXTURE_NC = (
     Path(dynamiks.__file__).parent.parent / "tests" / "test_files" / "precursor.nc"
 )
+if not FIXTURE_NC.exists():
+    pytest.skip(
+        f"precursor fixture {FIXTURE_NC} not found (needs a dynamiks source checkout)",
+        allow_module_level=True,
+    )
 FARM = dict(
     hub_height=70.0, Lfarm=[500.0, 840.0, 460.0], yref=430.0
 )  # V80 hub, fixture box

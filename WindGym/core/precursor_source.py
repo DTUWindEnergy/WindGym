@@ -18,11 +18,6 @@ from pathlib import Path
 import numpy as np
 
 from dynamiks.sites._site import TurbulenceFieldSite
-from dynamiks.sites.mean_wind import ConstantWindSpeedProfile
-from dynamiks.dwm.added_turbulence_models import (
-    BranlardScaling,
-    SynchronizedAutoScalingIsotropicMannTurbulence,
-)
 
 
 class PrecursorSource:
@@ -68,6 +63,10 @@ class PrecursorSource:
             tuple: (turbulence_field, added_turbulence_model)
         """
         from hipersim import Bounds
+        from dynamiks.dwm.added_turbulence_models import (
+            BranlardScaling,
+            SynchronizedAutoScalingIsotropicMannTurbulence,
+        )
         from dynamiks.sites.precursor import PrecursorField
 
         meta = self.meta
@@ -161,6 +160,7 @@ class PrecursorSource:
 
     def site(self, tf, turbine_positions: np.ndarray) -> TurbulenceFieldSite:
         """TurbulenceFieldSite advecting ``tf`` at the LES speed, centred on the farm."""
+        from dynamiks.sites.mean_wind import ConstantWindSpeedProfile
         from dynamiks.sites.precursor import n_ramp_offset
 
         meta = self.meta

@@ -14,7 +14,10 @@ from dynamiks.sites.turbulence_fields import MannTurbulenceField
 from dynamiks.views import Points
 
 from WindGym.core import turbulence_manager as tm
+from WindGym.core.dynamiks_features import HAS_MEMMAP
 from WindGym.presets import three_turbine_row
+
+needs_memmap = pytest.mark.skipif(not HAS_MEMMAP, reason="needs the dev dynamiks build")
 
 SMALL = dict(Nxyz=(256, 32, 32), dxyz=(4.0, 4.0, 4.0))
 
@@ -56,6 +59,7 @@ def _env(box_dir, memmap: bool, **kw):
     )
 
 
+@needs_memmap
 def test_memmap_flag_reaches_turbulence_manager(box_dir):
     env = _env(box_dir, memmap=True)
     assert env.turb_memmap is True
@@ -66,6 +70,7 @@ def test_memmap_flag_reaches_turbulence_manager(box_dir):
     env.close()
 
 
+@needs_memmap
 def test_memmap_mannload_matches_eager_and_is_lazy_for_both_sites(box_dir):
     envs = {m: _env(box_dir, memmap=m) for m in (False, True)}
     fields = {}
@@ -112,6 +117,7 @@ def test_memmap_mannload_matches_eager_and_is_lazy_for_both_sites(box_dir):
         env.close()
 
 
+@needs_memmap
 def test_memmap_env_steps(box_dir):
     env = _env(box_dir, memmap=True)
     obs, _ = env.reset(seed=1)

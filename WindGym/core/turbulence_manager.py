@@ -10,7 +10,6 @@ from pathlib import Path
 import numpy as np
 import copy
 import gc
-import inspect
 import os
 import warnings
 
@@ -22,8 +21,8 @@ from dynamiks.dwm.added_turbulence_models import (
     SynchronizedAutoScalingIsotropicMannTurbulence,
 )
 
+from .dynamiks_features import HAS_MEMMAP, HAS_PRECURSOR, HAS_VEER, require
 from .episode_timing import episode_time_parameters, max_wd_step
-from .precursor_source import PrecursorSource
 
 # The Mann box spec (LES-calibrated) lives in dwm_defaults.
 from .dwm_defaults import (
@@ -33,11 +32,6 @@ from .dwm_defaults import (
     MANN_L,
     MANN_NXYZ,
 )
-
-# Memory-saving box loading: dynamiks (marcus >= 55eeee9) MannTurbulenceField.
-# from_netcdf(memmap=True) = read-only np.memmap of a float32 .npy sidecar next
-# to the .nc (created once) + lazy TI scaling (hipersim >= 0.1.18).
-_HAS_MEMMAP = "memmap" in inspect.signature(MannTurbulenceField.from_netcdf).parameters
 
 
 class TurbulenceManager:
@@ -80,11 +74,8 @@ class TurbulenceManager:
         self.max_turb_move = max_turb_move
 
         self.memmap_boxes = bool(memmap_boxes)
-        if self.memmap_boxes and not _HAS_MEMMAP:
-            raise ImportError(
-                "memmap_boxes=True needs dynamiks MannTurbulenceField.from_netcdf(memmap=) "
-                "(dynamiks marcus >= 55eeee9, hipersim >= 0.1.18)"
-            )
+        if self.memmap_boxes:
+            require(HAS_MEMMAP, "memmap_boxes=True (turb_memmap)")
         self.tf_file = None
         # Random number generator (set by environment)
         self.np_random = None
@@ -108,6 +99,9 @@ class TurbulenceManager:
         # in create_sites; exposed via window_offset_s for logging/tests.
         self._precursor = None
         if turbulence_type == "Precursor":
+            require(HAS_PRECURSOR, "turbtype='Precursor'")
+            from .precursor_source import PrecursorSource
+
             self._precursor = PrecursorSource(turbulence_box_path)
 
     # -- precursor state (delegating properties; None/0.0 without a precursor)
@@ -247,7 +241,12 @@ class TurbulenceManager:
             # mean wind (|U| = ws at every height, hub-height wd pinned to the
             # time-varying wd_slow), so veer composes with a changing wind
             # direction. Replaces the old ConstantWindSpeedProfile site fork,
-            # which could not express a time-varying wd.
+            # which could not express a time-varying wd. Only forwarded when
+            # nonzero, since PyPI dynamiks has no veer.
+            veer = {}
+            if veer_rate != 0:
+                require(HAS_VEER, "wind veer (veer_rate != 0)")
+                veer = dict(veer_rate=veer_rate, veer_ref_height=veer_ref_height)
             return MetmastSite(
                 ws=ws,
                 turbulenceField=tf,
@@ -255,8 +254,7 @@ class TurbulenceManager:
                 dt=dt_sim,
                 max_wd_step=d_theta_lim,
                 update_interval=dt_sim,
-                veer_rate=veer_rate,
-                veer_ref_height=veer_ref_height,
+                **veer,
             )
 
         # Create agent site

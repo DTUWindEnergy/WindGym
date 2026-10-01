@@ -37,6 +37,8 @@ from dynamiks.dwm.superposition import MixedSum  # MixedSum instead of rss
 from dynamiks.wind_turbines.ti_models import TISensor, MeanMethod
 from dynamiks.utils.geometry import get_xyz
 
+from .dynamiks_features import HAS_INTERP, require
+
 
 # === DWM closure / particle setup ===========================================
 K1 = 0.0914  # keck ambient eddy-viscosity coefficient
@@ -102,8 +104,8 @@ def make_dwm(
     k1: float = K1,
     k2: float = K2,
     d_particle: float = D_PARTICLE,
-    interpolation: str = "pchip",
-    lateral_cutoff=None,
+    interpolation: str | None = None,
+    lateral_cutoff: float | None = None,
 ) -> DWMFlowSimulation:
     """Assemble a DWMFlowSimulation under the calibrated setup.
 
@@ -112,6 +114,10 @@ def make_dwm(
     The three closure knobs (``k1``, ``k2``, ``d_particle``) default to the
     module constants, so existing call sites stay unchanged. Override them at
     episode reset to do domain randomization.
+
+    ``interpolation`` / ``lateral_cutoff`` are dev-dynamiks speed-ups; None
+    leaves them out (dynamiks default: pchip, no cutoff, which is what the LES
+    calibration ran).
     """
     # Particle count: dynamiks auto-computes ceil(farm_size_x*1.2/d_particle)
     # with a floor of 10 particles, which degenerates for layouts where all
@@ -127,7 +133,7 @@ def make_dwm(
         _en = np.asarray(windTurbines.rotor_positions_east_north, dtype=float)
     except AttributeError:  # HAWC2 variants expose it as a property that may need fs
         _en = np.asarray(windTurbines.positions_east_north, dtype=float)
-    _x = get_xyz(_en, wind_direction)[0]
+    _x = get_xyz(_en, wind_direction, np.zeros(3))[0]
     _D = np.atleast_1d(windTurbines.diameter()).astype(float)
     _desired = max(float(_x.max() - _x.min()) * 1.2, 15.0 * float(_D.max()))
     n_particles = max(int(np.ceil(_desired / (d_particle * float(_D.min())))), 10)
@@ -146,8 +152,18 @@ def make_dwm(
         temporal_filter=None,
         spatial_filter=CGIRotorAvg(PARTICLE_SPATIAL_AVG_N),
         include_wakes=True,
-        include_own_wake=False,
     )
+
+    # Speedups, not part of the LES calibration (which ran pchip / no cutoff,
+    # the dynamiks defaults): linear centerline interpolation and the lateral
+    # interaction cutoff. Only forwarded when set, since PyPI dynamiks lacks them.
+    speedups = {}
+    if interpolation is not None:
+        speedups["interpolation"] = interpolation
+    if lateral_cutoff is not None:
+        speedups["lateral_cutoff"] = lateral_cutoff
+    if speedups:
+        require(HAS_INTERP, "DWM interpolation/lateral_cutoff")
 
     return DWMFlowSimulation(
         site=site,
@@ -160,12 +176,7 @@ def make_dwm(
         superpositionModel=MixedSum(),
         wind_direction=wind_direction,
         dt=dt,
-        # Speedups, not part of the LES calibration (which ran pchip / no
-        # cutoff, the defaults here): linear centerline interpolation and the
-        # lateral interaction cutoff. WindFarmEnv passes its own settings
-        # (default linear / 1.5, as in the Stage-6 sweeps).
-        interpolation=interpolation,
-        lateral_cutoff=lateral_cutoff,
+        **speedups,
     )
 
 
