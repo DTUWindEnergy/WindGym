@@ -66,6 +66,14 @@ If you see "WindGym installed successfully!", your WindGym environment is ready!
 
 ## 5. dynamiks Version and DWM Setup
 
+> **This is the `dev_dynamiks` branch.** Its `pyproject.toml` pins the dev
+> dynamiks build (DYNAMIKS/dynamiks `3913cd9`), plus the jDWM (`c455592`,
+> `sys_branch`) and `hipersim>=0.1.21` it needs. All features listed below work
+> here. The code is the same as on `main`; to update, merge `main` into this
+> branch. Only the dependency pins, the lock files and `tests/golden/G4.npz`
+> differ. G4 runs added turbulence, which the two dynamiks versions compute
+> differently.
+
 The `main` branch runs on the PyPI release `dynamiks==0.0.7`. By default,
 WindGym builds a plain dynamiks DWM flow simulation, i.e. dynamiks' own model
 defaults.

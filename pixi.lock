@@ -262,7 +262,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/ac/25/58893afd4ef45f79e3d4db82742fa4ff874b936d67a83c92939053920ccd/cython-3.2.4-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/6f/3a/2121294941227c548d4b5f897a8a1b5f4c44a58f5437f239e6b86511d78e/dask-2025.12.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/0c/d5/c5db1ea3394c6e1732fb3286b3bd878b59507a8f77d32a2cebda7d7b7cd4/donfig-0.8.1.post1-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/dc/bc/a7218ce3deb940cc44f8aaba4060a2d7513f0881d458044f04f5b1eeb42e/dynamiks-0.0.7-py3-none-any.whl
+      - pypi: git+https://gitlab.windenergy.dtu.dk/DYNAMIKS/dynamiks.git?rev=3913cd9686f872bea5134452c6776e0c7cc3f80b#3913cd9686f872bea5134452c6776e0c7cc3f80b
       - pypi: https://files.pythonhosted.org/packages/c1/8b/5fe2cc11fee489817272089c4203e679c63b570a5aaeb18d852ae3cbba6a/et_xmlfile-2.0.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/b5/36/7fb70f04bf00bc646cd5bb45aa9eddb15e19437a28b8fb2b4a5249fac770/filelock-3.20.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/79/61/1ca198af22f7dd22c17ab86e9024ed3c06299cfdb08170640e9996d501a0/fonttools-4.61.1-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
@@ -270,9 +270,9 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/eb/40/cd243be7ba9bd9d83fd8515b1aed7e0b822c76cab4bf60398a1b7e024f00/git_lfs-1.6-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/f6/fd/33aa4ec62b290477181c55bb1c9302c9698c58c0ce9a6ab4874abc8b0d60/google_crc32c-1.8.0-cp311-cp311-manylinux1_x86_64.manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_5_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/d6/49/1f35189c1ca136b2f041b72402f2eb718bdcb435d9e88729fe6f6909c45d/h5netcdf-1.7.3-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/c5/54/421ddb6f14ae2568954e2888e12cd325e7b260288b06e928508a31db97fb/hipersim-0.1.13-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/f9/c9/d2ae4ed10987a49dd92e63e6c3e094c6e195b961f368f7cac0e53df926d0/hipersim-0.1.22-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/32/4b/b99e37f88336009971405cbb7630610322ed6fbfa31e1d7ab3fbf3049a2d/invoke-2.2.1-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/27/72/5d8a803bd3da807be4bc6d96ab756d80e5317ac6fdebf26faaf557416b3e/jdwm-0.8-py3-none-any.whl
+      - pypi: git+https://gitlab.windenergy.dtu.dk/HAWC2Public/jdwm.git?rev=c455592cbf664ebf26c5dc642b90f3ab81eee6f7#c455592cbf664ebf26c5dc642b90f3ab81eee6f7
       - pypi: https://files.pythonhosted.org/packages/7b/91/984aca2ec129e2757d1e4e3c81c3fcda9d0f85b74670a094cc443d9ee949/joblib-1.5.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/66/e1/e533435c0be77c3f64040d68d7a657771194a63c279f55573188161e81ca/kiwisolver-1.4.9-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/12/b5/99cf8772fdd846c07da4fd70f07812a3c8fd17ea2409522c946bb0f2b277/llvmlite-0.46.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
@@ -576,7 +576,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/85/cc/8f06145ec3efa121c8b1b67f06a640386ddacd77ee3e574da582a21b14ee/cython-3.2.4-cp311-cp311-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/6f/3a/2121294941227c548d4b5f897a8a1b5f4c44a58f5437f239e6b86511d78e/dask-2025.12.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/0c/d5/c5db1ea3394c6e1732fb3286b3bd878b59507a8f77d32a2cebda7d7b7cd4/donfig-0.8.1.post1-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/dc/bc/a7218ce3deb940cc44f8aaba4060a2d7513f0881d458044f04f5b1eeb42e/dynamiks-0.0.7-py3-none-any.whl
+      - pypi: git+https://gitlab.windenergy.dtu.dk/DYNAMIKS/dynamiks.git?rev=3913cd9686f872bea5134452c6776e0c7cc3f80b#3913cd9686f872bea5134452c6776e0c7cc3f80b
       - pypi: https://files.pythonhosted.org/packages/c1/8b/5fe2cc11fee489817272089c4203e679c63b570a5aaeb18d852ae3cbba6a/et_xmlfile-2.0.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/b5/36/7fb70f04bf00bc646cd5bb45aa9eddb15e19437a28b8fb2b4a5249fac770/filelock-3.20.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/69/12/bf9f4eaa2fad039356cc627587e30ed008c03f1cebd3034376b5ee8d1d44/fonttools-4.61.1-cp311-cp311-macosx_10_9_universal2.whl
@@ -584,9 +584,9 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/eb/40/cd243be7ba9bd9d83fd8515b1aed7e0b822c76cab4bf60398a1b7e024f00/git_lfs-1.6-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/5d/ef/21ccfaab3d5078d41efe8612e0ed0bfc9ce22475de074162a91a25f7980d/google_crc32c-1.8.0-cp311-cp311-macosx_12_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/d6/49/1f35189c1ca136b2f041b72402f2eb718bdcb435d9e88729fe6f6909c45d/h5netcdf-1.7.3-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/c5/54/421ddb6f14ae2568954e2888e12cd325e7b260288b06e928508a31db97fb/hipersim-0.1.13-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/f9/c9/d2ae4ed10987a49dd92e63e6c3e094c6e195b961f368f7cac0e53df926d0/hipersim-0.1.22-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/32/4b/b99e37f88336009971405cbb7630610322ed6fbfa31e1d7ab3fbf3049a2d/invoke-2.2.1-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/27/72/5d8a803bd3da807be4bc6d96ab756d80e5317ac6fdebf26faaf557416b3e/jdwm-0.8-py3-none-any.whl
+      - pypi: git+https://gitlab.windenergy.dtu.dk/HAWC2Public/jdwm.git?rev=c455592cbf664ebf26c5dc642b90f3ab81eee6f7#c455592cbf664ebf26c5dc642b90f3ab81eee6f7
       - pypi: https://files.pythonhosted.org/packages/7b/91/984aca2ec129e2757d1e4e3c81c3fcda9d0f85b74670a094cc443d9ee949/joblib-1.5.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/31/a2/a12a503ac1fd4943c50f9822678e8015a790a13b5490354c68afb8489814/kiwisolver-1.4.9-cp311-cp311-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/7a/a1/2ad4b2367915faeebe8447f0a057861f646dbf5fbbb3561db42c65659cf3/llvmlite-0.46.0-cp311-cp311-macosx_11_0_arm64.whl
@@ -1629,17 +1629,16 @@ packages:
   - pytest ; extra == 'test'
   - cloudpickle ; extra == 'test'
   requires_python: '>=3.8'
-- pypi: https://files.pythonhosted.org/packages/dc/bc/a7218ce3deb940cc44f8aaba4060a2d7513f0881d458044f04f5b1eeb42e/dynamiks-0.0.7-py3-none-any.whl
+- pypi: git+https://gitlab.windenergy.dtu.dk/DYNAMIKS/dynamiks.git?rev=3913cd9686f872bea5134452c6776e0c7cc3f80b#3913cd9686f872bea5134452c6776e0c7cc3f80b
   name: dynamiks
-  version: 0.0.7
-  sha256: cc30bc5726870d5b59cf53d87cd7d48894b097eb4b702cc0ed7b3714a29080f2
+  version: 0.0.7.post1.dev89+g3913cd968
   requires_dist:
   - numpy
   - py-wake
   - xarray
   - matplotlib
   - tqdm
-  - hipersim>=0.1.7
+  - hipersim>=0.1.21
   - jdwm
   - multiclass-interface
   - zarr
@@ -1648,6 +1647,8 @@ packages:
   - h2lib-tests ; extra == 'test'
   - nbconvert ; extra == 'test'
   - ipykernel ; extra == 'test'
+  - asv ; extra == 'test'
+  - pytest-benchmark ; extra == 'test'
   - h2lib>=13.2.201 ; extra == 'hawc2'
   - wetb ; extra == 'hawc2'
   - mpi4py==4 ; extra == 'mpi'
@@ -2161,17 +2162,19 @@ packages:
   purls: []
   size: 3292042
   timestamp: 1764771887501
-- pypi: https://files.pythonhosted.org/packages/c5/54/421ddb6f14ae2568954e2888e12cd325e7b260288b06e928508a31db97fb/hipersim-0.1.13-py3-none-any.whl
+- pypi: https://files.pythonhosted.org/packages/f9/c9/d2ae4ed10987a49dd92e63e6c3e094c6e195b961f368f7cac0e53df926d0/hipersim-0.1.22-py3-none-any.whl
   name: hipersim
-  version: 0.1.13
-  sha256: 32723b300ed57004c646dbf940c5c922d01f61a02a81f8d3837f68ebd6e2e949
+  version: 0.1.22
+  sha256: 181b2b814b3949ff75c7109b5707180a7add5f4db311d4691f6b34542d117938
   requires_dist:
+  - numpy
   - xarray
   - netcdf4
   - h5netcdf
   - scipy
   - tqdm
   - matplotlib
+  - wetb
   - sphinx ; extra == 'docs'
   - python-docs-theme ; extra == 'docs'
   - numpydoc ; extra == 'docs'
@@ -2180,7 +2183,6 @@ packages:
   - sphinx-sitemap ; extra == 'docs'
   - ipympl ; extra == 'docs'
   - ipykernel ; extra == 'docs'
-  - wetb ; extra == 'tests'
   - h2lib ; extra == 'tests'
   requires_python: '>=3.7'
 - conda: https://conda.anaconda.org/conda-forge/noarch/hpack-4.1.0-pyhd8ed1ab_0.conda
@@ -2464,18 +2466,21 @@ packages:
   - pkg:pypi/jax-jumpy?source=hash-mapping
   size: 20757
   timestamp: 1734210042598
-- pypi: https://files.pythonhosted.org/packages/27/72/5d8a803bd3da807be4bc6d96ab756d80e5317ac6fdebf26faaf557416b3e/jdwm-0.8-py3-none-any.whl
+- pypi: git+https://gitlab.windenergy.dtu.dk/HAWC2Public/jdwm.git?rev=c455592cbf664ebf26c5dc642b90f3ab81eee6f7#c455592cbf664ebf26c5dc642b90f3ab81eee6f7
   name: jdwm
-  version: '0.8'
-  sha256: e751ac199aacda2215500e20c057dd5ade15b6dae40417af59defb1b34a5e18e
+  version: 0.8.post1.dev12+gc455592cb
   requires_dist:
   - numpy
   - scipy
   - matplotlib
   - numba
   - tqdm
-  - pytest
-  - pytest-cov
+  - pytest ; extra == 'test'
+  - pytest-cov ; extra == 'test'
+  - asv ; extra == 'test'
+  - sphinx ; extra == 'docs'
+  - sphinx-rtd-theme ; extra == 'docs'
+  - sphinxcontrib-napoleon ; extra == 'docs'
 - conda: https://conda.anaconda.org/conda-forge/noarch/jedi-0.19.2-pyhd8ed1ab_1.conda
   sha256: 92c4d217e2dc68983f724aa983cca5464dcb929c566627b26a2511159667dba8
   md5: a4f4c5dc9b80bc50e0d3dc4e6e8f1bd9
@@ -6769,13 +6774,14 @@ packages:
   timestamp: 1762040404362
 - pypi: ./
   name: windgym
-  version: 0.0.5.post1.dev36+ga4130f3fd.d20260302
-  sha256: a16d0f48ce65664e852f06e2ec2ada146ea4ae1c10ad3660501bcc50738862a0
+  version: 0.1.1.post1.dev84+g410ddc6be.d20261001
+  sha256: d324aef65752ae897e53956ad11bd4d74d235fc61361743ee13bbdf0df2c77b1
   requires_dist:
   - gymnasium>=1.0.0
   - stable-baselines3
-  - hipersim>=0.1.7
-  - dynamiks==0.0.7
+  - hipersim>=0.1.21
+  - dynamiks @ git+https://gitlab.windenergy.dtu.dk/DYNAMIKS/dynamiks.git@3913cd9686f872bea5134452c6776e0c7cc3f80b
+  - jdwm @ git+https://gitlab.windenergy.dtu.dk/HAWC2Public/jdwm.git@c455592cbf664ebf26c5dc642b90f3ab81eee6f7
   - pettingzoo
   - wetb
   - ipython

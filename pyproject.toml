@@ -22,8 +22,12 @@ classifiers = [
 dependencies = [
   "gymnasium>=1.0.0",
   "stable_baselines3",
-  "hipersim>=0.1.7",
-  "dynamiks==0.0.7",
+  # dev_dynamiks branch: the dev dynamiks build (LES-calibrated DWM setup,
+  # Precursor, memmap, veer, DWM speed-ups) and the jDWM / hipersim it needs.
+  # main pins PyPI dynamiks==0.0.7 instead.
+  "hipersim>=0.1.21",
+  "dynamiks @ git+https://gitlab.windenergy.dtu.dk/DYNAMIKS/dynamiks.git@3913cd9686f872bea5134452c6776e0c7cc3f80b",
+  "jDWM @ git+https://gitlab.windenergy.dtu.dk/HAWC2Public/jdwm.git@c455592cbf664ebf26c5dc642b90f3ab81eee6f7",
   "pettingzoo",
   "wetb",
   "IPython",
