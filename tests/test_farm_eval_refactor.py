@@ -108,7 +108,12 @@ def test_set_wind_vals_fixes_manager_and_inflow_attributes():
     assert (env.wd_inflow_min, env.wd_inflow_max) == (268, 268)
     wm = env.wind_manager
     assert (wm.ws_min, wm.ws_max, wm.ti_min, wm.ti_max, wm.wd_min, wm.wd_max) == (
-        9, 9, 0.06, 0.06, 268, 268
+        9,
+        9,
+        0.06,
+        0.06,
+        268,
+        268,
     )
     env.reset(seed=0)
     assert (env.ws, env.ti, env.wd) == (9.0, 0.06, 268.0)

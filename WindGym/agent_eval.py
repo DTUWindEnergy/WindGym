@@ -5,7 +5,9 @@ import matplotlib.pyplot as plt
 
 import torch
 
-from wetb.gtsdf import gtsdf  # re-exported: patch target `WindGym.agent_eval.gtsdf.load`
+from wetb.gtsdf import (
+    gtsdf,
+)  # re-exported: patch target `WindGym.agent_eval.gtsdf.load`
 
 from dynamiks.views import XYView
 from py_wake.utils.plotting import setup_plot

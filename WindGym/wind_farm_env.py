@@ -76,8 +76,8 @@ class WindFarmEnv(gym.Env):
     # ``TurbulenceManager.create_sites``). Anything outside the union raises so
     # DR typos don't silently no-op.
     _CLOSURE_PARAM_KEYS = frozenset({"k1", "k2", "d_particle"})
-    _MANN_PARAM_KEYS    = frozenset({"mann_L", "mann_GAMMA", "mann_AE"})
-    _DWM_PARAM_KEYS     = _CLOSURE_PARAM_KEYS | _MANN_PARAM_KEYS
+    _MANN_PARAM_KEYS = frozenset({"mann_L", "mann_GAMMA", "mann_AE"})
+    _DWM_PARAM_KEYS = _CLOSURE_PARAM_KEYS | _MANN_PARAM_KEYS
 
     @classmethod
     def _validate_dwm_keys(cls, params: dict, where: str = "") -> None:
@@ -145,8 +145,12 @@ class WindFarmEnv(gym.Env):
         wd_est_consensus="median",  # Cross-turbine consensus for the wd estimator: median / mean / front.
         interpolation="linear",  # Particle trajectory interpolation in the DWM solver: 'linear' (fast) or 'pchip' (cubic, original)
         lateral_cutoff=1.5,  # Skip wake deficit evaluation beyond this factor times the deficit profile half-width (r_max*R) from the meandered wake centerline. None disables (original behavior).
-        tilt: Optional[float] = None,  # Fixed rotor tilt in deg for all turbines (positive deflects the wake upward in DWM). None -> use config `farm: tilt` (default 0). Needed for veer to create a yaw-sign asymmetry.
-        dwm_params: Optional[dict] = None,  # Override DWM closure params (k1, k2, d_particle). Used for domain randomization; per-episode overrides go through reset(options={"dwm_params": ...}).
+        tilt: Optional[
+            float
+        ] = None,  # Fixed rotor tilt in deg for all turbines (positive deflects the wake upward in DWM). None -> use config `farm: tilt` (default 0). Needed for veer to create a yaw-sign asymmetry.
+        dwm_params: Optional[
+            dict
+        ] = None,  # Override DWM closure params (k1, k2, d_particle). Used for domain randomization; per-episode overrides go through reset(options={"dwm_params": ...}).
         **kwargs,
     ):
         """
@@ -687,7 +691,8 @@ class WindFarmEnv(gym.Env):
         if self._wd_estimator is None:
             raise AttributeError(
                 "wd_est requires the env to be built with wd_est_tau "
-                "(the sensor-derived estimator is off)")
+                "(the sensor-derived estimator is off)"
+            )
         return self._wd_estimator.estimate
 
     @property
@@ -696,7 +701,8 @@ class WindFarmEnv(gym.Env):
         if self._wd_estimator is None:
             raise AttributeError(
                 "wd_est_per_turbine requires the env to be built with "
-                "wd_est_tau (the sensor-derived estimator is off)")
+                "wd_est_tau (the sensor-derived estimator is off)"
+            )
         return self._wd_estimator.per_turbine
 
     def _nowake_power(self, fs) -> float:
@@ -763,9 +769,7 @@ class WindFarmEnv(gym.Env):
 
         if self._wd_estimator is not None:
             return_dict["Wind direction estimate"] = self.wd_est
-            return_dict["Wind direction estimate per turbine"] = (
-                self.wd_est_per_turbine
-            )
+            return_dict["Wind direction estimate per turbine"] = self.wd_est_per_turbine
 
         if self.derate_action:
             return_dict["derate agent"] = self.current_derate
@@ -956,10 +960,16 @@ class WindFarmEnv(gym.Env):
         self._active_dwm_params = {**self._base_dwm_params, **episode_overrides}
 
         # Partition into the two subsystems that consume these keys.
-        closure_overrides = {k: v for k, v in self._active_dwm_params.items()
-                             if k in self._CLOSURE_PARAM_KEYS}
-        mann_overrides    = {k: v for k, v in self._active_dwm_params.items()
-                             if k in self._MANN_PARAM_KEYS}
+        closure_overrides = {
+            k: v
+            for k, v in self._active_dwm_params.items()
+            if k in self._CLOSURE_PARAM_KEYS
+        }
+        mann_overrides = {
+            k: v
+            for k, v in self._active_dwm_params.items()
+            if k in self._MANN_PARAM_KEYS
+        }
 
         # Per-episode Mann statistics only take effect when the turbulence
         # manager actually regenerates the box. Fail loud rather than silently
@@ -1153,9 +1163,7 @@ class WindFarmEnv(gym.Env):
         # Start baseline with same yaw (and tilt) as agent at reset
         self.fs_baseline.windTurbines.yaw = self.fs.windTurbines.yaw
         if self.tilt != 0:
-            self.fs_baseline.windTurbines.tilt = np.full(
-                self.n_turb, float(self.tilt)
-            )
+            self.fs_baseline.windTurbines.tilt = np.full(self.n_turb, float(self.tilt))
 
     def _run_burn_in(self) -> None:
         """Advance both flow sims by ``t_developed`` and sync the baseline controller."""

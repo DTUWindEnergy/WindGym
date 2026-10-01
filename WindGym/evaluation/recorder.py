@@ -156,7 +156,9 @@ class EpisodeRecorder:
     def _turb(self, a):
         return a.reshape(self.n_time, self.n_turb, 1, 1, 1, 1, 1, 1)
 
-    def to_dataset(self, *, ws, wd, ti, turbbox, model_step, deterministic) -> xr.Dataset:
+    def to_dataset(
+        self, *, ws, wd, ti, turbbox, model_step, deterministic
+    ) -> xr.Dataset:
         """Build the evaluation dataset (coordinates are stored as given, uncast)."""
         # Common data variables
         data_vars = {

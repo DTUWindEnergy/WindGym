@@ -4,6 +4,7 @@ Covers both validation paths (init and reset) and a regression check that the
 override actually changes the DWM simulation rather than being silently
 swallowed somewhere.
 """
+
 from pathlib import Path
 
 import numpy as np

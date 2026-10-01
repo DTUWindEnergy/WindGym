@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 import copy
 import gc
+import inspect
 import os
 import warnings
 
@@ -24,13 +25,6 @@ from dynamiks.dwm.added_turbulence_models import (
 from .episode_timing import episode_time_parameters, max_wd_step
 from .precursor_source import PrecursorSource
 
-import inspect
-
-# Memory-saving box loading: dynamiks (marcus >= 55eeee9) MannTurbulenceField.
-# from_netcdf(memmap=True) = read-only np.memmap of a float32 .npy sidecar next
-# to the .nc (created once) + lazy TI scaling (hipersim >= 0.1.18).
-_HAS_MEMMAP = "memmap" in inspect.signature(MannTurbulenceField.from_netcdf).parameters
-
 # The Mann box spec (LES-calibrated) lives in dwm_defaults.
 from .dwm_defaults import (
     MANN_AE,
@@ -39,6 +33,11 @@ from .dwm_defaults import (
     MANN_L,
     MANN_NXYZ,
 )
+
+# Memory-saving box loading: dynamiks (marcus >= 55eeee9) MannTurbulenceField.
+# from_netcdf(memmap=True) = read-only np.memmap of a float32 .npy sidecar next
+# to the .nc (created once) + lazy TI scaling (hipersim >= 0.1.18).
+_HAS_MEMMAP = "memmap" in inspect.signature(MannTurbulenceField.from_netcdf).parameters
 
 
 class TurbulenceManager:
@@ -209,7 +208,9 @@ class TurbulenceManager:
 
         # Generate turbulence field
         tf_agent, added_turbulence_model = self._generate_turbulence_field(
-            ws=ws, ti=ti, rotor_diameter=rotor_diameter,
+            ws=ws,
+            ti=ti,
+            rotor_diameter=rotor_diameter,
             mann_overrides=mann_overrides,
         )
 
@@ -223,9 +224,7 @@ class TurbulenceManager:
         )
 
         # Calculate wind direction change rate limit
-        d_theta_lim = max_wd_step(
-            turbine_positions, rotor_diameter, self.max_turb_move
-        )
+        d_theta_lim = max_wd_step(turbine_positions, rotor_diameter, self.max_turb_move)
 
         if self.turbulence_type == "Precursor":
             self._check_precursor_episode(
@@ -296,7 +295,10 @@ class TurbulenceManager:
         return site, site_baseline, t_developed, time_max, added_turbulence_model
 
     def _generate_turbulence_field(
-        self, ws: float, ti: float, rotor_diameter: float,
+        self,
+        ws: float,
+        ti: float,
+        rotor_diameter: float,
         mann_overrides: Optional[dict] = None,
     ) -> tuple:
         """
@@ -325,7 +327,10 @@ class TurbulenceManager:
         generators = {
             "MannLoad": lambda: self._generate_mann_load(ws, ti),
             "MannGenerate": lambda: self._generate_mann_generate(
-                ws, ti, rotor_diameter, mann_overrides=mann_overrides,
+                ws,
+                ti,
+                rotor_diameter,
+                mann_overrides=mann_overrides,
             ),
             "MannFixed": lambda: self._generate_mann_fixed(ws, ti),
             "Random": lambda: self._generate_random(ws, ti),
@@ -341,7 +346,8 @@ class TurbulenceManager:
     def _added_turb_model(self):
         """The LES calibration was run with BranlardScaling."""
         return SynchronizedAutoScalingIsotropicMannTurbulence(
-            scaling=BranlardScaling(), cache_field=False,
+            scaling=BranlardScaling(),
+            cache_field=False,
         )
 
     def _generate_mann_load(self, ws: float, ti: float) -> tuple:
@@ -365,7 +371,10 @@ class TurbulenceManager:
         return tf
 
     def _generate_mann_generate(
-        self, ws: float, ti: float, rotor_diameter: float,
+        self,
+        ws: float,
+        ti: float,
+        rotor_diameter: float,
         mann_overrides: Optional[dict] = None,
     ) -> tuple:
         """Generate new Mann turbulence box (explicit box_seed if set, else random).

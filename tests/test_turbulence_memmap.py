@@ -23,19 +23,35 @@ SMALL = dict(Nxyz=(256, 32, 32), dxyz=(4.0, 4.0, 4.0))
 def box_dir(tmp_path_factory) -> Path:
     d = tmp_path_factory.mktemp("boxes")
     for seed in (0, 1):
-        tf = MannTurbulenceField.generate(alphaepsilon=tm.MANN_AE, L=tm.MANN_L,
-                                          Gamma=tm.MANN_GAMMA, seed=seed, **SMALL)
+        tf = MannTurbulenceField.generate(
+            alphaepsilon=tm.MANN_AE,
+            L=tm.MANN_L,
+            Gamma=tm.MANN_GAMMA,
+            seed=seed,
+            **SMALL,
+        )
         tf.to_netcdf(filename=str(d / f"TF_seed_{seed}.nc"))
     return d
 
 
 def _env(box_dir, memmap: bool, **kw):
     return three_turbine_row(
-        turbtype="MannLoad", TurbBox=str(box_dir), seed=7, reset_init=False,
-        config_overrides={"turb_memmap": memmap,
-                          "wind": {"ws_min": 8, "ws_max": 8, "TI_min": 0.08, "TI_max": 0.08,
-                                   "wd_min": 270, "wd_max": 270},
-                          "power_def": {"Power_reward": "Baseline"}},
+        turbtype="MannLoad",
+        TurbBox=str(box_dir),
+        seed=7,
+        reset_init=False,
+        config_overrides={
+            "turb_memmap": memmap,
+            "wind": {
+                "ws_min": 8,
+                "ws_max": 8,
+                "TI_min": 0.08,
+                "TI_max": 0.08,
+                "wd_min": 270,
+                "wd_max": 270,
+            },
+            "power_def": {"Power_reward": "Baseline"},
+        },
         **kw,
     )
 
@@ -54,24 +70,40 @@ def test_memmap_mannload_matches_eager_and_is_lazy_for_both_sites(box_dir):
     envs = {m: _env(box_dir, memmap=m) for m in (False, True)}
     fields = {}
     for m, env in envs.items():
-        env.reset(seed=3)   # same seed -> same file choice, same ws/ti
+        env.reset(seed=3)  # same seed -> same file choice, same ws/ti
         assert env.turbulence_manager.tf_file.endswith(".nc")
         fields[m] = (env.site.turbulenceField, env.site_base.turbulenceField)
-    assert envs[False].turbulence_manager.tf_file == envs[True].turbulence_manager.tf_file
+    assert (
+        envs[False].turbulence_manager.tf_file == envs[True].turbulence_manager.tf_file
+    )
     for f in fields[False]:
-        assert not f._memmap and isinstance(f.uvw, np.ndarray) and not isinstance(f.uvw, np.memmap)
+        assert (
+            not f._memmap
+            and isinstance(f.uvw, np.ndarray)
+            and not isinstance(f.uvw, np.memmap)
+        )
     for f in fields[True]:
         assert f._memmap
         assert isinstance(getattr(f.uvw, "_uvw", f.uvw), np.memmap)
-    assert MannTurbulenceField.sidecar_path(envs[True].turbulence_manager.tf_file).exists()
+    assert MannTurbulenceField.sidecar_path(
+        envs[True].turbulence_manager.tf_file
+    ).exists()
     # baseline of the memmap env is its own lazy handle, not a copy of the agent's
     assert fields[True][0] is not fields[True][1]
     # same scaled turbulence at the same points / time
     rng = np.random.default_rng(0)
-    x, y, z = rng.uniform(50, 900, 200), rng.uniform(10, 110, 200), rng.uniform(20, 110, 200)
+    x, y, z = (
+        rng.uniform(50, 900, 200),
+        rng.uniform(10, 110, 200),
+        rng.uniform(20, 110, 200),
+    )
     for i in (0, 1):
-        np.testing.assert_allclose(fields[False][i](x, y, z, time=0.0),
-                                   fields[True][i](x, y, z, time=0.0), rtol=1e-5, atol=1e-6)
+        np.testing.assert_allclose(
+            fields[False][i](x, y, z, time=0.0),
+            fields[True][i](x, y, z, time=0.0),
+            rtol=1e-5,
+            atol=1e-6,
+        )
     # and the flow sims agree on the free-stream wind speed
     ws_eager = envs[False].fs.get_windspeed(Points(x, y, z), include_wakes=False)
     ws_mm = envs[True].fs.get_windspeed(Points(x, y, z), include_wakes=False)

@@ -35,11 +35,15 @@ def test_safe_close_h2_swallows_teardown_errors():
 def test_delete_case_folders_removes_res_htc_log(monkeypatch):
     calls = []
     monkeypatch.setattr(
-        hawc2_adapter.shutil, "rmtree", lambda p, ignore_errors=False: calls.append((p, ignore_errors))
+        hawc2_adapter.shutil,
+        "rmtree",
+        lambda p, ignore_errors=False: calls.append((p, ignore_errors)),
     )
     htc = SimpleNamespace(
         modelpath="/model/",
-        output=SimpleNamespace(filename=SimpleNamespace(values=["res/case_res/turbine"])),
+        output=SimpleNamespace(
+            filename=SimpleNamespace(values=["res/case_res/turbine"])
+        ),
     )
     wts = SimpleNamespace(htc_lst=[htc])
     delete_case_folders(wts)

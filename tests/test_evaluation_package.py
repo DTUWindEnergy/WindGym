@@ -87,7 +87,9 @@ def test_load_hawc2_loads_dataset_from_stubbed_gtsdf(monkeypatch):
         return np.arange(n_t, dtype=float) * 0.1 + len(loaded), data, {}
 
     monkeypatch.setattr(hawc2_loads.gtsdf, "load", fake_load)
-    ds = load_hawc2_loads_dataset(env, ws=8.0, wd=270, ti=0.07, turbbox="Default", model_step=3)
+    ds = load_hawc2_loads_dataset(
+        env, ws=8.0, wd=270, ti=0.07, turbbox="Default", model_step=3
+    )
 
     env.wts.h2.write_output.assert_called_once()
     assert loaded == ["/model/res/case/t0.hdf5", "/model/res/case/t1.hdf5"]
@@ -100,7 +102,15 @@ def test_load_hawc2_loads_dataset_from_stubbed_gtsdf(monkeypatch):
         assert np.all(da.values == col)
     # time vector from turbine 0 (offset +1 from the first load)
     np.testing.assert_allclose(ds.time.values, np.arange(n_t) * 0.1 + 1)
-    assert list(ds.coords) == ["ws", "wd", "turb", "time", "TI", "turbbox", "model_step"]
+    assert list(ds.coords) == [
+        "ws",
+        "wd",
+        "turb",
+        "time",
+        "TI",
+        "turbbox",
+        "model_step",
+    ]
     assert ds.model_step.values.tolist() == [3]
 
 
@@ -148,16 +158,25 @@ def test_select_action_cleanrl_path():
 
 def test_select_action_unknown_model_type_raises():
     with pytest.raises(ValueError, match="model_type"):
-        select_action(SimpleNamespace(model_type="Other"), np.zeros(1), deterministic=False, device="cpu")
+        select_action(
+            SimpleNamespace(model_type="Other"),
+            np.zeros(1),
+            deterministic=False,
+            device="cpu",
+        )
 
 
 # --- recorder ----------------------------------------------------------------
 
 
 def test_recorder_dataset_variable_order_and_coords():
-    rec = EpisodeRecorder(4, 2, baseline=True, op_mode=True, log_derate=True, tracking=True)
+    rec = EpisodeRecorder(
+        4, 2, baseline=True, op_mode=True, log_derate=True, tracking=True
+    )
     rec.time_plot[:] = np.arange(4)
-    ds = rec.to_dataset(ws=8, wd=270.0, ti=0.07, turbbox="Default", model_step=1, deterministic=True)
+    ds = rec.to_dataset(
+        ws=8, wd=270.0, ti=0.07, turbbox="Default", model_step=1, deterministic=True
+    )
     assert list(ds.data_vars) == [
         "powerF_a",
         "powerT_a",
@@ -184,12 +203,25 @@ def test_recorder_dataset_variable_order_and_coords():
     assert ds.ws.dtype == np.int64  # coords passed uncast
     assert ds.turbbox.dtype.kind == "U"
     assert ds.time.dtype.kind == "i"
-    assert list(ds.coords) == ["ws", "wd", "turb", "time", "TI", "turbbox", "model_step", "deterministic"]
+    assert list(ds.coords) == [
+        "ws",
+        "wd",
+        "turb",
+        "time",
+        "TI",
+        "turbbox",
+        "model_step",
+        "deterministic",
+    ]
 
 
 def test_recorder_minimal_has_only_core_variables():
-    rec = EpisodeRecorder(3, 1, baseline=False, op_mode=False, log_derate=False, tracking=False)
-    ds = rec.to_dataset(ws=8.0, wd=270.0, ti=0.07, turbbox="Default", model_step=1, deterministic=False)
+    rec = EpisodeRecorder(
+        3, 1, baseline=False, op_mode=False, log_derate=False, tracking=False
+    )
+    ds = rec.to_dataset(
+        ws=8.0, wd=270.0, ti=0.07, turbbox="Default", model_step=1, deterministic=False
+    )
     assert list(ds.data_vars) == ["powerF_a", "powerT_a", "yaw_a", "ws_a", "reward"]
     assert not hasattr(rec, "powerF_b")
 
@@ -250,11 +282,24 @@ def test_return_loads_without_htc_returns_none():
 
     env = make_b()
     out = eval_single_fast(
-        env, RandomModel(env.action_space.shape), ws=9.0, ti=0.06, wd=270.0, t_sim=1, return_loads=True
+        env,
+        RandomModel(env.action_space.shape),
+        ws=9.0,
+        ti=0.06,
+        wd=270.0,
+        t_sim=1,
+        return_loads=True,
     )
     assert out is None
     assert isinstance(
-        eval_single_fast(make_b(), RandomModel(env.action_space.shape), ws=9.0, ti=0.06, wd=270.0, t_sim=1),
+        eval_single_fast(
+            make_b(),
+            RandomModel(env.action_space.shape),
+            ws=9.0,
+            ti=0.06,
+            wd=270.0,
+            t_sim=1,
+        ),
         xr.Dataset,
     )
 
@@ -263,7 +308,9 @@ def test_eval_multiple_sets_conditions_once_per_episode(monkeypatch):
     ev = AgentEval(env=SimpleNamespace(), model=object(), name="n", t_sim=1, seed=0)
     ev.set_conditions(winddirs=[260, 280], windspeeds=[8], turbintensities=[0.05])
     calls = []
-    monkeypatch.setattr(ev, "set_env_vals", lambda: calls.append((ev.ws, ev.wd, ev.ti, ev.turbbox)))
+    monkeypatch.setattr(
+        ev, "set_env_vals", lambda: calls.append((ev.ws, ev.wd, ev.ti, ev.turbbox))
+    )
     monkeypatch.setattr(
         ev,
         "eval_single",

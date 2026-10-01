@@ -309,7 +309,9 @@ def parse_env_settings(config: Dict[str, Any]) -> EnvSettings:
     return s
 
 
-def build_farm_mes(settings, n_turb: int, scaling: dict, maxturbpower: float) -> FarmMes:
+def build_farm_mes(
+    settings, n_turb: int, scaling: dict, maxturbpower: float
+) -> FarmMes:
     """Build the ``FarmMes`` measurement object.
 
     ``settings`` is anything exposing the ``EnvSettings`` attributes (the env

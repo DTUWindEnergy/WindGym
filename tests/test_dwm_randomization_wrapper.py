@@ -4,6 +4,7 @@ These tests use a tiny stub env (no DWM physics, no Mann box) — the wrapper's
 contract with the env is just ``reset(options=)`` forwarding, so we don't
 need a real WindFarmEnv to verify it.
 """
+
 from __future__ import annotations
 
 import gymnasium as gym
@@ -68,8 +69,7 @@ def test_wrapper_uses_rng_for_reproducibility():
     a.reset()
     b.reset()
     assert (
-        a.env.last_options["dwm_params"]["k1"]
-        == b.env.last_options["dwm_params"]["k1"]
+        a.env.last_options["dwm_params"]["k1"] == b.env.last_options["dwm_params"]["k1"]
     )
 
 

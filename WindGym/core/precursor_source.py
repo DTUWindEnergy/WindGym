@@ -88,7 +88,8 @@ class PrecursorSource:
             ti_yz=meta["ti_yz"],
         )
         added_turb_model = SynchronizedAutoScalingIsotropicMannTurbulence(
-            scaling=BranlardScaling(), cache_field=False,
+            scaling=BranlardScaling(),
+            cache_field=False,
         )
         return tf, added_turb_model
 

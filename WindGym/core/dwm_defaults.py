@@ -14,6 +14,7 @@ computed from the farm extent and ``d_particle`` like dynamiks does, but with
 a 15D-downstream floor (see ``make_dwm``), so that larger farms get more
 particles automatically and side-by-side layouts still carry wakes.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -22,31 +23,33 @@ from dynamiks.dwm import DWMFlowSimulation
 from dynamiks.dwm.particle_deficit_profiles.ainslie import jDWMAinslieGenerator
 from dynamiks.dwm.particle_motion_models import HillVortexParticleMotion, XSpeed
 from dynamiks.dwm.projection_models import NoProjection
+
 # from dynamiks.dwm.superposition import rss_superposition
 # from dynamiks.utils.data_dumper import runningAverageSensor
 from dynamiks.wind_turbines import PyWakeWindTurbines
+
 # from dynamiks.wind_turbines.ti_model import RunningAverageSensorTIModel
 from jDWM.EddyViscosityModel import keck
 from jDWM.Solvers import implicit
 from py_wake.rotor_avg_models import CGIRotorAvg
 
-from dynamiks.dwm.superposition import MixedSum #MixedSum instead of rss
+from dynamiks.dwm.superposition import MixedSum  # MixedSum instead of rss
 from dynamiks.wind_turbines.ti_models import TISensor, MeanMethod
 from dynamiks.utils.geometry import get_xyz
 
 
 # === DWM closure / particle setup ===========================================
-K1 = 0.0914                  # keck ambient eddy-viscosity coefficient
-K2 = 0.0216                  # keck wake-shear eddy-viscosity coefficient
-D_PARTICLE = 0.48            # streamwise particle spacing in rotor diameters
+K1 = 0.0914  # keck ambient eddy-viscosity coefficient
+K2 = 0.0216  # keck wake-shear eddy-viscosity coefficient
+D_PARTICLE = 0.48  # streamwise particle spacing in rotor diameters
 
-AINSLIE_R_MAX = 3            # radial domain extent (rotor diameters)
-AINSLIE_N_R = 52             # radial grid points
-AINSLIE_DX = 0.1             # axial step (rotor diameters)
+AINSLIE_R_MAX = 3  # radial domain extent (rotor diameters)
+AINSLIE_N_R = 52  # radial grid points
+AINSLIE_DX = 0.1  # axial step (rotor diameters)
 
-ROTOR_AVG_N = 21             # CGI rotor-average kernel for the WT inflow sensor
-PARTICLE_SPATIAL_AVG_N = 9   # CGI rotor-averaged spatial sampling for particle motion
-TI_RUNNING_AVG_S = 600       # RunningAverageSensorTIModel window in seconds
+ROTOR_AVG_N = 21  # CGI rotor-average kernel for the WT inflow sensor
+PARTICLE_SPATIAL_AVG_N = 9  # CGI rotor-averaged spatial sampling for particle motion
+TI_RUNNING_AVG_S = 600  # RunningAverageSensorTIModel window in seconds
 
 
 # === Mann turbulence box ====================================================
@@ -63,7 +66,7 @@ TI_RUNNING_AVG_S = 600       # RunningAverageSensorTIModel window in seconds
 # αε ≈ 0.0056 corresponds to TI ≈ 3%. If you ever switch the default branch
 # to skip `scale_TI` unconditionally, lower MANN_AE accordingly.
 MANN_L = 29.4
-MANN_AE = 1.0                # alphaepsilon — see docstring above re: scale_TI
+MANN_AE = 1.0  # alphaepsilon — see docstring above re: scale_TI
 MANN_GAMMA = 3.9
 # NOTE on box extent: 1024*3.2 = 3.28 km streamwise. Under Bounds.Repeat a
 # long episode re-samples the box many times (a Stage-7 10,300 s episode at
@@ -83,7 +86,9 @@ def make_wts(x, y, windTurbine) -> PyWakeWindTurbines:
         y=y,
         windTurbine=windTurbine,
         rotorAvgModel=CGIRotorAvg(ROTOR_AVG_N),
-        turbulenceIntensityModel = TISensor(mean_method=MeanMethod.TURBULENCE_TRANSPORT_SPEED, T=600),
+        turbulenceIntensityModel=TISensor(
+            mean_method=MeanMethod.TURBULENCE_TRANSPORT_SPEED, T=600
+        ),
     )
 
 
@@ -120,7 +125,7 @@ def make_dwm(
     # to the center_offset translation.)
     try:
         _en = np.asarray(windTurbines.rotor_positions_east_north, dtype=float)
-    except Exception:  # HAWC2 variants expose it as a property that may need fs
+    except AttributeError:  # HAWC2 variants expose it as a property that may need fs
         _en = np.asarray(windTurbines.positions_east_north, dtype=float)
     _x = get_xyz(_en, wind_direction)[0]
     _D = np.atleast_1d(windTurbines.diameter()).astype(float)

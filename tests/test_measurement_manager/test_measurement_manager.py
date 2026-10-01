@@ -474,8 +474,6 @@ class TestDerateObservationGuard:
         no MeasurementSpec, so the manager must refuse loudly instead of
         silently misaligning every later spec. Note derate observation turns
         on implicitly with derate_action (derate_mes defaults)."""
-        env = _make_fast_farm_env(
-            extra_config={"derate_mes": {"derate_current": True}}
-        )
+        env = _make_fast_farm_env(extra_config={"derate_mes": {"derate_current": True}})
         with pytest.raises(NotImplementedError, match="derate"):
             MeasurementManager(env)
