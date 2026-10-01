@@ -13,7 +13,8 @@ import pytest
 from dynamiks.sites.turbulence_fields import MannTurbulenceField
 from dynamiks.views import Points
 
-from WindGym.core import turbulence_manager as tm
+from WindGym.core.calibrated_values import LES_CALIBRATED_MANN
+from WindGym.core.dwm_defaults import DWMSetup, MannBoxSpec
 from WindGym.core.dynamiks_features import HAS_MEMMAP
 from WindGym.presets import three_turbine_row
 
@@ -27,9 +28,9 @@ def box_dir(tmp_path_factory) -> Path:
     d = tmp_path_factory.mktemp("boxes")
     for seed in (0, 1):
         tf = MannTurbulenceField.generate(
-            alphaepsilon=tm.MANN_AE,
-            L=tm.MANN_L,
-            Gamma=tm.MANN_GAMMA,
+            alphaepsilon=LES_CALIBRATED_MANN.alphaepsilon,
+            L=LES_CALIBRATED_MANN.L,
+            Gamma=LES_CALIBRATED_MANN.gamma,
             seed=seed,
             **SMALL,
         )
@@ -127,21 +128,45 @@ def test_memmap_env_steps(box_dir):
     env.close()
 
 
-def test_mann_generate_uses_calibrated_spec(monkeypatch):
+def _requested_mann_kwargs(monkeypatch, spec: MannBoxSpec) -> dict:
+    """Reset a MannGenerate env whose DWMSetup carries ``spec``; return the
+    kwargs it passed to MannTurbulenceField.generate."""
     calls = {}
     real = MannTurbulenceField.generate
 
     def spy(**kw):
         calls.update(kw)
-        # Generate a TINY box instead of the full calibrated grid: the test
-        # verifies the REQUESTED kwargs, not the field itself.
+        # Generate a TINY box instead of the full grid: the test verifies the
+        # REQUESTED kwargs, not the field itself.
         return real(**{**kw, "Nxyz": (128, 16, 16), "dxyz": (4.0, 4.0, 4.0)})
 
     monkeypatch.setattr(MannTurbulenceField, "generate", staticmethod(spy))
-    env = three_turbine_row(turbtype="MannGenerate", seed=5, reset_init=False)
+    env = three_turbine_row(
+        turbtype="MannGenerate",
+        seed=5,
+        reset_init=False,
+        dwm_setup=DWMSetup(mann=spec),
+    )
     env.reset(seed=1)
-    assert tuple(calls["Nxyz"]) == tuple(tm.MANN_NXYZ)
-    np.testing.assert_allclose(calls["dxyz"], tm.MANN_DXYZ)
-    assert calls["alphaepsilon"] == tm.MANN_AE and calls["L"] == tm.MANN_L
-    assert calls["Gamma"] == tm.MANN_GAMMA
+    calls["D"] = float(env.turbine.diameter())
     env.close()
+    return calls
+
+
+def test_mann_generate_uses_default_spec(monkeypatch):
+    spec = MannBoxSpec()
+    calls = _requested_mann_kwargs(monkeypatch, spec)
+    D = calls["D"]
+    assert tuple(calls["Nxyz"]) == spec.nxyz
+    np.testing.assert_allclose(calls["dxyz"], (D / 20, D / 10, D / 10))
+    assert calls["alphaepsilon"] == spec.alphaepsilon and calls["L"] == spec.L
+    assert calls["Gamma"] == spec.gamma
+
+
+def test_mann_generate_uses_calibrated_spec(monkeypatch):
+    spec = LES_CALIBRATED_MANN
+    calls = _requested_mann_kwargs(monkeypatch, spec)
+    assert tuple(calls["Nxyz"]) == spec.nxyz
+    np.testing.assert_allclose(calls["dxyz"], spec.dxyz)
+    assert calls["alphaepsilon"] == spec.alphaepsilon and calls["L"] == spec.L
+    assert calls["Gamma"] == spec.gamma

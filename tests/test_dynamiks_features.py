@@ -8,6 +8,8 @@ import numpy as np
 import pytest
 
 from WindGym.core import dwm_defaults, turbulence_manager
+from WindGym.core.calibrated_values import LES_CALIBRATED
+from WindGym.core.dwm_defaults import DWMSetup
 from WindGym.core.dynamiks_features import require
 from WindGym.core.turbulence_manager import TurbulenceManager
 
@@ -66,20 +68,69 @@ def test_zero_veer_needs_no_dev_dynamiks(monkeypatch):
     _create_sites(veer_rate=0.0)
 
 
+def _wts(setup=DWMSetup()):
+    from py_wake.examples.data.hornsrev1 import V80
+
+    return dwm_defaults.make_wts(
+        x=[0.0, 400.0], y=[0.0, 0.0], windTurbine=V80(), setup=setup
+    )
+
+
+def _make_dwm(setup=DWMSetup(), **kw):
+    return dwm_defaults.make_dwm(
+        site=None,
+        windTurbines=_wts(),
+        wind_direction=270.0,
+        dt=1.0,
+        addedTurbulenceModel=None,
+        setup=setup,
+        **kw,
+    )
+
+
 @pytest.mark.parametrize(
     "kw", [{"interpolation": "linear"}, {"lateral_cutoff": 1.5}], ids=str
 )
 def test_dwm_speedups_raise_without_dev_dynamiks(monkeypatch, kw):
-    from py_wake.examples.data.hornsrev1 import V80
-
     monkeypatch.setattr(dwm_defaults, "HAS_INTERP", False)
-    wts = dwm_defaults.make_wts(x=[0.0, 400.0], y=[0.0, 0.0], windTurbine=V80())
     with pytest.raises(ImportError, match=MATCH):
-        dwm_defaults.make_dwm(
-            site=None,
-            windTurbines=wts,
-            wind_direction=270.0,
-            dt=1.0,
-            addedTurbulenceModel=None,
-            **kw,
+        _make_dwm(**kw)
+
+
+def test_ti_sensor_raises_without_dev_dynamiks(monkeypatch):
+    monkeypatch.setattr(dwm_defaults, "HAS_TI_SENSOR", False)
+    with pytest.raises(ImportError, match=MATCH):
+        _wts(DWMSetup(ti_sensor_window_s=600))
+
+
+def test_branlard_raises_without_dev_dynamiks(monkeypatch):
+    monkeypatch.setattr(dwm_defaults, "HAS_BRANLARD", False)
+    with pytest.raises(ImportError, match=MATCH):
+        dwm_defaults.make_added_turbulence_model(
+            DWMSetup(added_turbulence_scaling="branlard")
         )
+
+
+def test_mixed_sum_raises_without_dev_dynamiks(monkeypatch):
+    monkeypatch.setattr(dwm_defaults, "HAS_MIXED_SUM", False)
+    with pytest.raises(ImportError, match=MATCH):
+        _make_dwm(DWMSetup(superposition="mixed"))
+
+
+def test_calibrated_setup_raises_without_dev_dynamiks(monkeypatch):
+    """Opting in to LES_CALIBRATED on PyPI dynamiks fails loudly, not silently."""
+    for flag in ("HAS_TI_SENSOR", "HAS_BRANLARD", "HAS_MIXED_SUM"):
+        monkeypatch.setattr(dwm_defaults, flag, False)
+    with pytest.raises(ImportError, match=MATCH):
+        _wts(LES_CALIBRATED)
+
+
+def test_default_setup_needs_no_dev_dynamiks(monkeypatch):
+    from WindGym.presets import three_turbine_row
+
+    for flag in ("HAS_INTERP", "HAS_TI_SENSOR", "HAS_BRANLARD", "HAS_MIXED_SUM"):
+        monkeypatch.setattr(dwm_defaults, flag, False)
+    dwm_defaults.make_added_turbulence_model(DWMSetup())
+    env = three_turbine_row(turbtype="None", seed=0, reset_init=True)
+    env.step(env.action_space.sample())
+    env.close()

@@ -12,11 +12,16 @@ refactor; they pin the RNG draw order in ``reset()`` and the numerics of
 
 Regeneration runs each scenario twice and refuses to write unless both runs
 are bit-identical.
+
+The ``*_les_calibrated`` scenarios rerun G2/G4 under the opt-in LES-calibrated
+DWM setup (with the linear / 1.5 speed-ups); they need the dev dynamiks build
+and skip elsewhere.
 """
 
 from __future__ import annotations
 
 import os
+from functools import partial
 from pathlib import Path
 
 import numpy as np
@@ -26,6 +31,8 @@ from py_wake.wind_turbines import WindTurbine
 from py_wake.wind_turbines.power_ct_functions import PowerCtNDTabular
 
 from WindGym import FarmEval, WindFarmEnv
+from WindGym.core import dynamiks_features as features
+from WindGym.core.calibrated_values import LES_CALIBRATED
 from test_utils import get_fast_pywake_config
 
 pytestmark = pytest.mark.integration
@@ -123,7 +130,7 @@ def make_g1():
     )
 
 
-def make_g2():
+def make_g2(**env_kwargs):
     """dynamiks, no turbulence, baseline + Baseline reward, random yaw init, delay."""
     x, y = _row(V80(), 2)
     cfg = _dynamiks_config(
@@ -145,6 +152,7 @@ def make_g2():
         burn_in_passthroughs=0.05,
         fill_window=1,
         reset_init=False,
+        **env_kwargs,
     )
 
 
@@ -177,7 +185,7 @@ def make_g3():
     )
 
 
-def make_g4():
+def make_g4(**env_kwargs):
     """FarmEval, dynamiks, Random turbulence, baseline, pinned wind + defined yaws."""
     x, y = _row(V80(), 2)
     cfg = _dynamiks_config()
@@ -193,17 +201,33 @@ def make_g4():
         burn_in_passthroughs=0.05,
         fill_window=1,
         reset_init=False,
+        **env_kwargs,
     )
     env.set_wind_vals(ws=9, ti=0.06, wd=268)
     env.set_yaw_vals([5.0, -5.0])
     return env
 
 
+# The LES-calibrated setup plus the speed-ups it was run with in the sweeps.
+LES_CALIBRATED_KW = dict(
+    dwm_setup=LES_CALIBRATED, interpolation="linear", lateral_cutoff=1.5
+)
+HAS_DEV_DYNAMIKS = all(
+    (
+        features.HAS_INTERP,
+        features.HAS_MIXED_SUM,
+        features.HAS_TI_SENSOR,
+        features.HAS_BRANLARD,
+    )
+)
+
 SCENARIOS = {
     "G1": (make_g1, 11, 6, False),
     "G2": (make_g2, 3, 4, False),
     "G3": (make_g3, 7, 50, True),
     "G4": (make_g4, 5, 3, False),
+    "G2_les_calibrated": (partial(make_g2, **LES_CALIBRATED_KW), 3, 4, False),
+    "G4_les_calibrated": (partial(make_g4, **LES_CALIBRATED_KW), 5, 3, False),
 }
 
 
@@ -264,11 +288,13 @@ def _assert_same(a: dict, b: dict):
 def test_golden_episode(name):
     factory, seed, n_steps, expect_trunc = SCENARIOS[name]
     path = GOLDEN_DIR / f"{name}.npz"
+    if name.endswith("_les_calibrated") and not HAS_DEV_DYNAMIKS:
+        pytest.skip("LES-calibrated DWM setup needs the dev dynamiks build")
 
     env = factory()
     try:
         rec = run_episode(env, seed, n_steps, expect_trunc)
-        if name == "G4":
+        if name.startswith("G4"):
             assert env.time_max == 100_000
             rec["time_max"] = np.asarray(env.time_max)
     finally:
@@ -278,7 +304,7 @@ def test_golden_episode(name):
         env2 = factory()
         try:
             rec2 = run_episode(env2, seed, n_steps, expect_trunc)
-            if name == "G4":
+            if name.startswith("G4"):
                 rec2["time_max"] = np.asarray(env2.time_max)
         finally:
             env2.close()

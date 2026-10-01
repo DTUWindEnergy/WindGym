@@ -29,6 +29,7 @@ SETTINGS_ATTRS = {
     "yaw_scaling_max",
     "tilt",
     "turb_memmap",
+    "dwm_setup",
     "ws_inflow_min",
     "ws_inflow_max",
     "TI_inflow_min",

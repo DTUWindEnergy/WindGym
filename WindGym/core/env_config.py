@@ -72,6 +72,7 @@ class EnvSettings:
     yaw_scaling_max: Any = None
     tilt: float = 0.0
     turb_memmap: bool = False
+    dwm_setup: Any = None  # name from calibrated_values.DWM_SETUPS; None = default
     # wind
     ws_inflow_min: Any = None
     ws_inflow_max: Any = None
@@ -159,16 +160,19 @@ def parse_env_settings(config: Dict[str, Any]) -> EnvSettings:
     # them into memory (see core.turbulence_manager).
     s.turb_memmap = bool(config.get("turb_memmap", False))
 
-    # Legacy box-spec keys died with the legacy DWM path: the Mann box is
-    # pinned in core/dwm_defaults.py (calibrated spec). A config still
-    # carrying them would silently get the calibrated box instead of what
-    # it asks for — say so loudly.
+    # dwm_setup: DWM physics preset by name ("default", "les_calibrated"; see
+    # core.calibrated_values). The env's dwm_setup= kwarg takes precedence.
+    s.dwm_setup = config.get("dwm_setup")
+
+    # Legacy box-spec keys died with the legacy DWM path: the Mann box comes
+    # from the DWMSetup (core/dwm_defaults.py). A config still carrying them
+    # would silently get that box instead of what it asks for — say so loudly.
     for _legacy_key in ("mann_nxyz", "mann_dxyz_over_D"):
         if _legacy_key in config:
             warnings.warn(
                 f"config key '{_legacy_key}' is ignored: the Mann box spec "
-                "is pinned to the calibrated values in core/dwm_defaults.py "
-                "(the legacy configurable-box path was removed).",
+                "comes from the env's DWMSetup (core/dwm_defaults.py, "
+                "MannBoxSpec); the legacy configurable-box path was removed.",
                 stacklevel=2,
             )
 

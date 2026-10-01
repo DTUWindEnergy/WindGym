@@ -15,23 +15,13 @@ import warnings
 
 from dynamiks.sites.turbulence_fields import MannTurbulenceField, RandomTurbulence
 from dynamiks.sites._site import MetmastSite
-from dynamiks.dwm.added_turbulence_models import (
-    AutoScalingIsotropicMannTurbulence,
-    BranlardScaling,
-    SynchronizedAutoScalingIsotropicMannTurbulence,
-)
+from dynamiks.dwm.added_turbulence_models import AutoScalingIsotropicMannTurbulence
 
 from .dynamiks_features import HAS_MEMMAP, HAS_PRECURSOR, HAS_VEER, require
 from .episode_timing import episode_time_parameters, max_wd_step
 
-# The Mann box spec (LES-calibrated) lives in dwm_defaults.
-from .dwm_defaults import (
-    MANN_AE,
-    MANN_DXYZ,
-    MANN_GAMMA,
-    MANN_L,
-    MANN_NXYZ,
-)
+# The Mann box spec and added-turbulence scaling come from the DWMSetup.
+from .dwm_defaults import DWMSetup, make_added_turbulence_model
 
 
 class TurbulenceManager:
@@ -58,6 +48,7 @@ class TurbulenceManager:
         turbulence_box_path: Optional[Union[str, Path]] = None,
         max_turb_move: float = 2.0,
         memmap_boxes: bool = False,
+        dwm_setup: Optional[DWMSetup] = None,
     ):
         """
         Initialize the turbulence manager.
@@ -68,8 +59,11 @@ class TurbulenceManager:
             turbulence_box_path: Path to turbulence box files (required for MannLoad)
             max_turb_move: Maximum distance turbines can move in one timestep (m)
                           Used to calculate wind direction change rate limits
+            dwm_setup: DWM physics; supplies the Mann box spec and the
+                added-turbulence scaling. None = plain-dynamiks ``DWMSetup()``.
         """
         self.turbulence_type = turbulence_type
+        self.dwm_setup = dwm_setup if dwm_setup is not None else DWMSetup()
         self.turbulence_box_path = turbulence_box_path
         self.max_turb_move = max_turb_move
 
@@ -330,7 +324,7 @@ class TurbulenceManager:
                 rotor_diameter,
                 mann_overrides=mann_overrides,
             ),
-            "MannFixed": lambda: self._generate_mann_fixed(ws, ti),
+            "MannFixed": lambda: self._generate_mann_fixed(ws, ti, rotor_diameter),
             "Random": lambda: self._generate_random(ws, ti),
             "None": lambda: self._generate_none(ws),
             "Precursor": lambda: self._generate_precursor(ws),
@@ -342,11 +336,8 @@ class TurbulenceManager:
         return generate()
 
     def _added_turb_model(self):
-        """The LES calibration was run with BranlardScaling."""
-        return SynchronizedAutoScalingIsotropicMannTurbulence(
-            scaling=BranlardScaling(),
-            cache_field=False,
-        )
+        """Synchronized Mann added turbulence, scaled per the DWMSetup."""
+        return make_added_turbulence_model(self.dwm_setup)
 
     def _generate_mann_load(self, ws: float, ti: float) -> tuple:
         """Load Mann turbulence box from pre-generated files."""
@@ -377,13 +368,12 @@ class TurbulenceManager:
     ) -> tuple:
         """Generate new Mann turbulence box (explicit box_seed if set, else random).
 
-        ``rotor_diameter`` is unused (the calibrated grid in ``dwm_defaults``
-        is uniform and not D-relative); kept on the signature for now so
-        callers don't have to change.
+        The box follows ``self.dwm_setup.mann``; ``rotor_diameter`` sets the
+        grid spacing when that spec is D-relative.
 
         ``mann_overrides`` is a dict drawn from the calibrated posterior:
         ``{"mann_L": ..., "mann_GAMMA": ..., "mann_AE": ...}``. Missing keys
-        fall back to the module-level defaults from ``dwm_defaults``.
+        fall back to ``self.dwm_setup.mann``.
 
         When any override is present, ``tf.scale_TI(...)`` is skipped so that
         αε directly sets the ambient TI of the box — matching the calibration's
@@ -396,7 +386,7 @@ class TurbulenceManager:
         if overrides and "mann_AE" not in overrides:
             # Any override skips scale_TI below, making alphaepsilon
             # authoritative — a partial draw (e.g. only mann_L) would silently
-            # inherit the raw MANN_AE=1.0 box and produce ~40% ambient TI.
+            # inherit the raw alphaepsilon=1.0 box and produce ~40% ambient TI.
             raise ValueError(
                 f"mann_overrides={sorted(overrides)} lacks 'mann_AE': with any "
                 "Mann override present scale_TI is skipped, so mann_AE must be "
@@ -410,14 +400,15 @@ class TurbulenceManager:
             tf_seed = int(self.np_random.integers(0, 100000))
         print(f"[TurbulenceManager] MannGenerate box seed = {tf_seed}", flush=True)
 
-        # LES-calibrated spec (dwm_defaults); overrides come from the
-        # calibrated posterior and make alphaepsilon authoritative.
+        # Box spec from the DWMSetup; overrides come from the calibrated
+        # posterior and make alphaepsilon authoritative.
+        spec = self.dwm_setup.mann
         tf = MannTurbulenceField.generate(
-            alphaepsilon=float(overrides.get("mann_AE", MANN_AE)),
-            L=float(overrides.get("mann_L", MANN_L)),
-            Gamma=float(overrides.get("mann_GAMMA", MANN_GAMMA)),
-            Nxyz=MANN_NXYZ,
-            dxyz=MANN_DXYZ,
+            alphaepsilon=float(overrides.get("mann_AE", spec.alphaepsilon)),
+            L=float(overrides.get("mann_L", spec.L)),
+            Gamma=float(overrides.get("mann_GAMMA", spec.gamma)),
+            Nxyz=spec.nxyz,
+            dxyz=spec.spacing(rotor_diameter),
             seed=tf_seed,
         )
         if not overrides:
@@ -428,16 +419,19 @@ class TurbulenceManager:
 
         return tf, self._added_turb_model()
 
-    def _generate_mann_fixed(self, ws: float, ti: float) -> tuple:
+    def _generate_mann_fixed(
+        self, ws: float, ti: float, rotor_diameter: float
+    ) -> tuple:
         """Generate fixed Mann turbulence box (reproducible)."""
         tf_seed = 1234  # Fixed seed for reproducibility
 
+        spec = self.dwm_setup.mann
         tf = MannTurbulenceField.generate(
-            alphaepsilon=MANN_AE,
-            L=MANN_L,
-            Gamma=MANN_GAMMA,
-            Nxyz=MANN_NXYZ,
-            dxyz=MANN_DXYZ,
+            alphaepsilon=spec.alphaepsilon,
+            L=spec.L,
+            Gamma=spec.gamma,
+            Nxyz=spec.nxyz,
+            dxyz=spec.spacing(rotor_diameter),
             seed=tf_seed,
         )
         tf.scale_TI(TI=ti, U=ws)

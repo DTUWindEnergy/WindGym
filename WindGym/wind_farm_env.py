@@ -32,6 +32,7 @@ from .core.baseline_manager import BaselineManager
 from .core.probe_manager import ProbeManager
 from .core.power_tracking import PowerTrackingManager
 from .core.dwm_defaults import make_wts, make_dwm, add_hawc2_yaw_sensor
+from .core.calibrated_values import resolve_dwm_setup
 from .core.derating import (
     add_hawc2_derate_sensor,
     check_htc_supports_derating,
@@ -143,11 +144,12 @@ class WindFarmEnv(gym.Env):
         op_lookup=None,  # Optional OperatingPointLookup: reports steady-state blade pitch / rotor RPM per turbine when derating.
         wd_est_tau=None,  # Sensor-derived wd estimator EWMA time constant (s). None = estimator off (env.wd_est unavailable).
         wd_est_consensus="median",  # Cross-turbine consensus for the wd estimator: median / mean / front.
-        interpolation="linear",  # Particle trajectory interpolation in the DWM solver: 'linear' (fast) or 'pchip' (cubic, original)
-        lateral_cutoff=1.5,  # Skip wake deficit evaluation beyond this factor times the deficit profile half-width (r_max*R) from the meandered wake centerline. None disables (original behavior).
+        interpolation=None,  # Particle trajectory interpolation in the DWM solver: 'linear' (fast) or 'pchip' (cubic, original). None = dynamiks default (pchip). Setting it needs the dev dynamiks build.
+        lateral_cutoff=None,  # Skip wake deficit evaluation beyond this factor times the deficit profile half-width (r_max*R) from the meandered wake centerline. None disables (original behavior). Setting it needs the dev dynamiks build.
         tilt: Optional[
             float
         ] = None,  # Fixed rotor tilt in deg for all turbines (positive deflects the wake upward in DWM). None -> use config `farm: tilt` (default 0). Needed for veer to create a yaw-sign asymmetry.
+        dwm_setup=None,  # DWM physics: a core.dwm_defaults.DWMSetup or a preset name ("default", "les_calibrated"; see core.calibrated_values). None -> config `dwm_setup` key, else plain dynamiks.
         dwm_params: Optional[
             dict
         ] = None,  # Override DWM closure params (k1, k2, d_particle). Used for domain randomization; per-episode overrides go through reset(options={"dwm_params": ...}).
@@ -309,6 +311,12 @@ class WindFarmEnv(gym.Env):
         if tilt is not None:
             self.tilt = float(tilt)
 
+        # DWM physics: constructor kwarg over config `dwm_setup`, else plain
+        # dynamiks (opt in to the LES calibration via "les_calibrated").
+        self.dwm_setup = resolve_dwm_setup(
+            dwm_setup if dwm_setup is not None else self.dwm_setup
+        )
+
         # Derating: extend the action space. The turbine itself must accept a
         # 'derate' input — the env only forwards per-turbine derate values.
         # With yaw_action=False the agent controls derating only (act_var=1).
@@ -380,6 +388,7 @@ class WindFarmEnv(gym.Env):
             turbulence_box_path=TurbBox,
             max_turb_move=max_turb_move,
             memmap_boxes=self.turb_memmap,
+            dwm_setup=self.dwm_setup,
         )
 
         # Initialize the renderer
@@ -414,6 +423,7 @@ class WindFarmEnv(gym.Env):
                 htc_path=HTC_path,
                 hawc2_yaw_mode=self.hawc2_yaw_mode,
                 hawc2_yaw_slot=self.hawc2_yaw_slot,
+                dwm_setup=self.dwm_setup,
             )
 
         # #Initializing the measurements class with the specified values.
@@ -534,12 +544,12 @@ class WindFarmEnv(gym.Env):
                 # d <-> dr% mapping and sensor wiring live in core/derating.
                 add_hawc2_derate_sensor(self.wts, self.n_turb)
         else:  # If we have no HTC path, use the pywake turbine
-            # Calibrated rotor-average (CGIRotorAvg) + transport-speed TI
-            # sensor -- the turbine wiring the LES calibration was run with.
+            # Rotor-average and TI model per the DWMSetup.
             self.wts = make_wts(
                 x=self.x_pos,
                 y=self.y_pos,  # x and y position of two wind turbines
                 windTurbine=self.turbine,
+                setup=self.dwm_setup,
             )
             if self.derate_action:
                 self.wts.add_sensor("derate", expose=True)
@@ -662,7 +672,9 @@ class WindFarmEnv(gym.Env):
         if self._wd_estimator is not None:
             self._wd_estimator.update(self.current_wd)
 
-        self.current_yaw = self.fs.windTurbines.yaw
+        # Copy: on dynamiks 0.0.7 the sensor getter returns the live array, so a
+        # bare reference would keep changing inside already-returned info dicts.
+        self.current_yaw = np.array(self.fs.windTurbines.yaw, dtype=float)
         self.current_powers = self.fs.windTurbines.power()  # The Power pr turbine
 
         if self.op_lookup is not None:
@@ -725,16 +737,16 @@ class WindFarmEnv(gym.Env):
         return float(np.sum(self.turbine.power(ws_free)))
 
     def _build_dwm_fs(self, site, windTurbines, closure_overrides):
-        """Construct the DWM flow simulation: dwm_defaults.make_dwm -- the
-        closure the LES/SBI calibration was run against; closure_overrides
-        (k1, k2, d_particle) are the per-episode DR draws (empty dict =
-        calibrated nominal)."""
+        """Construct the DWM flow simulation from ``self.dwm_setup``
+        (dwm_defaults.make_dwm); closure_overrides (k1, k2, d_particle) are
+        the per-episode DR draws (empty dict = the setup's values)."""
         return make_dwm(
             site=site,
             windTurbines=windTurbines,
             wind_direction=self.wd,
             dt=self.dt,
             addedTurbulenceModel=self.addedTurbulenceModel,
+            setup=self.dwm_setup,
             interpolation=self.interpolation,
             lateral_cutoff=self.lateral_cutoff,
             **closure_overrides,
@@ -790,7 +802,9 @@ class WindFarmEnv(gym.Env):
             return_dict["Power reference preview"] = self.power_preview
 
         if self.Baseline_comp:
-            return_dict["yaw angles base"] = self.fs_baseline.windTurbines.yaw
+            return_dict["yaw angles base"] = np.array(
+                self.fs_baseline.windTurbines.yaw, dtype=float
+            )  # copy, see current_yaw
             return_dict["Power baseline"] = self.fs_baseline.windTurbines.power().sum()
             return_dict["Power pr turbine baseline"] = (
                 self.fs_baseline.windTurbines.power()

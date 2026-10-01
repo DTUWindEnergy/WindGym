@@ -1,97 +1,154 @@
-"""DWM physics defaults for WindGym environments.
+"""DWM flow-simulation setup for WindGym environments.
 
-Single source of truth for the dynamic wake meandering (DWM) configuration
-used by `WindFarmEnv`.
+``DWMSetup`` collects the physics choices of the dynamic wake meandering (DWM)
+simulation that ``WindFarmEnv`` builds: wake-deficit model, particle motion,
+turbine inflow sensing, superposition, added turbulence and the Mann box.
+Per-episode quantities (wind speed, TI, wind direction, layout, dt) are passed
+in by the env and stay variable.
 
-The constants here describe the *physics* of the simulator (closure model,
-particle setup, Mann turbulence box, sensor averaging). Per-episode quantities
-(wind speed, TI, wind direction, turbine layout, dt) are passed in by the env
-and stay variable.
-
-The values were calibrated by aligning DWM output against LES data; do not
-change them casually. ``n_particles`` is intentionally NOT pinned here — it is
-computed from the farm extent and ``d_particle`` like dynamiks does, but with
-a 15D-downstream floor (see ``make_dwm``), so that larger farms get more
-particles automatically and side-by-side layouts still carry wakes.
+The defaults are plain dynamiks, i.e. what ``DWMFlowSimulation`` and its
+components do out of the box, plus WindGym's 15D particle floor (see
+``make_dwm``). The LES-calibrated setup is opt-in: pass
+``dwm_setup=LES_CALIBRATED`` (``WindGym.core.calibrated_values``) to the env, or
+set ``dwm_setup: les_calibrated`` in the env config. Parts of it need the dev
+dynamiks build (WindGym's ``dev_dynamiks`` branch) and raise on PyPI dynamiks.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 
 from dynamiks.dwm import DWMFlowSimulation
+from dynamiks.dwm.added_turbulence_models import (
+    SynchronizedAutoScalingIsotropicMannTurbulence,
+)
 from dynamiks.dwm.particle_deficit_profiles.ainslie import jDWMAinslieGenerator
-from dynamiks.dwm.particle_motion_models import HillVortexParticleMotion, XSpeed
-from dynamiks.dwm.projection_models import NoProjection
-
-# from dynamiks.dwm.superposition import rss_superposition
-# from dynamiks.utils.data_dumper import runningAverageSensor
+from dynamiks.dwm.particle_motion_models import (
+    CutOffFrq,
+    HillVortexParticleMotion,
+    XSpeed,
+)
+from dynamiks.dwm.projection_models import FullProjection, NoProjection
+from dynamiks.utils.geometry import get_xyz
 from dynamiks.wind_turbines import PyWakeWindTurbines
-
-# from dynamiks.wind_turbines.ti_model import RunningAverageSensorTIModel
-from jDWM.EddyViscosityModel import keck
+from jDWM.EddyViscosityModel import keck, madsen
 from jDWM.Solvers import implicit
 from py_wake.rotor_avg_models import CGIRotorAvg
+from py_wake.superposition_models import LinearSum
 
-from dynamiks.dwm.superposition import MixedSum  # MixedSum instead of rss
-from dynamiks.wind_turbines.ti_models import TISensor, MeanMethod
-from dynamiks.utils.geometry import get_xyz
+from .dynamiks_features import (
+    HAS_BRANLARD,
+    HAS_INTERP,
+    HAS_MIXED_SUM,
+    HAS_TI_SENSOR,
+    require,
+)
 
-from .dynamiks_features import HAS_INTERP, require
-
-
-# === DWM closure / particle setup ===========================================
-K1 = 0.0914  # keck ambient eddy-viscosity coefficient
-K2 = 0.0216  # keck wake-shear eddy-viscosity coefficient
-D_PARTICLE = 0.48  # streamwise particle spacing in rotor diameters
-
-AINSLIE_R_MAX = 3  # radial domain extent (rotor diameters)
-AINSLIE_N_R = 52  # radial grid points
-AINSLIE_DX = 0.1  # axial step (rotor diameters)
-
-ROTOR_AVG_N = 21  # CGI rotor-average kernel for the WT inflow sensor
-PARTICLE_SPATIAL_AVG_N = 9  # CGI rotor-averaged spatial sampling for particle motion
-TI_RUNNING_AVG_S = 600  # RunningAverageSensorTIModel window in seconds
+_VISCOSITY_MODELS = {"madsen": madsen, "keck": keck}
+_PROJECTIONS = {"full": FullProjection, "none": NoProjection}
+_X_SPEEDS = {"global": XSpeed.Global, "particle": XSpeed.Particle}
 
 
-# === Mann turbulence box ====================================================
-# Used by `TurbulenceManager._generate_mann_generate` and `_generate_mann_fixed`.
-#
-# Under the legacy non-DR path the raw box at αε=1 is renormalised by
-# `tf.scale_TI(TI=self.ti, U=ws)` to the env's nominal TI, so MANN_AE is
-# effectively cosmetic *in that path*.
-#
-# Under domain randomization (Mann keys present in `dwm_params`), the
-# turbulence manager skips `scale_TI` and αε directly controls the box's
-# ambient TI (matching `calibration/simulator.py:_build_site`). At
-# (L=29.4, Γ=3.9, WS=9), raw σ_u ≈ 3.63 → TI ≈ 0.40·√αε, so the calibrated
-# αε ≈ 0.0056 corresponds to TI ≈ 3%. If you ever switch the default branch
-# to skip `scale_TI` unconditionally, lower MANN_AE accordingly.
-MANN_L = 29.4
-MANN_AE = 1.0  # alphaepsilon — see docstring above re: scale_TI
-MANN_GAMMA = 3.9
-# NOTE on box extent: 1024*3.2 = 3.28 km streamwise. Under Bounds.Repeat a
-# long episode re-samples the box many times (a Stage-7 10,300 s episode at
-# ws 9-11 advects 90-110 km ~ 30 wraps). This is calibration-faithful — the
-# LES/SBI calibration and the LESRL trainings ran the same spec — but it is a
-# deliberate trade against the old wdest (4096, ...) anti-recycle box; under
-# DR every episode regenerates a fresh box, so recycling is within-episode
-# only.
-MANN_NXYZ = (1024, 256, 128)
-MANN_DXYZ = (3.2, 3.2, 3.2)
+@dataclass(frozen=True)
+class MannBoxSpec:
+    """Mann turbulence box generated for turbtype MannGenerate / MannFixed."""
 
-
-def make_wts(x, y, windTurbine) -> PyWakeWindTurbines:
-    """PyWakeWindTurbines wired with the calibrated rotor-average + TI sensor."""
-    return PyWakeWindTurbines(
-        x=x,
-        y=y,
-        windTurbine=windTurbine,
-        rotorAvgModel=CGIRotorAvg(ROTOR_AVG_N),
-        turbulenceIntensityModel=TISensor(
-            mean_method=MeanMethod.TURBULENCE_TRANSPORT_SPEED, T=600
-        ),
+    L: float = 33.6  # length scale (m)
+    gamma: float = 3.9  # anisotropy
+    alphaepsilon: float = (
+        0.1  # dissipation; rescaled away by scale_TI (see TurbulenceManager)
     )
+    # Grid points (x, y, z). x wraps (Bounds.Repeat), so long episodes
+    # recycle the box.
+    nxyz: tuple[int, int, int] = (1024, 512, 64)
+    # Grid spacing in metres. None = rotor diameter / d_over_dxyz.
+    dxyz: tuple[float, float, float] | None = None
+    d_over_dxyz: tuple[float, float, float] = (20, 10, 10)
+
+    def spacing(self, rotor_diameter: float) -> tuple[float, float, float]:
+        if self.dxyz is not None:
+            return tuple(self.dxyz)
+        return tuple(rotor_diameter / n for n in self.d_over_dxyz)
+
+
+@dataclass(frozen=True)
+class DWMSetup:
+    """Physics of the DWM flow simulation. Defaults are plain dynamiks."""
+
+    # Ainslie wake-deficit generator (jDWMAinslieGenerator)
+    viscosity_model: str = "madsen"  # "madsen" or "keck" (jDWM.EddyViscosityModel)
+    k1: float | None = None  # None = the viscosity model's default
+    k2: float | None = None
+    ainslie_r_max: float = 3  # radial domain extent (rotor radii)
+    ainslie_n_r: int = 51  # radial grid points
+    ainslie_dx: float = 0.1  # axial step
+    projection: str = "full"  # "full" (FullProjection) or "none" (NoProjection)
+
+    d_particle: float = 0.2  # streamwise particle spacing in rotor diameters
+
+    # Particle motion (HillVortexParticleMotion)
+    particle_x_speed: str = "global"  # "global" or "particle" (XSpeed)
+    particle_cutoff_d: float | None = 4  # CutOffFrq temporal filter; None = no filter
+    particle_include_wakes: bool = False  # particles also feel the other wakes
+    particle_spatial_avg_n: int | None = None  # CGIRotorAvg spatial filter; None = off
+
+    # PyWake turbines
+    rotor_avg_n: int | None = None  # CGIRotorAvg inflow kernel; None = dynamiks default
+    ti_sensor_window_s: float | None = None  # TISensor window; None = ambient site TI
+
+    superposition: str = "linear"  # "linear" (LinearSum) or "mixed" (MixedSum)
+    added_turbulence_scaling: str = "default"  # "default" or "branlard"
+
+    mann: MannBoxSpec = MannBoxSpec()
+
+
+def make_wts(x, y, windTurbine, setup: DWMSetup) -> PyWakeWindTurbines:
+    """PyWakeWindTurbines with the rotor-average and TI model of ``setup``."""
+    kwargs = {}
+    if setup.rotor_avg_n is not None:
+        kwargs["rotorAvgModel"] = CGIRotorAvg(setup.rotor_avg_n)
+    if setup.ti_sensor_window_s is not None:
+        require(HAS_TI_SENSOR, "DWMSetup.ti_sensor_window_s (TISensor)")
+        from dynamiks.wind_turbines.ti_models import MeanMethod, TISensor
+
+        kwargs["turbulenceIntensityModel"] = TISensor(
+            mean_method=MeanMethod.TURBULENCE_TRANSPORT_SPEED,
+            T=setup.ti_sensor_window_s,
+        )
+    return PyWakeWindTurbines(x=x, y=y, windTurbine=windTurbine, **kwargs)
+
+
+def make_added_turbulence_model(setup: DWMSetup):
+    """Synchronized Mann added-turbulence model with the scaling of ``setup``."""
+    if setup.added_turbulence_scaling == "branlard":
+        require(HAS_BRANLARD, "DWMSetup.added_turbulence_scaling='branlard'")
+        from dynamiks.dwm.added_turbulence_models import BranlardScaling
+
+        return SynchronizedAutoScalingIsotropicMannTurbulence(
+            scaling=BranlardScaling(), cache_field=False
+        )
+    if setup.added_turbulence_scaling != "default":
+        raise ValueError(
+            f"Unknown added_turbulence_scaling {setup.added_turbulence_scaling!r} "
+            "(expected 'default' or 'branlard')"
+        )
+    return SynchronizedAutoScalingIsotropicMannTurbulence(cache_field=False)
+
+
+def _superposition_model(setup: DWMSetup):
+    if setup.superposition == "mixed":
+        require(HAS_MIXED_SUM, "DWMSetup.superposition='mixed' (MixedSum)")
+        from dynamiks.dwm.superposition import MixedSum
+
+        return MixedSum()
+    if setup.superposition != "linear":
+        raise ValueError(
+            f"Unknown superposition {setup.superposition!r} "
+            "(expected 'linear' or 'mixed')"
+        )
+    return LinearSum()
 
 
 def make_dwm(
@@ -101,31 +158,34 @@ def make_dwm(
     wind_direction,
     dt,
     addedTurbulenceModel,
-    k1: float = K1,
-    k2: float = K2,
-    d_particle: float = D_PARTICLE,
+    setup: DWMSetup,
+    k1: float | None = None,
+    k2: float | None = None,
+    d_particle: float | None = None,
     interpolation: str | None = None,
     lateral_cutoff: float | None = None,
 ) -> DWMFlowSimulation:
-    """Assemble a DWMFlowSimulation under the calibrated setup.
+    """Assemble a DWMFlowSimulation from ``setup``.
 
     The caller drives it via ``fs.step()`` in a time loop.
 
-    The three closure knobs (``k1``, ``k2``, ``d_particle``) default to the
-    module constants, so existing call sites stay unchanged. Override them at
-    episode reset to do domain randomization.
+    ``k1``, ``k2`` and ``d_particle`` override the setup's values for one
+    episode (domain randomization); None keeps the setup's value.
 
     ``interpolation`` / ``lateral_cutoff`` are dev-dynamiks speed-ups; None
-    leaves them out (dynamiks default: pchip, no cutoff, which is what the LES
-    calibration ran).
+    leaves them out (dynamiks default: pchip, no cutoff).
     """
+    k1 = setup.k1 if k1 is None else k1
+    k2 = setup.k2 if k2 is None else k2
+    d_particle = setup.d_particle if d_particle is None else d_particle
+
     # Particle count: dynamiks auto-computes ceil(farm_size_x*1.2/d_particle)
     # with a floor of 10 particles, which degenerates for layouts where all
     # turbines share one downwind x (side-by-side farms, or a single row at
     # wd 0/180): 10 particles ~ 4.8D of wake and everything beyond silently
     # vanishes. Keep the wdest fix: cover at least 15D downstream. For
     # extended farms (farm_x*1.2 >= 15D, e.g. the les_3x3 layouts) this
-    # matches the dynamiks auto-compute the calibration ran with.
+    # matches the dynamiks auto-compute.
     # (rotor_positions_xyz needs a bound flow simulation, so rotate the
     # east/north positions into the wd frame here; the extent is invariant
     # to the center_offset translation.)
@@ -138,20 +198,29 @@ def make_dwm(
     _desired = max(float(_x.max() - _x.min()) * 1.2, 15.0 * float(_D.max()))
     n_particles = max(int(np.ceil(_desired / (d_particle * float(_D.min())))), 10)
 
+    closure = {k: v for k, v in (("k1", k1), ("k2", k2)) if v is not None}
     deficit_gen = jDWMAinslieGenerator(
-        viscosity_model=keck(TI=1.0, dudz_abl=1.0, k1=k1, k2=k2),
+        viscosity_model=_VISCOSITY_MODELS[setup.viscosity_model](TI=1.0, **closure),
         solver=implicit(),
-        projectionModel=NoProjection(),
-        r_max=AINSLIE_R_MAX,
-        n_r=AINSLIE_N_R,
-        dx=AINSLIE_DX,
+        projectionModel=_PROJECTIONS[setup.projection](),
+        r_max=setup.ainslie_r_max,
+        n_r=setup.ainslie_n_r,
+        dx=setup.ainslie_dx,
     )
 
     particle_motion = HillVortexParticleMotion(
-        x_speed=XSpeed.Particle,
-        temporal_filter=None,
-        spatial_filter=CGIRotorAvg(PARTICLE_SPATIAL_AVG_N),
-        include_wakes=True,
+        x_speed=_X_SPEEDS[setup.particle_x_speed],
+        temporal_filter=(
+            None
+            if setup.particle_cutoff_d is None
+            else CutOffFrq(setup.particle_cutoff_d)
+        ),
+        spatial_filter=(
+            None
+            if setup.particle_spatial_avg_n is None
+            else CGIRotorAvg(setup.particle_spatial_avg_n)
+        ),
+        include_wakes=setup.particle_include_wakes,
     )
 
     # Speedups, not part of the LES calibration (which ran pchip / no cutoff,
@@ -173,7 +242,7 @@ def make_dwm(
         d_particle=d_particle,
         n_particles=n_particles,
         addedTurbulenceModel=addedTurbulenceModel,
-        superpositionModel=MixedSum(),
+        superpositionModel=_superposition_model(setup),
         wind_direction=wind_direction,
         dt=dt,
         **speedups,

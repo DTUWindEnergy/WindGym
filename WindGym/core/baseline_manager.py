@@ -11,7 +11,7 @@ import numpy as np
 from dynamiks.wind_turbines import PyWakeWindTurbines
 from ..backend.hawc2_adapter import HAWC2WindTurbinesW
 from ..BasicControllers import local_yaw_controller, global_yaw_controller
-from .dwm_defaults import make_wts, add_hawc2_yaw_sensor
+from .dwm_defaults import DWMSetup, make_wts, add_hawc2_yaw_sensor
 
 # Use TYPE_CHECKING to avoid circular import at runtime
 # PyWakeAgent is imported lazily in _setup_pywake_baseline
@@ -44,6 +44,7 @@ class BaselineManager:
         htc_path: Optional[str] = None,
         hawc2_yaw_mode: str = "bearing2_slot",
         hawc2_yaw_slot: int = 1,
+        dwm_setup: Optional[DWMSetup] = None,
     ):
         """
         Initialize the baseline manager.
@@ -62,6 +63,8 @@ class BaselineManager:
             hawc2_yaw_mode: Yaw sensor wiring for HAWC2 turbines (must match
                             the htc's servo DLL; see add_hawc2_yaw_sensor)
             hawc2_yaw_slot: HAWC2 general-variable index for the yaw setpoint
+            dwm_setup: DWM physics for the PyWake baseline turbines (rotor
+                average, TI model). None = plain-dynamiks ``DWMSetup()``.
         """
         self.baseline_controller_type = baseline_controller_type
         self.x_pos = x_pos
@@ -74,6 +77,7 @@ class BaselineManager:
         self.htc_path = htc_path
         self.hawc2_yaw_mode = hawc2_yaw_mode
         self.hawc2_yaw_slot = int(hawc2_yaw_slot)
+        self.dwm_setup = dwm_setup if dwm_setup is not None else DWMSetup()
 
         # Controller function
         self._base_controller: Optional[Callable] = None
@@ -212,6 +216,7 @@ class BaselineManager:
                 x=self.x_pos,
                 y=self.y_pos,
                 windTurbine=self.turbine,
+                setup=self.dwm_setup,
             )
 
         return self.wts_baseline

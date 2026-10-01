@@ -35,6 +35,13 @@ HAS_VEER = _has_kwarg(MetmastSite.__init__, "veer_rate")
 # DWMFlowSimulation(interpolation=, lateral_cutoff=) speed-ups.
 HAS_INTERP = _has_kwarg(DWMFlowSimulation.__init__, "interpolation")
 
+# Pieces of the LES-calibrated DWM setup (see core/calibrated_values.py).
+HAS_MIXED_SUM = importlib.util.find_spec("dynamiks.dwm.superposition") is not None
+HAS_TI_SENSOR = importlib.util.find_spec("dynamiks.wind_turbines.ti_models") is not None
+HAS_BRANLARD = hasattr(
+    importlib.import_module("dynamiks.dwm.added_turbulence_models"), "BranlardScaling"
+)
+
 
 def require(flag: bool, feature: str) -> None:
     """Raise a clear ImportError if the installed dynamiks lacks ``feature``."""
