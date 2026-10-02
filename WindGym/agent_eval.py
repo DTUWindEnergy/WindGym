@@ -1,3 +1,5 @@
+import warnings
+
 import xarray as xr
 import numpy as np
 
@@ -22,7 +24,11 @@ from .visualization import (
     plot_turb,
 )
 from .evaluation.recorder import EpisodeRecorder
-from .evaluation.live_figures import LiveFigureWriter, resolve_fig_folder
+from .evaluation.live_figures import (
+    LiveFigureWriter,
+    assemble_gif,
+    resolve_fig_folder,
+)
 from .evaluation.hawc2_loads import load_hawc2_loads_dataset, close_hawc2_and_cleanup
 from .evaluation.selection import select_action
 
@@ -66,6 +72,9 @@ def eval_single_fast(
     cleanup=True,
     seed=None,
     fig_dir=None,
+    *,
+    veer=0.0,
+    gif_fps=8,
 ):
     """
     This function evaluates the agent for a single wind direction, and then saves the results in a xarray dataset.
@@ -93,6 +102,13 @@ def eval_single_fast(
     fig_dir: Directory for figures when save_figs=True. Defaults to
         "./Temp_Figs_{name}_ws{ws}_wd{wd}/" in the current working directory
         (the historical behaviour).
+    veer: Linear veer rate (deg per 100 m, positive = wd increases with
+        height, 0 at hub height), pinned for the episode (keyword-only).
+        None keeps the config's veer_min/veer_max draw.
+    gif_fps: Frames per second of the animated GIF assembled from the saved
+        figures (only used when save_figs is True; keyword-only). The GIF
+        path is stored in ``ds.attrs["gif_path"]`` (on the loads dataset
+        with return_loads).
 
     """
 
@@ -103,7 +119,7 @@ def eval_single_fast(
             "The eval_single_fast function is not compatible with vectorized versions of the environment. Please use unvectorized envs instead."
         )
 
-    env.set_wind_vals(ws=ws, ti=ti, wd=wd)
+    env.set_wind_vals(ws=ws, ti=ti, wd=wd, veer=veer)
     baseline_comp = env.Baseline_comp
 
     scaling = scale_obs if isinstance(scale_obs, list) else [scale_obs]
@@ -198,6 +214,15 @@ def eval_single_fast(
         if writer is not None:
             writer.draw(i)
 
+    # Assemble the saved frames into an animated GIF. A missing encoder must
+    # not cost the finished evaluation: warn and keep the frames.
+    gif_path = None
+    if writer is not None:
+        try:
+            gif_path = assemble_gif(writer.FOLDER, total_steps, gif_fps)
+        except ImportError as e:
+            warnings.warn(f"No GIF written ({e}); frames kept in {writer.FOLDER}")
+
     # Create the dataset
     if not return_loads:
         ds = rec.to_dataset(
@@ -208,6 +233,8 @@ def eval_single_fast(
             model_step=model_step,
             deterministic=deterministic,
         )
+        if gif_path is not None:
+            ds.attrs["gif_path"] = gif_path
         # Do this to remove it from memory
         env.timestep = env.time_max
         obs, reward, terminated, truncated, info = env.step(action)
@@ -219,6 +246,8 @@ def eval_single_fast(
         ds_load = load_hawc2_loads_dataset(
             env, ws=ws, wd=wd, ti=ti, turbbox=turbbox, model_step=model_step
         )
+        if gif_path is not None:
+            ds_load.attrs["gif_path"] = gif_path
         close_hawc2_and_cleanup(env, cleanup=cleanup, baseline_comp=baseline_comp)
         return ds_load
     # return_loads=True without HAWC2 turbines: nothing to return (historical
@@ -232,6 +261,7 @@ class AgentEval:
         self.ws = 10.0
         self.ti = 0.05
         self.wd = 270
+        self.veer = 0.0  # deg per 100 m, 0 at hub height
         self.yaw = 0.0
         self.turbbox = "Default"
 
@@ -267,7 +297,9 @@ class AgentEval:
         if turbboxes:
             self.turbboxes = turbboxes
 
-    def set_condition(self, ws=None, ti=None, wd=None, yaw=None, turbbox=None):
+    def set_condition(
+        self, ws=None, ti=None, wd=None, yaw=None, turbbox=None, veer=None
+    ):
         # Set the conditions for the individual evaluation, and then update the env with these values.
         if ws is not None:
             self.ws = ws
@@ -275,6 +307,8 @@ class AgentEval:
             self.ti = ti
         if wd is not None:
             self.wd = wd
+        if veer is not None:
+            self.veer = veer
         if yaw is not None:
             self.yaw = yaw
         if turbbox is not None:
@@ -287,7 +321,7 @@ class AgentEval:
         # First we initialize the environment with the specified conditions
         self.env.set_yaw_vals(self.yaw)  # Specified yaw vals
         # Set the wind values, used for initialization
-        self.env.set_wind_vals(ws=self.ws, ti=self.ti, wd=self.wd)
+        self.env.set_wind_vals(ws=self.ws, ti=self.ti, wd=self.wd, veer=self.veer)
         if self.turbbox != "Default":
             # NOTE you must make sure that the self.turbbox is set to a path with a turbulence box file.
             # Also it must point to a specific file, and not a folder.
@@ -322,6 +356,7 @@ class AgentEval:
             ws=self.ws,
             ti=self.ti,
             wd=self.wd,
+            veer=self.veer,
             turbbox=self.turbbox,
             save_figs=save_figs,
             scale_obs=scale_obs,

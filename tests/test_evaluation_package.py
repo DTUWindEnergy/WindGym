@@ -255,7 +255,8 @@ def test_run_simulation_signature():
 
 
 def test_eval_single_fast_signature_unchanged():
-    assert list(inspect.signature(eval_single_fast).parameters) == [
+    params = inspect.signature(eval_single_fast).parameters
+    assert list(params) == [
         "env",
         "model",
         "model_step",
@@ -273,7 +274,12 @@ def test_eval_single_fast_signature_unchanged():
         "cleanup",
         "seed",
         "fig_dir",
+        "veer",
+        "gif_fps",
     ]
+    # Restored proj/lesrl kwargs: keyword-only so positional callers keep binding.
+    assert params["veer"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert params["gif_fps"].kind is inspect.Parameter.KEYWORD_ONLY
 
 
 @pytest.mark.integration

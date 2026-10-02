@@ -9,6 +9,8 @@ is pixel-identical to the pre-refactor frames.
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
 from collections import deque
 
 import matplotlib.patheffects as path_effects
@@ -23,6 +25,75 @@ def resolve_fig_folder(fig_dir, name, env_ws, wd) -> str:
     if fig_dir is not None:
         return os.path.join(fig_dir, "")
     return "./Temp_Figs_{}_ws{}_wd{}/".format(name, env_ws, wd)
+
+
+def assemble_gif(folder, n_frames, fps):
+    """
+    Assemble the img_XXXXX.png frames in `folder` into an animated GIF.
+
+    The frames are first cropped to the smallest common size, since
+    bbox_inches="tight" lets the figure size drift a few pixels between
+    frames and GIFs need a uniform frame shape. Uses ffmpeg when available
+    (two-pass palette for better colors), otherwise falls back to imageio.
+
+    Returns the path of the written GIF, or None if no frames were found.
+    """
+    from PIL import Image  # matplotlib dependency, always available here
+
+    paths = [os.path.join(folder, "img_{:05d}.png".format(i)) for i in range(n_frames)]
+    paths = [p for p in paths if os.path.exists(p)]
+    if not paths:
+        return None
+
+    sizes = []
+    for p in paths:
+        with Image.open(p) as im:
+            sizes.append(im.size)
+    w = min(s[0] for s in sizes)
+    h = min(s[1] for s in sizes)
+    for p, s in zip(paths, sizes):
+        if s != (w, h):
+            with Image.open(p) as im:
+                im.crop((0, 0, w, h)).save(p)
+
+    gif_path = os.path.join(folder, "animation.gif")
+    if shutil.which("ffmpeg") is not None:
+        # Scrub LD_LIBRARY_PATH for the child: conda envs put an older
+        # libstdc++ on it, which breaks the system ffmpeg's own libraries.
+        child_env = {k: v for k, v in os.environ.items() if k != "LD_LIBRARY_PATH"}
+        try:
+            subprocess.run(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-loglevel",
+                    "error",
+                    "-framerate",
+                    str(fps),
+                    "-i",
+                    os.path.join(folder, "img_%05d.png"),
+                    "-vf",
+                    "split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse",
+                    "-loop",
+                    "0",
+                    gif_path,
+                ],
+                check=True,
+                env=child_env,
+            )
+            return gif_path
+        except (subprocess.CalledProcessError, OSError) as e:
+            print(f"ffmpeg GIF assembly failed ({e}); falling back to imageio.")
+    try:
+        import imageio.v2 as imageio
+    except ImportError as e:
+        raise ImportError(
+            "GIF assembly needs either ffmpeg on the PATH or the imageio "
+            "package (pip install imageio)."
+        ) from e
+    frames = [imageio.imread(p) for p in paths]
+    imageio.mimsave(gif_path, frames, fps=fps, loop=0)
+    return gif_path
 
 
 class LiveFigureWriter:
