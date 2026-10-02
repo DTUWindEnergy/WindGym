@@ -792,7 +792,9 @@ class WindFarmEnv(gym.Env):
             return_dict["Power reference"] = self.power_setpoint
             # Instantaneous error at the current env step (the reward uses
             # window means of both sides instead).
-            return_dict["Tracking error"] = self.farm_pow_deq[-1] - self.power_setpoint
+            return_dict["Tracking error"] = float(
+                self.farm_pow_deq[-1] - self.power_setpoint
+            )  # plain float, see step()
             # Window-mean error — the exact quantity the reward normalizes
             # (matches the `tracking_error` breakdown entry). Both deques are
             # filled by reset's warm-up, so this runs after they are non-empty.
@@ -880,7 +882,8 @@ class WindFarmEnv(gym.Env):
             print("WARNING: farm_measurements was not initialized before reset.")
 
         # Rated power at current ws (for reward scaling)
-        self.rated_power = self.turbine.power(self.ws)
+        # Scalar: tabular (e.g. derating) turbines return a 1-element array.
+        self.rated_power = np.asarray(self.turbine.power(self.ws)).item()
 
         # 3) Turbines (HAWC2 draws its case-name suffix here) + per-episode state
         self._init_wts()
@@ -1583,7 +1586,9 @@ class WindFarmEnv(gym.Env):
 
         terminated = False
 
-        return observation, reward, terminated, truncated, info
+        # Plain float: the dtype of the reward arithmetic depends on the numpy
+        # version (NEP 50 keeps float32 on numpy 2, numpy 1 promotes to float64).
+        return observation, float(reward), terminated, truncated, info
 
     def _safe_close_h2(self, wt) -> None:
         """Close a HAWC2 turbine's h2 connection defensively (owner process only).

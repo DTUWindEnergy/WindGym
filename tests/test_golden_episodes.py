@@ -2,7 +2,10 @@
 
 Each scenario builds an env, runs a seeded episode with actions drawn from an
 *independent* numpy generator (never the env RNG), and compares every recorded
-quantity bit-for-bit against ``tests/golden/G*.npz``.
+quantity against ``tests/golden/G*.npz``: shapes, dtypes and integer/bool values
+exactly, floats to ``rtol=1e-6`` (as in ``test_eval_single_golden``). Bit-exact
+floats do not survive numpy 1 vs 2 promotion rules, py_wake versions or the
+CPU's SIMD paths; real regressions (RNG draw order, physics) are far larger.
 
 The goldens were recorded from the code on ``main`` before the env/eval
 refactor; they pin the RNG draw order in ``reset()`` and the numerics of
@@ -11,7 +14,7 @@ refactor; they pin the RNG draw order in ``reset()`` and the numerics of
     WINDGYM_UPDATE_GOLDEN=1 pytest tests/test_golden_episodes.py
 
 Regeneration runs each scenario twice and refuses to write unless both runs
-are bit-identical.
+are bit-identical (same machine, so exactness is expected there).
 
 The ``*_les_calibrated`` scenarios rerun G2/G4 under the opt-in LES-calibrated
 DWM setup (with the linear / 1.5 speed-ups); they need the dev dynamiks build
@@ -277,11 +280,16 @@ def run_episode(env, seed, n_steps, expect_truncation):
     return rec
 
 
-def _assert_same(a: dict, b: dict):
+def _assert_same(a: dict, b: dict, exact: bool = True):
     assert set(a) == set(b), sorted(set(a) ^ set(b))
     for k in a:
-        np.testing.assert_array_equal(a[k], b[k], err_msg=k)
         assert a[k].dtype == b[k].dtype, (k, a[k].dtype, b[k].dtype)
+        # numpy's array comparisons broadcast, so check shapes explicitly.
+        assert a[k].shape == b[k].shape, (k, a[k].shape, b[k].shape)
+        if exact or not np.issubdtype(a[k].dtype, np.floating):
+            np.testing.assert_array_equal(a[k], b[k], err_msg=k)
+        else:
+            np.testing.assert_allclose(a[k], b[k], rtol=1e-6, atol=1e-9, err_msg=k)
 
 
 @pytest.mark.parametrize("name", sorted(SCENARIOS))
@@ -316,4 +324,4 @@ def test_golden_episode(name):
     assert path.exists(), f"missing golden {path}; run with WINDGYM_UPDATE_GOLDEN=1"
     with np.load(path) as g:
         golden = {k: g[k] for k in g.files}
-    _assert_same(golden, rec)
+    _assert_same(golden, rec, exact=False)

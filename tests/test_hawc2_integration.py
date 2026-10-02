@@ -151,6 +151,11 @@ def mock_hawc2_wind_turbines():
         # --- Directly set data attributes ---
         z_pos = np.full_like(np.asarray(x_pos), 90.0)
         collection_mock.positions_east_north = np.array([x_pos, y_pos, z_pos])
+        # make_dwm reads rotor_positions_east_north first; without this the
+        # MagicMock auto-attribute is an empty array (no AttributeError fallback).
+        type(collection_mock).rotor_positions_east_north = PropertyMock(
+            return_value=np.array([x_pos, y_pos, z_pos])
+        )
         collection_mock.N = num_turbines
         collection_mock.yaw = np.zeros(num_turbines)
         collection_mock.step_handlers = []
