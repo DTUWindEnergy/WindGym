@@ -148,3 +148,17 @@ def test_last_theta_returns_a_copy():
     snapshot = w.last_theta
     snapshot["k1"] = 999.0  # try to corrupt internal state
     assert w.last_theta == {"k1": 0.05}
+
+
+def test_array_valued_theta_passes_through_and_is_recorded():
+    """Turbine-parameter DR draws per-turbine ARRAYS; the wrapper must forward
+    them untouched (no scalar coercion) and expose them via last_theta."""
+    env = _StubEnv()
+    theta = {"k1": 0.05, "cp_gain": np.array([1.1, 0.9, 1.0]), "tau_yaw": np.array([0.0, 20.0, 5.0])}
+    wrapped = DWMRandomizationWrapper(env, sampler=lambda rng: dict(theta))
+    wrapped.reset()
+    sent = env.last_options["dwm_params"]
+    np.testing.assert_array_equal(sent["cp_gain"], [1.1, 0.9, 1.0])
+    np.testing.assert_array_equal(sent["tau_yaw"], [0.0, 20.0, 5.0])
+    assert sent["k1"] == 0.05
+    np.testing.assert_array_equal(wrapped.last_theta["cp_gain"], [1.1, 0.9, 1.0])

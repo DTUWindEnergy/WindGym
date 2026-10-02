@@ -104,8 +104,15 @@ class DWMSetup:
     mann: MannBoxSpec = MannBoxSpec()
 
 
-def make_wts(x, y, windTurbine, setup: DWMSetup) -> PyWakeWindTurbines:
-    """PyWakeWindTurbines with the rotor-average and TI model of ``setup``."""
+def make_wts(x, y, windTurbine, setup: DWMSetup, turbine_params=None) -> PyWakeWindTurbines:
+    """PyWakeWindTurbines with the rotor-average and TI model of ``setup``.
+
+    ``turbine_params`` (a ``core.turbine_params.TurbineParams``) selects the
+    perturbed subclass ``backend.param_turbines.ParamPyWakeWindTurbines``
+    (per-turbine Cp/Ct gains, yaw actuator lag, power lag) for turbine-parameter
+    domain randomization. ``None`` or an all-default vector returns the plain
+    dynamiks class, so the nominal path is unchanged.
+    """
     kwargs = {}
     if setup.rotor_avg_n is not None:
         kwargs["rotorAvgModel"] = CGIRotorAvg(setup.rotor_avg_n)
@@ -117,7 +124,13 @@ def make_wts(x, y, windTurbine, setup: DWMSetup) -> PyWakeWindTurbines:
             mean_method=MeanMethod.TURBULENCE_TRANSPORT_SPEED,
             T=setup.ti_sensor_window_s,
         )
-    return PyWakeWindTurbines(x=x, y=y, windTurbine=windTurbine, **kwargs)
+    if turbine_params is None or turbine_params.is_nominal:
+        return PyWakeWindTurbines(x=x, y=y, windTurbine=windTurbine, **kwargs)
+    from ..backend.param_turbines import ParamPyWakeWindTurbines  # lazy: dynamiks subclass
+
+    return ParamPyWakeWindTurbines(
+        x=x, y=y, windTurbine=windTurbine, params=turbine_params, **kwargs
+    )
 
 
 def make_added_turbulence_model(setup: DWMSetup):
@@ -174,6 +187,10 @@ def make_dwm(
 
     ``interpolation`` / ``lateral_cutoff`` are dev-dynamiks speed-ups; None
     leaves them out (dynamiks default: pchip, no cutoff).
+
+    Turbines that expose ``attach_to`` (``ParamPyWakeWindTurbines``) are
+    attached to the new flow simulation here, so both the agent and the
+    baseline farm get their actuator step handler through this one builder.
     """
     k1 = setup.k1 if k1 is None else k1
     k2 = setup.k2 if k2 is None else k2
@@ -234,7 +251,7 @@ def make_dwm(
     if speedups:
         require(HAS_INTERP, "DWM interpolation/lateral_cutoff")
 
-    return DWMFlowSimulation(
+    fs = DWMFlowSimulation(
         site=site,
         windTurbines=windTurbines,
         particleDeficitGenerator=deficit_gen,
@@ -247,6 +264,9 @@ def make_dwm(
         dt=dt,
         **speedups,
     )
+    if hasattr(windTurbines, "attach_to"):
+        windTurbines.attach_to(fs)
+    return fs
 
 
 def add_hawc2_yaw_sensor(wts, mode: str = "bearing2_slot", slot: int = 1):
