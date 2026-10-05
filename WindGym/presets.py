@@ -32,6 +32,16 @@ _BASE_CONFIG: Dict[str, Any] = {
     "BaseController": "Local",
     "ActionMethod": "wind",
     "Track_power": False,
+    # Power tracking (only used when Track_power is True; also requires
+    # power_def.Power_reward "None"):
+    # "track_def": {
+    #     "Track_reward": "abs",  # or "gaussian"
+    #     "track_sigma": 0.1,
+    #     "track_ref_range": [0.2, 0.8],
+    #     "track_obs_setpoint": True,
+    #     "track_obs_error": True,
+    #     "track_obs_preview": 0,
+    # },
     "farm": {
         "yaw_min": -45,
         "yaw_max": 45,

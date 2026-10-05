@@ -20,6 +20,7 @@ const sidebars = {
         "theory",
         "rewards",
         "derating",
+        "power_tracking",
         "simulations",
         "agents",
         "evaluations",

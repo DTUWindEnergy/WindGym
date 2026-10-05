@@ -20,6 +20,7 @@ The `AgentEval` class (and its associated `eval_single_fast` function) provides 
 - **Time Series Data**: It records detailed time series data for power output, yaw angles, and wind speeds for both the agent-controlled farm and a baseline farm.
 - **Basic Plotting**: It includes basic plotting functionalities to visualize the flow field and time series results.
 - **Xarray Dataset Output**: Results are stored in an `xarray.Dataset`, a powerful data structure for multi-dimensional data, facilitating post-processing and analysis.
+- **Building Blocks**: The per-episode pieces live in the `WindGym.evaluation` package: `EpisodeRecorder` (result arrays and the dataset layout), `LiveFigureWriter` (the per-step figures written with `save_figs=True`), `hawc2_loads` (HAWC2 load channels for `return_loads=True`) and `select_action` (model API dispatch). `eval_single_fast` wires them together.
 
 While `AgentEval` is functional, the `Coliseum` class offers a more advanced and scalable approach for multi-agent comparisons and broader evaluation scenarios.
 

@@ -5,7 +5,16 @@ yaw_init: "Zeros"
 noise: "Normal"   #Can be "None", "Normal" 
 BaseController: "Local"
 ActionMethod: "yaw"      #Can be: "yaw", "wind", "absolute"
-Track_power: False       #If the farm should produce a specified power output
+Track_power: False       #If the farm should follow a power reference instead of maximizing power (requires Power_reward: "None")
+
+#Power tracking settings (only used when Track_power is True)
+# track_def:
+#   Track_reward: "abs"            #Tracking reward shape: "abs" or "gaussian"
+#   track_sigma: 0.1               #Width of the gaussian reward, as a fraction of rated farm power
+#   track_ref_range: [0.2, 0.8]    #Default sampler range, as a fraction of the episode freestream farm power
+#   track_obs_setpoint: True       #Observe the current power reference
+#   track_obs_error: True          #Observe the tracking error (farm power - reference)
+#   track_obs_preview: 0           #Number of future reference steps to observe
 
 #Farm parameters
 farm:

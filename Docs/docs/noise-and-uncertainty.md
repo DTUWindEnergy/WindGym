@@ -77,34 +77,61 @@ The `NoisyPyWakeAgent` is specifically designed to handle this challenge. It doe
 
 ```python
 from WindGym import WindFarmEnv
-from WindGym.core import NoisyWindFarmEnv, MeasurementManager, WhiteNoiseModel
+from WindGym.core import (
+    NoisyWindFarmEnv,
+    MeasurementManager,
+    WhiteNoiseModel,
+    MeasurementType,
+)
 from py_wake.examples.data.hornsrev1 import V80
 
-# Create a clean base environment
-base_env = WindFarmEnv(
+# A config that observes wind speed and direction (turbine and farm level)
+SENSOR_CONFIG = """
+yaw_init: "Zeros"
+BaseController: "Local"
+ActionMethod: "wind"
+farm: {yaw_min: -30, yaw_max: 30}
+wind: {ws_min: 8, ws_max: 8, TI_min: 0.07, TI_max: 0.07, wd_min: 270, wd_max: 270}
+act_pen: {action_penalty: 0.0}
+power_def: {Power_reward: "Power_avg", Power_avg: 5, Power_scaling: 1.0}
+mes_level:
+  turb_ws: True
+  turb_wd: True
+  turb_TI: False
+  turb_power: False
+  farm_ws: True
+  farm_wd: True
+  farm_TI: False
+  farm_power: False
+ws_mes: {ws_current: True, ws_rolling_mean: False, ws_history_N: 0, ws_history_length: 1, ws_window_length: 1}
+wd_mes: {wd_current: True, wd_rolling_mean: False, wd_history_N: 0, wd_history_length: 1, wd_window_length: 1}
+yaw_mes: {yaw_current: True, yaw_rolling_mean: False, yaw_history_N: 0, yaw_history_length: 1, yaw_window_length: 1}
+power_mes: {power_current: False, power_rolling_mean: False, power_history_N: 0, power_history_length: 1, power_window_length: 1}
+"""
+
+# Keyword arguments for the base environment (reused in all examples below)
+env_kwargs = dict(
     turbine=V80(),
     x_pos=[0, 500, 1000],
     y_pos=[0, 0, 0],
-    config="EnvConfigs/Env1.yaml",
+    config=SENSOR_CONFIG,
 )
 
-# Create measurement manager with noise configuration
-manager = MeasurementManager(base_env)
+# Build the MeasurementManager from a temporary, un-reset env instance
+temp_env = WindFarmEnv(**env_kwargs, reset_init=False)
+manager = MeasurementManager(temp_env)
+temp_env.close()
 
-# Add white noise to wind direction measurements
+# One noise model covers all measurement types, keyed by MeasurementType
 manager.set_noise_model(
-    measurement_type='wd',
-    noise_model=WhiteNoiseModel(std=2.0)  # 2 degree standard deviation
+    WhiteNoiseModel({
+        MeasurementType.WIND_DIRECTION: 2.0,  # 2 degree standard deviation
+        MeasurementType.WIND_SPEED: 0.5,      # 0.5 m/s standard deviation
+    })
 )
 
-# Add noise to wind speed measurements
-manager.set_noise_model(
-    measurement_type='ws',
-    noise_model=WhiteNoiseModel(std=0.5)  # 0.5 m/s standard deviation
-)
-
-# Wrap the environment
-noisy_env = NoisyWindFarmEnv(base_env, manager)
+# The wrapper builds its own base env: pass the env *class* plus its kwargs
+noisy_env = NoisyWindFarmEnv(WindFarmEnv, manager, **env_kwargs)
 
 # Now use the noisy environment
 obs, info = noisy_env.reset()
@@ -118,37 +145,32 @@ print(f"Applied noise: {info['noise_info']}")
 ```python
 from WindGym.core import EpisodicBiasNoiseModel
 
-# Create environment
-base_env = WindFarmEnv(
-    turbine=V80(),
-    x_pos=[0, 500, 1000],
-    y_pos=[0, 0, 0],
-    config="EnvConfigs/Env1.yaml",
-)
-manager = MeasurementManager(base_env)
+# Manager wired to the environment as in Basic Setup
+temp_env = WindFarmEnv(**env_kwargs, reset_init=False)
+manager = MeasurementManager(temp_env)
+temp_env.close()
 
-# Add episodic bias - same bias throughout one episode
+# Episodic bias - one bias per episode, drawn uniformly from a (min, max) range
 manager.set_noise_model(
-    measurement_type='wd',
-    noise_model=EpisodicBiasNoiseModel(
-        bias_std=5.0  # Bias drawn from N(0, 5°) at episode start
-    )
+    EpisodicBiasNoiseModel({
+        MeasurementType.WIND_DIRECTION: (-5.0, 5.0)  # degrees
+    })
 )
 
-noisy_env = NoisyWindFarmEnv(base_env, manager)
+noisy_env = NoisyWindFarmEnv(WindFarmEnv, manager, **env_kwargs)
 
 # First episode
 obs, info = noisy_env.reset()
-bias_1 = info['noise_info']['wd']['bias']
+bias_1 = info["noise_info"]["applied_bias (physical_units)"]["turb_0/wd_current"]
 
 # Run episode - bias stays constant
 for _ in range(10):
     obs, _, _, _, info = noisy_env.step(noisy_env.action_space.sample())
-    assert info['noise_info']['wd']['bias'] == bias_1
+    assert info["noise_info"]["applied_bias (physical_units)"]["turb_0/wd_current"] == bias_1
 
 # New episode - new bias
 obs, info = noisy_env.reset()
-bias_2 = info['noise_info']['wd']['bias']
+bias_2 = info["noise_info"]["applied_bias (physical_units)"]["turb_0/wd_current"]
 assert bias_2 != bias_1  # Different bias
 ```
 
@@ -157,63 +179,71 @@ assert bias_2 != bias_1  # Different bias
 ```python
 from WindGym.core import HybridNoiseModel
 
-base_env = WindFarmEnv(
-    turbine=V80(),
-    x_pos=[0, 500, 1000],
-    y_pos=[0, 0, 0],
-    config="EnvConfigs/Env1.yaml",
-)
-manager = MeasurementManager(base_env)
+temp_env = WindFarmEnv(**env_kwargs, reset_init=False)
+manager = MeasurementManager(temp_env)
+temp_env.close()
 
-# Combine white noise and episodic bias
-hybrid_noise = HybridNoiseModel(
-    white_noise_std=1.0,    # Random noise each step
-    episodic_bias_std=3.0   # Consistent bias per episode
-)
+# Combine white noise (redrawn every step) and an episodic bias (constant per episode)
+hybrid_noise = HybridNoiseModel(models=[
+    WhiteNoiseModel({MeasurementType.WIND_DIRECTION: 1.0}),
+    EpisodicBiasNoiseModel({MeasurementType.WIND_DIRECTION: (-3.0, 3.0)}),
+])
 
-manager.set_noise_model(
-    measurement_type='wd',
-    noise_model=hybrid_noise
-)
+manager.set_noise_model(hybrid_noise)
 
-noisy_env = NoisyWindFarmEnv(base_env, manager)
+noisy_env = NoisyWindFarmEnv(WindFarmEnv, manager, **env_kwargs)
 
 obs, info = noisy_env.reset()
-print(f"Episodic bias: {info['noise_info']['wd']['bias']:.2f}°")
-print(f"Total noise: {info['noise_info']['wd']['total_noise']:.2f}°")
+# A hybrid model reports one info entry per component model
+for component in info["noise_info"]["component_models"]:
+    print(component)
+# True vs sensed values are also logged per observation slot
+print(f"True wd:   {info['obs_true/turb_0/wd_current']:.2f} deg")
+print(f"Sensed wd: {info['obs_sensed/turb_0/wd_current']:.2f} deg")
 ```
 
 ### Using NoisyPyWakeAgent
 
 ```python
 from WindGym.Agents import NoisyPyWakeAgent
-from WindGym.core import NoisyWindFarmEnv
-from WindGym.core import MeasurementManager
-from WindGym.core import HybridNoiseModel
-
-# Setup noisy environment
-base_env = WindFarmEnv(
-    turbine=V80(),
-    x_pos=[0, 500, 1000],
-    y_pos=[0, 0, 0],
-    config="EnvConfigs/Env1.yaml",
+from WindGym.core import (
+    NoisyWindFarmEnv,
+    MeasurementManager,
+    WhiteNoiseModel,
+    EpisodicBiasNoiseModel,
+    HybridNoiseModel,
+    MeasurementType,
 )
-manager = MeasurementManager(base_env)
+
+# Setup noisy environment (env_kwargs as in Basic Setup)
+temp_env = WindFarmEnv(**env_kwargs, reset_init=False)
+manager = MeasurementManager(temp_env)
+temp_env.close()
 
 # Add significant noise
 manager.set_noise_model(
-    'wd',
-    HybridNoiseModel(white_noise_std=2.0, episodic_bias_std=5.0)
-)
-manager.set_noise_model(
-    'ws',
-    HybridNoiseModel(white_noise_std=0.3, episodic_bias_std=0.5)
+    HybridNoiseModel(models=[
+        WhiteNoiseModel({
+            MeasurementType.WIND_DIRECTION: 2.0,
+            MeasurementType.WIND_SPEED: 0.3,
+        }),
+        EpisodicBiasNoiseModel({
+            MeasurementType.WIND_DIRECTION: (-5.0, 5.0),
+            MeasurementType.WIND_SPEED: (-0.5, 0.5),
+        }),
+    ])
 )
 
-noisy_env = NoisyWindFarmEnv(base_env, manager)
+noisy_env = NoisyWindFarmEnv(WindFarmEnv, manager, **env_kwargs)
 
-# NoisyPyWakeAgent averages multiple wind measurements
-agent = NoisyPyWakeAgent(noisy_env)
+# NoisyPyWakeAgent averages the wind measurements in the observation vector.
+# It needs the MeasurementManager to know where they live.
+agent = NoisyPyWakeAgent(
+    measurement_manager=manager,
+    x_pos=env_kwargs["x_pos"],
+    y_pos=env_kwargs["y_pos"],
+    turbine=env_kwargs["turbine"],
+)
 
 # Run evaluation
 obs, info = noisy_env.reset()
@@ -234,8 +264,7 @@ print(f"Total reward with noisy observations: {total_reward:.2f}")
 
 ```python
 import numpy as np
-from WindGym.Agents.PyWakeAgent import PyWakeAgent
-from WindGym.Agents import NoisyPyWakeAgent
+from WindGym.Agents import PyWakeAgent, NoisyPyWakeAgent
 
 def evaluate_agent(env, agent, n_episodes=10):
     """Evaluate agent over multiple episodes."""
@@ -257,35 +286,38 @@ def evaluate_agent(env, agent, n_episodes=10):
     return np.mean(episode_rewards), np.std(episode_rewards)
 
 # Clean environment
-clean_env = WindFarmEnv(
-    turbine=V80(),
-    x_pos=[0, 500, 1000],
-    y_pos=[0, 0, 0],
-    config="EnvConfigs/Env1.yaml",
+clean_env = WindFarmEnv(**env_kwargs)
+clean_agent = PyWakeAgent(
+    x_pos=env_kwargs["x_pos"], y_pos=env_kwargs["y_pos"], turbine=env_kwargs["turbine"]
 )
-clean_agent = PyWakeAgent(clean_env)
 
 clean_mean, clean_std = evaluate_agent(clean_env, clean_agent, n_episodes=20)
 print(f"Clean environment: {clean_mean:.2f} ± {clean_std:.2f}")
 
 # Noisy environment
-base_env = WindFarmEnv(
-    turbine=V80(),
-    x_pos=[0, 500, 1000],
-    y_pos=[0, 0, 0],
-    config="EnvConfigs/Env1.yaml",
+temp_env = WindFarmEnv(**env_kwargs, reset_init=False)
+manager = MeasurementManager(temp_env)
+temp_env.close()
+manager.set_noise_model(
+    HybridNoiseModel(models=[
+        WhiteNoiseModel({MeasurementType.WIND_DIRECTION: 2.0}),
+        EpisodicBiasNoiseModel({MeasurementType.WIND_DIRECTION: (-5.0, 5.0)}),
+    ])
 )
-manager = MeasurementManager(base_env)
-manager.set_noise_model('wd', HybridNoiseModel(2.0, 5.0))
-noisy_env = NoisyWindFarmEnv(base_env, manager)
+noisy_env = NoisyWindFarmEnv(WindFarmEnv, manager, **env_kwargs)
 
 # Regular PyWake agent (not robust to noise)
-regular_agent = PyWakeAgent(noisy_env)
+regular_agent = PyWakeAgent(
+    x_pos=env_kwargs["x_pos"], y_pos=env_kwargs["y_pos"], turbine=env_kwargs["turbine"]
+)
 regular_mean, regular_std = evaluate_agent(noisy_env, regular_agent, n_episodes=20)
 print(f"Regular agent with noise: {regular_mean:.2f} ± {regular_std:.2f}")
 
 # Noisy PyWake agent (robust to noise)
-robust_agent = NoisyPyWakeAgent(noisy_env)
+robust_agent = NoisyPyWakeAgent(
+    measurement_manager=manager,
+    x_pos=env_kwargs["x_pos"], y_pos=env_kwargs["y_pos"], turbine=env_kwargs["turbine"],
+)
 robust_mean, robust_std = evaluate_agent(noisy_env, robust_agent, n_episodes=20)
 print(f"Robust agent with noise: {robust_mean:.2f} ± {robust_std:.2f}")
 ```
@@ -300,7 +332,9 @@ class MovingAverageAgent(BaseAgent):
     """Agent that uses moving average to filter noisy observations."""
 
     def __init__(self, env, window_size=5):
-        super().__init__(env)
+        # BaseAgent only stores the yaw bounds used by scale_yaw/unscale_yaw
+        super().__init__(yaw_max=env.yaw_max, yaw_min=env.yaw_min)
+        self.env = env
         self.window_size = window_size
         self.observation_history = []
 
@@ -330,7 +364,7 @@ class MovingAverageAgent(BaseAgent):
 
         # Use smoothed observations for control decision
         # Example: simple proportional control based on wind direction
-        n_turbines = self.env.n_wt
+        n_turbines = self.env.n_turb
 
         # Extract wind directions (depends on observation structure)
         # This is a simplified example
@@ -346,15 +380,11 @@ class MovingAverageAgent(BaseAgent):
         self.observation_history = []
 
 # Use the custom agent
-base_env = WindFarmEnv(
-    turbine=V80(),
-    x_pos=[0, 500, 1000],
-    y_pos=[0, 0, 0],
-    config="EnvConfigs/Env1.yaml",
-)
-manager = MeasurementManager(base_env)
-manager.set_noise_model('wd', WhiteNoiseModel(std=3.0))
-noisy_env = NoisyWindFarmEnv(base_env, manager)
+temp_env = WindFarmEnv(**env_kwargs, reset_init=False)
+manager = MeasurementManager(temp_env)
+temp_env.close()
+manager.set_noise_model(WhiteNoiseModel({MeasurementType.WIND_DIRECTION: 3.0}))
+noisy_env = NoisyWindFarmEnv(WindFarmEnv, manager, **env_kwargs)
 
 agent = MovingAverageAgent(noisy_env, window_size=5)
 
@@ -373,29 +403,32 @@ for _ in range(100):
 ```python
 import matplotlib.pyplot as plt
 
-def analyze_noise_impact(base_env, noise_levels, n_episodes=20):
+def analyze_noise_impact(env_kwargs, noise_levels, n_episodes=20):
     """
     Analyze how different noise levels affect agent performance.
 
     Args:
-        base_env: Clean environment
+        env_kwargs: Keyword arguments for the base WindFarmEnv
         noise_levels: List of noise standard deviations to test
         n_episodes: Number of episodes per noise level
 
     Returns:
         results: Dictionary of performance metrics
     """
-    agent = PyWakeAgent(base_env)
+    agent = PyWakeAgent(
+        x_pos=env_kwargs["x_pos"], y_pos=env_kwargs["y_pos"], turbine=env_kwargs["turbine"]
+    )
     results = {'noise_levels': [], 'mean_rewards': [], 'std_rewards': []}
 
     for noise_std in noise_levels:
         # Create noisy environment
-        manager = MeasurementManager(base_env)
+        temp_env = WindFarmEnv(**env_kwargs, reset_init=False)
+        manager = MeasurementManager(temp_env)
+        temp_env.close()
         manager.set_noise_model(
-            'wd',
-            WhiteNoiseModel(std=noise_std)
+            WhiteNoiseModel({MeasurementType.WIND_DIRECTION: noise_std})
         )
-        noisy_env = NoisyWindFarmEnv(base_env, manager)
+        noisy_env = NoisyWindFarmEnv(WindFarmEnv, manager, **env_kwargs)
 
         # Evaluate
         episode_rewards = []
@@ -418,16 +451,10 @@ def analyze_noise_impact(base_env, noise_levels, n_episodes=20):
 
     return results
 
-# Run analysis
-base_env = WindFarmEnv(
-    turbine=V80(),
-    x_pos=[0, 500, 1000],
-    y_pos=[0, 0, 0],
-    config="EnvConfigs/Env1.yaml",
-)
+# Run analysis (env_kwargs as defined in Basic Setup)
 noise_levels = [0, 1, 2, 3, 5, 7, 10]  # degrees
 
-results = analyze_noise_impact(base_env, noise_levels, n_episodes=10)
+results = analyze_noise_impact(env_kwargs, noise_levels, n_episodes=10)
 
 # Plot results
 plt.figure(figsize=(10, 6))
@@ -450,30 +477,35 @@ plt.show()
 
 ```python
 from stable_baselines3 import PPO
-from WindGym.core import NoisyWindFarmEnv
-from WindGym.core import MeasurementManager
-from WindGym.core import HybridNoiseModel
-
-# Create noisy training environment
-base_env = WindFarmEnv(
-    turbine=V80(),
-    x_pos=[0, 500, 1000],
-    y_pos=[0, 0, 0],
-    config="EnvConfigs/Env1.yaml",
+from WindGym.core import (
+    NoisyWindFarmEnv,
+    MeasurementManager,
+    WhiteNoiseModel,
+    EpisodicBiasNoiseModel,
+    HybridNoiseModel,
+    MeasurementType,
 )
-manager = MeasurementManager(base_env)
+
+# Create noisy training environment (env_kwargs as in Basic Setup)
+temp_env = WindFarmEnv(**env_kwargs, reset_init=False)
+manager = MeasurementManager(temp_env)
+temp_env.close()
 
 # Add realistic measurement uncertainty
 manager.set_noise_model(
-    'wd',
-    HybridNoiseModel(white_noise_std=1.5, episodic_bias_std=3.0)
-)
-manager.set_noise_model(
-    'ws',
-    HybridNoiseModel(white_noise_std=0.3, episodic_bias_std=0.5)
+    HybridNoiseModel(models=[
+        WhiteNoiseModel({
+            MeasurementType.WIND_DIRECTION: 1.5,
+            MeasurementType.WIND_SPEED: 0.3,
+        }),
+        EpisodicBiasNoiseModel({
+            MeasurementType.WIND_DIRECTION: (-3.0, 3.0),
+            MeasurementType.WIND_SPEED: (-0.5, 0.5),
+        }),
+    ])
 )
 
-train_env = NoisyWindFarmEnv(base_env, manager)
+train_env = NoisyWindFarmEnv(WindFarmEnv, manager, **env_kwargs)
 
 # Train PPO agent
 model = PPO(
@@ -491,12 +523,7 @@ model.learn(total_timesteps=50000)
 model.save("ppo_noise_robust_agent")
 
 # Test on clean environment
-clean_env = WindFarmEnv(
-    turbine=V80(),
-    x_pos=[0, 500, 1000],
-    y_pos=[0, 0, 0],
-    config="EnvConfigs/Env1.yaml",
-)
+clean_env = WindFarmEnv(**env_kwargs)
 obs, info = clean_env.reset()
 clean_reward = 0
 
@@ -510,10 +537,7 @@ for _ in range(100):
 print(f"Performance on clean environment: {clean_reward:.2f}")
 
 # Test on noisy environment
-test_noisy_env = NoisyWindFarmEnv(
-    WindFarmEnv(n_wt=3, ws=10.0, wd=270.0, TI=0.06),
-    manager
-)
+test_noisy_env = NoisyWindFarmEnv(WindFarmEnv, manager, **env_kwargs)
 obs, info = test_noisy_env.reset()
 noisy_reward = 0
 
@@ -536,13 +560,13 @@ print(f"Performance on noisy environment: {noisy_reward:.2f}")
 Base noise levels on real sensor specifications:
 
 ```python
-# Realistic noise levels for wind farm sensors
-realistic_noise = {
-    'wd': WhiteNoiseModel(std=2.0),      # ±2° typical for nacelle anemometers
-    'ws': WhiteNoiseModel(std=0.3),      # ±0.3 m/s typical uncertainty
-    'yaw': WhiteNoiseModel(std=0.5),     # ±0.5° yaw angle measurement
-    'power': WhiteNoiseModel(std=50.0),  # ±50 W power measurement noise
-}
+# Realistic noise levels for wind farm sensors, in a single model
+realistic_noise = WhiteNoiseModel({
+    MeasurementType.WIND_DIRECTION: 2.0,   # ±2° typical for nacelle wind vanes
+    MeasurementType.WIND_SPEED: 0.3,       # ±0.3 m/s typical uncertainty
+    MeasurementType.YAW_ANGLE: 0.5,        # ±0.5° yaw angle measurement
+    MeasurementType.POWER: 10_000.0,       # ±10 kW power measurement noise
+})
 ```
 
 ### 2. Test Both White Noise and Bias
@@ -550,15 +574,20 @@ realistic_noise = {
 ```python
 # Test agent under different noise conditions
 noise_configs = [
-    ('white_only', WhiteNoiseModel(std=2.0)),
-    ('bias_only', EpisodicBiasNoiseModel(bias_std=5.0)),
-    ('hybrid', HybridNoiseModel(white_noise_std=2.0, episodic_bias_std=5.0)),
+    ('white_only', WhiteNoiseModel({MeasurementType.WIND_DIRECTION: 2.0})),
+    ('bias_only', EpisodicBiasNoiseModel({MeasurementType.WIND_DIRECTION: (-5.0, 5.0)})),
+    ('hybrid', HybridNoiseModel(models=[
+        WhiteNoiseModel({MeasurementType.WIND_DIRECTION: 2.0}),
+        EpisodicBiasNoiseModel({MeasurementType.WIND_DIRECTION: (-5.0, 5.0)}),
+    ])),
 ]
 
 for name, noise_model in noise_configs:
-    manager = MeasurementManager(base_env)
-    manager.set_noise_model('wd', noise_model)
-    noisy_env = NoisyWindFarmEnv(base_env, manager)
+    temp_env = WindFarmEnv(**env_kwargs, reset_init=False)
+    manager = MeasurementManager(temp_env)
+    temp_env.close()
+    manager.set_noise_model(noise_model)
+    noisy_env = NoisyWindFarmEnv(WindFarmEnv, manager, **env_kwargs)
 
     # Evaluate agent
     mean_reward, _ = evaluate_agent(noisy_env, agent, n_episodes=10)
@@ -568,14 +597,17 @@ for name, noise_model in noise_configs:
 ### 3. Validate Noise Models
 
 ```python
-# Check that noise has correct statistical properties
-measurements = []
+# Check that noise has correct statistical properties by comparing
+# the sensed and true values logged for one observation slot
+errors = []
 for _ in range(1000):
     obs, info = noisy_env.reset()
-    measurements.append(info['noise_info']['wd']['total_noise'])
+    errors.append(
+        info["obs_sensed/turb_0/wd_current"] - info["obs_true/turb_0/wd_current"]
+    )
 
-print(f"Noise mean: {np.mean(measurements):.4f} (should be ~0)")
-print(f"Noise std: {np.std(measurements):.4f}")
+print(f"Noise mean: {np.mean(errors):.4f} (should be ~0)")
+print(f"Noise std: {np.std(errors):.4f}")
 ```
 
 ---
@@ -588,7 +620,10 @@ print(f"Noise std: {np.std(measurements):.4f}")
 
 ```python
 # Option 1: Use NoisyPyWakeAgent
-agent = NoisyPyWakeAgent(noisy_env)
+agent = NoisyPyWakeAgent(
+    measurement_manager=manager,
+    x_pos=env_kwargs["x_pos"], y_pos=env_kwargs["y_pos"], turbine=env_kwargs["turbine"],
+)
 
 # Option 2: Implement observation filtering
 # See MovingAverageAgent example above
@@ -603,13 +638,15 @@ agent = NoisyPyWakeAgent(noisy_env)
 
 ```python
 # Check that reset() is called
-obs, info = noisy_env.reset()  # This samples new bias
-print(f"New bias: {info['noise_info']['wd']['bias']}")
+obs, info = noisy_env.reset()  # This samples a new bias
+print(f"New bias: {info['noise_info']['applied_bias (physical_units)']['turb_0/wd_current']}")
 ```
 
 ---
 
 ## Related Examples
+
+The scripts in `examples/measurement_error/` are runnable ground truth for the wiring shown above; `create_animation.py` in particular contains the canonical `MeasurementManager` → `NoisyWindFarmEnv` → `NoisyPyWakeAgent` construction.
 
 - [Measurement Error Examples](https://gitlab.windenergy.dtu.dk/sys/windgym/-/tree/main/examples/measurement_error)
 - [PyWake Agent with Noise](https://gitlab.windenergy.dtu.dk/sys/windgym/-/blob/main/examples/measurement_error/pywake_agent_with_noise.py)

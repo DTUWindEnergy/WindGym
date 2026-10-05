@@ -174,6 +174,68 @@ class TestUniformSampling:
         assert wc1.turbulence_intensity == wc2.turbulence_intensity
 
 
+class TestVeerSampling:
+    """Tests for per-episode veer sampling (deg per 100 m)."""
+
+    @staticmethod
+    def _make_wm(**kwargs):
+        return WindManager(
+            ws_min=8.0,
+            ws_max=12.0,
+            wd_min=260.0,
+            wd_max=280.0,
+            ti_min=0.05,
+            ti_max=0.10,
+            **kwargs,
+        )
+
+    def test_default_veer_is_zero(self):
+        """Without veer args, sampled veer is 0.0."""
+        wm = self._make_wm()
+        wm.np_random = np.random.default_rng(seed=42)
+        assert wm.sample_conditions().veer == 0.0
+
+    def test_default_veer_consumes_no_rng(self):
+        """Degenerate veer interval must not advance the RNG stream.
+
+        Regression guard: pre-veer seeded runs (ws, wd, ti = 3 uniform draws
+        per sample) must stay byte-identical when veer defaults are used.
+        """
+        wm = self._make_wm()
+        wm.np_random = np.random.default_rng(seed=42)
+        wm.sample_conditions()
+        next_draw = wm.np_random.uniform(0.0, 1.0)
+
+        reference = np.random.default_rng(seed=42)
+        reference.uniform(size=3)  # ws, wd, ti — and nothing else
+        assert next_draw == reference.uniform(0.0, 1.0)
+
+    def test_fixed_nonzero_veer(self):
+        """min == max != 0 returns the exact value (deterministic evals)."""
+        wm = self._make_wm(veer_min=1.5, veer_max=1.5)
+        wm.np_random = np.random.default_rng(seed=42)
+        assert wm.sample_conditions().veer == 1.5
+
+    def test_veer_sampled_within_bounds(self):
+        """Sampled veer stays inside [veer_min, veer_max] and varies."""
+        wm = self._make_wm(veer_min=0.0, veer_max=2.0)
+        wm.np_random = np.random.default_rng(seed=42)
+
+        veers = [wm.sample_conditions().veer for _ in range(20)]
+        assert all(0.0 <= v <= 2.0 for v in veers)
+        assert len(set(veers)) > 1
+
+    def test_veer_reproducibility(self):
+        """Same seed produces the same veer sequence."""
+        wm1 = self._make_wm(veer_min=0.0, veer_max=2.0)
+        wm1.np_random = np.random.default_rng(seed=123)
+        wm2 = self._make_wm(veer_min=0.0, veer_max=2.0)
+        wm2.np_random = np.random.default_rng(seed=123)
+
+        for _ in range(5):
+            assert wm1.sample_conditions().veer == wm2.sample_conditions().veer
+
+
 class TestSiteSampling:
     """Tests for site-based wind condition sampling."""
 
@@ -320,6 +382,102 @@ class TestWindDirectionList:
 
         assert len(wd_list) >= 1
         assert wd_list[0] == 270.0
+
+    def test_two_arg_wd_function_receives_base_wd(self):
+        """A ``wd_function(t, base_wd)`` gets the episode's base direction.
+
+        Randomized TRAINING schedules are relative -- they return
+        ``base_wd + delta(t)`` -- so that a time-varying wd composes with the
+        env's per-episode wd domain randomization instead of replacing it.
+        """
+        wm = WindManager(
+            ws_min=5.0,
+            ws_max=15.0,
+            wd_min=250.0,
+            wd_max=290.0,
+            ti_min=0.05,
+            ti_max=0.10,
+        )
+
+        def wd_function(t, base_wd):
+            return base_wd + t  # relative: delta(0) == 0
+
+        wd_list = wm.make_wind_direction_list(
+            base_wd=263.0,
+            time_max=5.0,
+            dt_sim=1.0,
+            t_developed=1.0,
+            steps_on_reset=0,
+            wd_function=wd_function,
+        )
+
+        burn_in_steps = 1  # ceil(t_developed/dt_sim) + steps_on_reset
+        for i, wd in enumerate(wd_list[burn_in_steps:]):
+            assert wd == 263.0 + i * 1.0, f"index {i}: got {wd}"
+
+    def test_two_arg_callable_object_receives_base_wd(self):
+        """Training schedules are callable *objects*, not plain functions.
+
+        ``inspect.signature`` must resolve through ``__call__`` (and drop
+        ``self``), otherwise the real schedules fall back to the 1-arg path and
+        raise at call time.
+        """
+
+        class Schedule:
+            def __call__(self, t, base_wd):
+                return base_wd + 2.0 * t
+
+        wm = WindManager(
+            ws_min=5.0,
+            ws_max=15.0,
+            wd_min=250.0,
+            wd_max=290.0,
+            ti_min=0.05,
+            ti_max=0.10,
+        )
+
+        wd_list = wm.make_wind_direction_list(
+            base_wd=270.0,
+            time_max=3.0,
+            dt_sim=1.0,
+            t_developed=0.0,
+            steps_on_reset=0,
+            wd_function=Schedule(),
+        )
+
+        assert wd_list[0] == 270.0
+        assert wd_list[1] == 272.0
+        assert wd_list[2] == 274.0
+
+    def test_wd_function_is_called_from_t_zero_once_per_list(self):
+        """Training schedules re-draw their episode on the t == 0.0 call, so the
+        list build must hit t=0 exactly once and then sweep upward."""
+        seen = []
+
+        def wd_function(t, base_wd):
+            seen.append(t)
+            return base_wd
+
+        wm = WindManager(
+            ws_min=5.0,
+            ws_max=15.0,
+            wd_min=250.0,
+            wd_max=290.0,
+            ti_min=0.05,
+            ti_max=0.10,
+        )
+
+        wm.make_wind_direction_list(
+            base_wd=270.0,
+            time_max=10.0,
+            dt_sim=1.0,
+            t_developed=2.0,
+            steps_on_reset=1,
+            wd_function=wd_function,
+        )
+
+        assert seen.count(0.0) == 1
+        assert seen == sorted(seen)
 
 
 class TestEdgeCases:

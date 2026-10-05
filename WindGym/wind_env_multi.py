@@ -58,8 +58,20 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
         burn_in_passthroughs=2,
         cleanup_on_time_limit: bool = True,
         wd_function=None,
+        power_ref_function=None,
         max_turb_move=2,
+        **kwargs,
     ):
+        """Multi-agent (PettingZoo ParallelEnv) view of WindFarmEnv.
+
+        Extra keyword arguments (``max_time_steps``, ``delay``,
+        ``keep_hawc_results``, ``op_lookup``, ``wd_est_tau``, ...) are forwarded
+        to ``WindFarmEnv.__init__`` unchanged, so callers no longer have to set
+        them as attributes after construction.
+
+        Note on seeding: like WindFarmEnv, ``seed`` is only consumed when
+        ``reset_init=True``; otherwise pass it to the first ``reset(seed=...)``.
+        """
         self.n_turb = len(x_pos)  # n_turb needed before possible_agents
         self.possible_agents = ["turbine_" + str(r) for r in range(self.n_turb)]
         # a mapping between agent name and ID. Used to get the correct observations and infos.
@@ -105,7 +117,9 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
             burn_in_passthroughs=burn_in_passthroughs,
             cleanup_on_time_limit=cleanup_on_time_limit,
             wd_function=wd_function,
+            power_ref_function=power_ref_function,
             max_turb_move=max_turb_move,
+            **kwargs,
         )
 
         # self.act_var is inherited from WindFarmEnv (1, or 2 when
@@ -116,8 +130,22 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
         # The observations for the farm is:
         farm_obs_var = self.farm_measurements.farm_mes.observed_variables()
         # farm_obs_var = self.farm_measurements.farm_observed_variables
-        # The observations for each agents is the number of observations for the turbine + the number of observations for the farm.
-        self.obs_var = turbine_obs_var + farm_obs_var
+        # The observations for each agents is the number of observations for the
+        # turbine + the number of observations for the farm + the farm-level
+        # power-tracking tail (setpoint/error/preview). The tracking tail lives
+        # on FarmMes, not the inner farm TurbMes, so it must be added here. It is
+        # 0-width when tracking is off (get_tracking() -> empty), leaving the
+        # non-tracking obs_var unchanged.
+        self.obs_var = (
+            turbine_obs_var + farm_obs_var + len(self.farm_measurements.get_tracking())
+        )
+        # Per-turbine widths of the parent's flat observation vector
+        # [turb_0 | turb_1 | ... | farm (+ tracking)], used to rebuild the
+        # per-agent observations from the parent's obs on the truncating step
+        # (when farm_measurements has already been torn down).
+        self._turb_obs_widths = [
+            tm.observed_variables() for tm in self.farm_measurements.turb_mes
+        ]
 
         self.timestep = 0
 
@@ -159,6 +187,9 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
                                 self.farm_measurements.farm_mes.get_measurements(
                                     scaled=True
                                 ),
+                                # Farm-level power-tracking command, identical for
+                                # every agent. Empty (no-op) when tracking is off.
+                                self.farm_measurements.get_tracking(scaled=True),
                             ]
                         ),
                         -1.0,
@@ -214,6 +245,18 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
                     info_dict["derate measured"] = self.farm_measurements.turb_mes[
                         agent_idx
                     ].get_derate()
+                if self.power_tracking is not None:
+                    # Farm-level tracking signals, shared across agents — the same
+                    # four keys the single-agent env exposes (wind_farm_env.py).
+                    info_dict["Power reference"] = self.power_setpoint
+                    info_dict["Tracking error"] = (
+                        self.farm_pow_deq[-1] - self.power_setpoint
+                    )
+                    info_dict["Tracking error window mean"] = float(
+                        np.mean(self.farm_pow_deq)
+                        - np.mean(self.power_tracking.ref_deque)
+                    )
+                    info_dict["Power reference preview"] = self.power_preview
                 if self.Baseline_comp:
                     info_dict["yaw angles base"] = self.fs_baseline.windTurbines.yaw[
                         agent_idx
@@ -229,6 +272,70 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
                     )[agent_idx]
 
             infos[a] = info_dict
+        return infos
+
+    def _obs_multi_from_parent(self, parent_obs):
+        """Split the parent's flat obs [turb_0|...|turb_n-1|farm(+tracking)]
+        into the per-agent [turb_i | farm(+tracking)] layout of _get_obs_multi.
+        Same scaling/clipping as the parent (already applied)."""
+        parent_obs = np.asarray(parent_obs, dtype=np.float32).reshape(-1)
+        offsets = np.cumsum([0] + list(self._turb_obs_widths))
+        farm_part = parent_obs[offsets[-1] :]
+        return {
+            a: np.concatenate(
+                [parent_obs[offsets[i] : offsets[i + 1]], farm_part]
+            ).astype(np.float32)
+            for i, a in enumerate(self.possible_agents)
+        }
+
+    # parent info key -> per-agent info key, for array-valued (per-turbine) entries
+    _PER_TURBINE_INFO_KEYS = {
+        "yaw angles agent": "yaw angles agent",
+        "yaw angles measured": "yaw angles measured",
+        "Wind speed at turbines": "Wind speed at turbine",
+        "Wind speed at turbines measured": "Wind speed at turbine measured",
+        "Wind direction at turbines": "Wind direction at turbine",
+        "Wind direction at turbines measured": "Wind direction at turbine measured",
+        "Power pr turbine agent": "Power turbine agent",
+        "Turbine x positions": "Turbine x positions",
+        "Turbine y positions": "Turbine y positions",
+        "derate agent": "derate agent",
+        "derate command": "derate command",
+        "derate measured": "derate measured",
+        "yaw angles base": "yaw angles base",
+        "Power pr turbine baseline": "Power pr turbine baseline",
+        "Wind speed at turbines baseline": "Wind speed at turbines baseline",
+    }
+    _FARM_INFO_KEYS = (
+        "Wind speed Global",
+        "Wind speed at farm measured",
+        "Wind direction Global",
+        "Wind direction at farm measured",
+        "Turbulence intensity",
+        "Power agent",
+        "Power reference",
+        "Tracking error",
+        "Tracking error window mean",
+        "Power reference preview",
+        "Power baseline",
+    )
+
+    def _infos_from_parent(self, parent_info):
+        """Per-agent infos rebuilt from the parent's info dict (same keys as
+        _get_infos), for the truncating step where the live sims are gone."""
+        infos = {}
+        for a in self.possible_agents:
+            i = self.agent_name_mapping[a]
+            d = {}
+            for src, dst in self._PER_TURBINE_INFO_KEYS.items():
+                if src in parent_info:
+                    v = np.asarray(parent_info[src]).reshape(-1)
+                    if v.size > i:
+                        d[dst] = v[i]
+            for k in self._FARM_INFO_KEYS:
+                if k in parent_info:
+                    d[k] = parent_info[k]
+            infos[a] = d
         return infos
 
     def reset(self, seed=None, options=None):
@@ -280,10 +387,16 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
 
         # If it was, self.farm_measurements will be None.
         if parent_truncated:
-            # Prepare outputs for a truncated state.
-            # _get_obs_multi and _get_infos are designed to handle self.farm_measurements being None.
-            observations = self._get_obs_multi()
-            infos = self._get_infos()
+            # The parent computed the real final observation/info BEFORE it tore
+            # the flow sims down (cleanup_on_time_limit), so rebuild the per-agent
+            # views from those instead of returning zeros / empty dicts: the last
+            # transition of the episode is as real as the others.
+            if self.farm_measurements is None:
+                observations = self._obs_multi_from_parent(parent_obs)
+                infos = self._infos_from_parent(parent_info)
+            else:
+                observations = self._get_obs_multi()
+                infos = self._get_infos()
 
             # For rewards, use the last reward from the parent step, as the episode is now ending.
             # You might want a specific reward for truncation here, but using parent_reward is a safe default.

@@ -64,6 +64,36 @@ python -c "from WindGym import WindFarmEnv; print('WindGym installed successfull
 
 If you see "WindGym installed successfully!", your WindGym environment is ready!
 
+## 5. dynamiks Version and DWM Setup
+
+The `main` branch runs on the PyPI release `dynamiks==0.0.7`. By default,
+WindGym builds a plain dynamiks DWM flow simulation, i.e. dynamiks' own model
+defaults.
+
+WindGym also ships an LES-calibrated DWM setup. It is opt-in:
+
+```python
+from WindGym.core.calibrated_values import LES_CALIBRATED
+
+env = WindFarmEnv(..., dwm_setup=LES_CALIBRATED)
+```
+
+or `dwm_setup: les_calibrated` in the env config. You can also build your own
+`DWMSetup` (`WindGym/core/dwm_defaults.py`), e.g.
+`dataclasses.replace(LES_CALIBRATED, superposition="linear")`.
+
+Parts of the calibrated setup, and some other features, need the development
+build of dynamiks. The `dev_dynamiks` branch pins that build from git:
+
+- `dwm_setup=LES_CALIBRATED` (TI sensor, Branlard scaling, mixed superposition)
+- `turbtype="Precursor"` (LES-precursor inflow)
+- `turb_memmap=True` (memory-mapped Mann boxes)
+- wind veer (`wind.veer_min` / `wind.veer_max` ≠ 0 in the config)
+- the DWM speed-ups `interpolation` and `lateral_cutoff`
+
+On `main`, using any of these raises an `ImportError` that points to the
+`dev_dynamiks` branch.
+
 ## Next Steps
 
 Now that you have WindGym installed, you can:

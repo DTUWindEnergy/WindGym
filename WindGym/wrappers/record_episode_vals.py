@@ -1,3 +1,5 @@
+import time
+
 from gymnasium.vector.vector_env import ArrayType, VectorEnv
 import numpy as np
 from collections import deque
@@ -20,10 +22,20 @@ class RecordEpisodeVals(gym.wrappers.vector.RecordEpisodeStatistics):
         self.mean_power_queue_nowake = deque(maxlen=buffer_length)
         self.mean_power_queue_baseline = deque(maxlen=buffer_length)
 
+        # Moving windows for power tracking (Track_power envs only)
+        # Mean absolute tracking error per episode (watts); named after eval's
+        # ``track_mae`` (agent_eval.eval_single_fast) so training curves are
+        # directly comparable to evaluation numbers.
+        self.track_mae_queue = deque(maxlen=buffer_length)
+        # Mean reference (setpoint) per episode (watts); mirrors mean_power_queue.
+        self.mean_power_ref_queue = deque(maxlen=buffer_length)
+
         # Per-episode accumulators
         self.episode_powers: np.ndarray = np.zeros(())
         self.episode_powers_nowake: np.ndarray = np.zeros(())
         self.episode_powers_baseline: np.ndarray = np.zeros(())
+        self.episode_track_abs_err: np.ndarray = np.zeros(())
+        self.episode_power_ref: np.ndarray = np.zeros(())
         self.last_dones: np.ndarray = np.zeros((), dtype=bool)
 
         # ---- Yaw tracking ----
@@ -42,6 +54,8 @@ class RecordEpisodeVals(gym.wrappers.vector.RecordEpisodeStatistics):
         self.episode_powers = np.zeros(self.num_envs)
         self.episode_powers_nowake = np.zeros(self.num_envs)
         self.episode_powers_baseline = np.zeros(self.num_envs)
+        self.episode_track_abs_err = np.zeros(self.num_envs)
+        self.episode_power_ref = np.zeros(self.num_envs)
         self.episode_yaw_travel = np.zeros(self.num_envs)
 
         self.last_dones = self.prev_dones.copy()
@@ -58,13 +72,76 @@ class RecordEpisodeVals(gym.wrappers.vector.RecordEpisodeStatistics):
         self, actions: ActType
     ) -> tuple[ObsType, ArrayType, ArrayType, ArrayType, dict]:
         """Steps through the environment, recording the episode statistics."""
-        (
-            observations,
-            rewards,
-            terminations,
-            truncations,
-            infos,
-        ) = super().step(actions)
+        return self._record_step(*self.env.step(actions))
+
+    def step_async(self, actions: ActType):
+        """Dispatch the step to the vector env without blocking.
+
+        Together with :meth:`step_wait` this lets a trainer overlap env
+        stepping with other work (e.g. SAC gradient updates). All episode
+        accounting happens in step_wait, so step()/step_async+step_wait are
+        behaviorally identical.
+        """
+        self.env.step_async(actions)
+
+    def step_wait(self) -> tuple[ObsType, ArrayType, ArrayType, ArrayType, dict]:
+        """Collect the pending async step and record episode statistics."""
+        return self._record_step(*self.env.step_wait())
+
+    def _record_step(
+        self, observations, rewards, terminations, truncations, infos
+    ) -> tuple[ObsType, ArrayType, ArrayType, ArrayType, dict]:
+        """Episode accounting, applied to an already-collected step result.
+
+        Runs the parent (RecordEpisodeStatistics) accounting first — the
+        power/yaw accounting below reads ``self.episode_lengths`` that the
+        parent updates — then this wrapper's own accumulators/queues.
+
+        The parent block is copied from gymnasium 1.2.x
+        ``wrappers/vector/common.py`` ``RecordEpisodeStatistics.step()``
+        (everything after ``self.env.step(actions)``), because the parent
+        only exposes a blocking ``step()``. Re-check on gymnasium upgrade.
+        """
+        # ----------------- Parent accounting (RecordEpisodeStatistics) -----------------
+        assert isinstance(
+            infos, dict
+        ), f"`vector.RecordEpisodeStatistics` requires `info` type to be `dict`, its actual type is {type(infos)}. This may be due to usage of other wrappers in the wrong order."
+
+        self.episode_returns[self.prev_dones] = 0
+        self.episode_returns[np.logical_not(self.prev_dones)] += rewards[
+            np.logical_not(self.prev_dones)
+        ]
+
+        self.episode_lengths[self.prev_dones] = 0
+        self.episode_lengths[~self.prev_dones] += 1
+
+        self.episode_start_times[self.prev_dones] = time.perf_counter()
+
+        self.prev_dones = dones = np.logical_or(terminations, truncations)
+        num_dones = np.sum(dones)
+
+        if num_dones:
+            if self._stats_key in infos or f"_{self._stats_key}" in infos:
+                raise ValueError(
+                    f"Attempted to add episode stats with key '{self._stats_key}' but this key already exists in info: {list(infos.keys())}"
+                )
+            else:
+                episode_time_length = np.round(
+                    time.perf_counter() - self.episode_start_times, 6
+                )
+                infos[self._stats_key] = {
+                    "r": np.where(dones, self.episode_returns, 0.0),
+                    "l": np.where(dones, self.episode_lengths, 0),
+                    "t": np.where(dones, episode_time_length, 0.0),
+                }
+                infos[f"_{self._stats_key}"] = dones
+
+            self.episode_count += num_dones
+
+            for i in np.where(dones):
+                self.time_queue.extend(episode_time_length[i])
+                self.return_queue.extend(self.episode_returns[i])
+                self.length_queue.extend(self.episode_lengths[i])
 
         # ----------------- Power accumulation -----------------
         self.episode_powers[self.last_dones] = 0
@@ -79,6 +156,22 @@ class RecordEpisodeVals(gym.wrappers.vector.RecordEpisodeStatistics):
         if "Power baseline" in infos:
             self.episode_powers_baseline[self.last_dones] = 0
             self.episode_powers_baseline[~self.last_dones] += infos["Power baseline"][
+                ~self.last_dones
+            ]
+
+        # ----------------- Tracking accumulation -----------------
+        # Instantaneous |error| (matches eval's track_mae) and the reference
+        # setpoint; both gated on the tracking info keys so a non-tracking env
+        # never touches these accumulators or queues.
+        if "Tracking error" in infos:
+            self.episode_track_abs_err[self.last_dones] = 0
+            self.episode_track_abs_err[~self.last_dones] += np.abs(
+                infos["Tracking error"]
+            )[~self.last_dones]
+
+        if "Power reference" in infos:
+            self.episode_power_ref[self.last_dones] = 0
+            self.episode_power_ref[~self.last_dones] += infos["Power reference"][
                 ~self.last_dones
             ]
 
@@ -125,6 +218,16 @@ class RecordEpisodeVals(gym.wrappers.vector.RecordEpisodeStatistics):
                     self.mean_power_queue_baseline.append(
                         self.episode_powers_baseline[i]
                         / max(1, self.episode_lengths[i])
+                    )
+
+                # Mean tracking error / reference of the episode (watts)
+                if "Tracking error" in infos:
+                    self.track_mae_queue.append(
+                        self.episode_track_abs_err[i] / max(1, self.episode_lengths[i])
+                    )
+                if "Power reference" in infos:
+                    self.mean_power_ref_queue.append(
+                        self.episode_power_ref[i] / max(1, self.episode_lengths[i])
                     )
 
                 # Total yaw travel of the episode (sum over turbines & steps)

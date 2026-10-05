@@ -23,15 +23,27 @@ class PowerEnv(gym.Env):
         Per-step "Power agent" value.
     power_base : float | None
         Per-step "Power baseline" value.  ``None`` disables that key.
+    track_err : float | None
+        Per-step "Tracking error" value (watts, signed).  ``None`` disables
+        that key.  A constant value makes the episode MAE exact.
+    power_ref : float | None
+        Per-step "Power reference" value (watts).  ``None`` disables that key.
     """
 
     def __init__(
-        self, ep_len: int, power_agent: float, power_base: float | None = None
+        self,
+        ep_len: int,
+        power_agent: float,
+        power_base: float | None = None,
+        track_err: float | None = None,
+        power_ref: float | None = None,
     ):
         super().__init__()
         self._len = ep_len
         self._pa = float(power_agent)
         self._pb = None if power_base is None else float(power_base)
+        self._track_err = None if track_err is None else float(track_err)
+        self._power_ref = None if power_ref is None else float(power_ref)
 
         self.action_space = gym.spaces.Box(-1, 1, shape=(1,), dtype=np.float32)
         self.observation_space = gym.spaces.Box(
@@ -50,6 +62,10 @@ class PowerEnv(gym.Env):
         info = {"Power agent": self._pa}
         if self._pb is not None:
             info["Power baseline"] = self._pb
+        if self._track_err is not None:
+            info["Tracking error"] = self._track_err
+        if self._power_ref is not None:
+            info["Power reference"] = self._power_ref
         return (np.zeros(1, dtype=np.float32), 0.0, terminated, False, info)
 
 
@@ -171,3 +187,60 @@ def test_reset_clears_per_episode_state_only() -> None:
     assert w.episode_powers.sum() == 0
     # … but rolling history kept
     assert list(w.mean_power_queue) == [7.0]
+
+
+def test_tracking_queues() -> None:
+    """
+    If ``"Tracking error"`` / ``"Power reference"`` are emitted, the wrapper
+    keeps a rolling mean-absolute-error queue (matching eval's ``track_mae``)
+    and a rolling mean-reference queue.
+
+        track_mae  = Σ|track_err| / episode_len  = |−4| = 4
+        power_ref  = Σ(power_ref) / episode_len  = 100
+    """
+    env = vec_env(
+        [lambda: PowerEnv(ep_len=4, power_agent=10.0, track_err=-4.0, power_ref=100.0)]
+    )
+    w = RecordEpisodeVals(env)
+    w.reset()
+    roll_episode(w)
+
+    assert list(w.track_mae_queue) == [4.0]  # mean of |−4|
+    assert list(w.mean_power_ref_queue) == [100.0]
+
+
+def test_no_tracking_keys_leaves_queues_empty() -> None:
+    """
+    A non-tracking env (no tracking info keys) must never touch the tracking
+    queues — pins the additive/gated contract that keeps such envs
+    byte-identical to before this change.
+    """
+    env = vec_env([lambda: PowerEnv(ep_len=4, power_agent=10.0)])
+    w = RecordEpisodeVals(env)
+    w.reset()
+    roll_episode(w)
+
+    assert len(w.track_mae_queue) == 0
+    assert len(w.mean_power_ref_queue) == 0
+
+
+def test_tracking_staggered_done() -> None:
+    """
+    Two envs with different episode lengths and different *constant* tracking
+    errors → both per-episode MAEs land in ``track_mae_queue`` in finish order,
+    confirming the ``last_dones`` masking (mirrors
+    ``test_multi_env_staggered_done``).
+    """
+    env = vec_env(
+        [
+            lambda: PowerEnv(ep_len=2, power_agent=5.0, track_err=-3.0, power_ref=50.0),
+            lambda: PowerEnv(ep_len=3, power_agent=2.0, track_err=7.0, power_ref=20.0),
+        ]
+    )
+    w = RecordEpisodeVals(env)
+    w.reset()
+    roll_episode(w)
+
+    # env-0 finishes first (2 steps, |−3| = 3), env-1 second (3 steps, |7| = 7)
+    assert list(w.track_mae_queue) == [3.0, 7.0]
+    assert list(w.mean_power_ref_queue) == [50.0, 20.0]

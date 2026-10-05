@@ -4,17 +4,26 @@ PerTurbineObservationWrapper Template
 This wrapper restructures the flat observation/action spaces of WindFarmEnv
 into per-turbine.
 
+The flat base-env observation is turbine-major with all farm-level entries
+trailing: ``[turb0 block | turb1 block | ... | farm block | tracking tail]``.
+The wrapper splits off the trailing farm-level block (``n_farm`` entries,
+covering farm-level sensors and/or the power-tracking tail) and **broadcasts it
+into every turbine row**, so each row becomes
+``[per-turbine sensors | farm tail]`` with the same farm values copied to every
+row. A purely per-turbine env has ``n_farm == 0`` and is unchanged.
+
 -------------------------------------------------------
 Properties:
     - n_turbines: int
+    - n_farm: int (width of the broadcast farm-level tail; 0 if none)
     - turbine_positions: np.ndarray of shape (n_turbines, 2)
     - rotor_diameter: float
     - mean_wind_direction: float
     - action_dim_per_turbine: int (1 or 2)
 
 Methods:
-    - reset() -> obs of shape (n_turbines, obs_dim_per_turbine)
-    - step(action) -> obs of shape (n_turbines, obs_dim_per_turbine)
+    - reset() -> obs of shape (n_turbines, obs_dim_per_turbine + n_farm)
+    - step(action) -> obs of shape (n_turbines, obs_dim_per_turbine + n_farm)
 
 The action input to step() is shape (n_turbines, action_dim_per_turbine),
 with one row per turbine: [yaw_i], [derate_i], or [yaw_i, derate_i]
@@ -36,6 +45,14 @@ class PerTurbineObservationWrapper(gym.Wrapper):
 
     Base env observation (flat): [t0_ws, t0_wd, t0_yaw, t1_ws, t1_wd, t1_yaw, ...]
     Wrapped observation: [[t0_ws, t0_wd, t0_yaw], [t1_ws, t1_wd, t1_yaw], ...]
+
+    When the base env appends farm-level entries (farm_* sensors and/or the
+    power-tracking tail [setpoint, error, preview...]), those ``n_farm``
+    trailing values are broadcast into every turbine row:
+    ``[[t0_ws, t0_wd, t0_yaw, *farm], [t1_ws, t1_wd, t1_yaw, *farm], ...]`` — the
+    same farm block copied to each row. Wrapped obs space stays a 2-D Box of
+    shape (n_turbines, obs_dim_per_turbine + n_farm). Non-tracking, purely
+    per-turbine envs have n_farm == 0 and are byte-identical to a bare reshape.
 
     Actions are per-turbine rows whose width follows the env's act_var:
         yaw only (default):            [yaw_i]
@@ -68,31 +85,34 @@ class PerTurbineObservationWrapper(gym.Wrapper):
                 env.farm_measurements.turb_mes[0].get_measurements()
             )
 
-        # The obs reshape assumes the flat obs is exactly the per-turbine
-        # blocks back to back; farm-level measurements (e.g. mes_level
-        # farm_ws=True) would break that silently.
+        # The flat obs is turbine-major with all farm-level entries trailing:
+        # [turb0 block | ... | farm block | tracking tail]. The per-turbine
+        # blocks occupy the first n_turbines * obs_dim_per_turbine entries; the
+        # remaining n_farm entries are the farm-level tail (farm_* sensors
+        # and/or the power-tracking tail), broadcast into every row on reshape.
         obs_var = env.unwrapped.obs_var
-        if obs_var != self._n_turbines * self._obs_dim_per_turbine:
+        self._n_farm = obs_var - self._n_turbines * self._obs_dim_per_turbine
+        if self._n_farm < 0:
             raise ValueError(
-                f"PerTurbineObservationWrapper requires a purely per-turbine "
-                f"observation vector, but the env has obs_var={obs_var} != "
-                f"n_turbines * obs_dim_per_turbine = "
-                f"{self._n_turbines} * {self._obs_dim_per_turbine}. "
-                f"Disable farm-level measurements (mes_level farm_* keys) "
-                f"to use this wrapper."
+                f"PerTurbineObservationWrapper: obs_var={obs_var} is smaller than "
+                f"n_turbines * obs_dim_per_turbine = {self._n_turbines} * "
+                f"{self._obs_dim_per_turbine}. This means the per-turbine blocks are "
+                f"not equal-length (e.g. heterogeneous per-turbine probe counts), "
+                f"which this wrapper does not support."
             )
 
         # Action dimension per turbine: the env encodes yaw/derate/both here
         # (1 for yaw-only or derate-only, 2 for yaw + derate)
         self._action_dim_per_turbine = int(env.unwrapped.act_var)
 
-        # New observation space: (n_turbines, obs_dim_per_turbine)
+        # New observation space: (n_turbines, obs_dim_per_turbine + n_farm),
+        # where the trailing n_farm columns are the broadcast farm-level tail.
         obs_low = -np.inf  # or get from base env
         obs_high = np.inf
         self.observation_space = spaces.Box(
             low=obs_low,
             high=obs_high,
-            shape=(self._n_turbines, self._obs_dim_per_turbine),
+            shape=(self._n_turbines, self._obs_dim_per_turbine + self._n_farm),
             dtype=np.float32,
         )
 
@@ -109,6 +129,13 @@ class PerTurbineObservationWrapper(gym.Wrapper):
     def n_turbines(self) -> int:
         """Number of turbines in the farm."""
         return self._n_turbines
+
+    @property
+    def n_farm(self) -> int:
+        """Width of the trailing farm-level tail broadcast into every turbine
+        row (farm_* sensors and/or the power-tracking tail). 0 for a purely
+        per-turbine env."""
+        return self._n_farm
 
     @property
     def turbine_positions(self) -> np.ndarray:
@@ -152,16 +179,28 @@ class PerTurbineObservationWrapper(gym.Wrapper):
         """
         Reshape flat observation to per-turbine format.
 
+        Splits the flat obs into the turbine-major sensor block (first
+        n_turbines * obs_dim_per_turbine entries) and the trailing farm-level
+        tail (n_farm entries). The sensor block is reshaped to one row per
+        turbine, and the farm tail is broadcast (copied identically) into every
+        row, so each row is [per-turbine sensors | farm tail]. When n_farm == 0
+        this is a bare reshape and behavior is unchanged.
+
         Args:
-            flat_obs: Shape (n_turbines * obs_dim_per_turbine,) or
-                      (batch, n_turbines * obs_dim_per_turbine) for vectorized
+            flat_obs: Shape (n_turbines * obs_dim_per_turbine + n_farm,)
 
         Returns:
-            obs: Shape (n_turbines, obs_dim_per_turbine) or
-                 (batch, n_turbines, obs_dim_per_turbine)
+            obs: Shape (n_turbines, obs_dim_per_turbine + n_farm)
         """
-        """Reshape assuming obs is ordered by turbine."""
-        return flat_obs.reshape(self._n_turbines, self._obs_dim_per_turbine)
+        sensor_len = self._n_turbines * self._obs_dim_per_turbine
+        sensor = flat_obs[:sensor_len].reshape(
+            self._n_turbines, self._obs_dim_per_turbine
+        )
+        if self._n_farm == 0:
+            return sensor
+        farm_tail = flat_obs[sensor_len:]  # (n_farm,), farm-level + tracking
+        farm_rows = np.tile(farm_tail, (self._n_turbines, 1))  # (n_turb, n_farm)
+        return np.concatenate([sensor, farm_rows], axis=1)
 
     def _flatten_action(self, per_turbine_action: np.ndarray) -> np.ndarray:
         """

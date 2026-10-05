@@ -8,16 +8,20 @@ for wind farm simulations. Supports multiple turbulence generation strategies.
 from typing import Union, Optional
 from pathlib import Path
 import numpy as np
-import math
 import copy
 import gc
+import os
+import warnings
 
 from dynamiks.sites.turbulence_fields import MannTurbulenceField, RandomTurbulence
 from dynamiks.sites._site import MetmastSite
-from dynamiks.dwm.added_turbulence_models import (
-    SynchronizedAutoScalingIsotropicMannTurbulence,
-    AutoScalingIsotropicMannTurbulence,
-)
+from dynamiks.dwm.added_turbulence_models import AutoScalingIsotropicMannTurbulence
+
+from .dynamiks_features import HAS_MEMMAP, HAS_PRECURSOR, HAS_VEER, require
+from .episode_timing import episode_time_parameters, max_wd_step
+
+# The Mann box spec and added-turbulence scaling come from the DWMSetup.
+from .dwm_defaults import DWMSetup, make_added_turbulence_model
 
 
 class TurbulenceManager:
@@ -30,6 +34,12 @@ class TurbulenceManager:
     - MannFixed: Generate a fixed Mann turbulence box (reproducible)
     - Random: Use random turbulence (faster, less realistic)
     - None: Zero turbulence (fastest, for testing)
+    - Precursor: LES-precursor inflow from a memmap sidecar (see
+      dynamiks.sites.precursor). turbulence_box_path is the precursor .nc
+      (with a unique converted sidecar next to it) or the sidecar
+      .npy/.meta.npz path itself. The read-only memmap is opened once here
+      and shared by every site/reset (and, through the OS page cache, by
+      every worker process on the node).
     """
 
     def __init__(
@@ -37,21 +47,30 @@ class TurbulenceManager:
         turbulence_type: str,
         turbulence_box_path: Optional[Union[str, Path]] = None,
         max_turb_move: float = 2.0,
+        memmap_boxes: bool = False,
+        dwm_setup: Optional[DWMSetup] = None,
     ):
         """
         Initialize the turbulence manager.
 
         Args:
             turbulence_type: Type of turbulence ("MannLoad", "MannGenerate",
-                           "MannFixed", "Random", "None")
+                           "MannFixed", "Random", "None", "Precursor")
             turbulence_box_path: Path to turbulence box files (required for MannLoad)
             max_turb_move: Maximum distance turbines can move in one timestep (m)
                           Used to calculate wind direction change rate limits
+            dwm_setup: DWM physics; supplies the Mann box spec and the
+                added-turbulence scaling. None = plain-dynamiks ``DWMSetup()``.
         """
         self.turbulence_type = turbulence_type
+        self.dwm_setup = dwm_setup if dwm_setup is not None else DWMSetup()
         self.turbulence_box_path = turbulence_box_path
         self.max_turb_move = max_turb_move
 
+        self.memmap_boxes = bool(memmap_boxes)
+        if self.memmap_boxes:
+            require(HAS_MEMMAP, "memmap_boxes=True (turb_memmap)")
+        self.tf_file = None
         # Random number generator (set by environment)
         self.np_random = None
 
@@ -69,6 +88,46 @@ class TurbulenceManager:
                 raise FileNotFoundError("Provide 'TurbBox' for turbtype='MannLoad'.")
             self.turbulence_files = self._discover_turbulence_files(turbulence_box_path)
 
+        # Precursor sidecar: memmap + meta opened once, reused across resets.
+        # The per-episode start-time window (seconds into the box) is sampled
+        # in create_sites; exposed via window_offset_s for logging/tests.
+        self._precursor = None
+        if turbulence_type == "Precursor":
+            require(HAS_PRECURSOR, "turbtype='Precursor'")
+            from .precursor_source import PrecursorSource
+
+            self._precursor = PrecursorSource(turbulence_box_path)
+
+    # -- precursor state (delegating properties; None/0.0 without a precursor)
+    @property
+    def precursor_meta(self):
+        return self._precursor.meta if self._precursor is not None else None
+
+    @property
+    def window_offset_s(self) -> float:
+        return self._precursor.window_offset_s if self._precursor is not None else 0.0
+
+    @property
+    def _precursor_uvw(self):
+        return self._precursor.uvw if self._precursor is not None else None
+
+    def set_turbulence_files(self, files) -> None:
+        """Replace the MannLoad file list (e.g. to pin one box for an evaluation).
+
+        Only the ``MannLoad`` branch reads the list; under any other
+        turbulence type the call has no effect, so it warns instead of
+        raising (evaluators pass ``turbbox`` regardless of the env's type).
+        """
+        if isinstance(files, (str, os.PathLike)):
+            files = [files]
+        self.turbulence_files = list(files)
+        if self.turbulence_type != "MannLoad":
+            warnings.warn(
+                f"set_turbulence_files() has no effect under turbulence_type="
+                f"{self.turbulence_type!r}; only 'MannLoad' reads the file list.",
+                stacklevel=2,
+            )
+
     def create_sites(
         self,
         ws: float,
@@ -81,6 +140,10 @@ class TurbulenceManager:
         n_passthrough: int,
         burn_in_passthroughs: int,
         create_baseline: bool = False,
+        mann_overrides: Optional[dict] = None,
+        veer_rate: float = 0.0,
+        veer_ref_height: float = 0.0,
+        episode_time_budget_s: Optional[float] = None,
     ) -> tuple:
         """
         Create turbulence fields and sites for agent and optionally baseline.
@@ -88,7 +151,8 @@ class TurbulenceManager:
         This method:
         1. Generates turbulence field based on turbulence_type
         2. Calculates t_developed and time_max based on farm geometry
-        3. Creates MetmastSite with wind direction time series
+        3. Creates MetmastSite with wind direction time series (veer, if any,
+           is applied by MetmastSite itself and composes with a changing wd)
         4. Optionally creates baseline site (deep copy of turbulence field)
 
         Args:
@@ -102,6 +166,23 @@ class TurbulenceManager:
             n_passthrough: Number of flow passthroughs for episode
             burn_in_passthroughs: Number of passthroughs for flow development
             create_baseline: Whether to create baseline site
+            mann_overrides: Optional dict with per-episode Mann-box parameter
+                overrides drawn from a calibrated posterior. Recognized keys:
+                ``mann_L``, ``mann_GAMMA``, ``mann_AE``. Only honored by the
+                ``MannGenerate`` branch (other branches raise if non-empty —
+                this is defense-in-depth; ``WindFarmEnv.reset`` is the primary
+                guard).
+            veer_rate: Linear veer rate in deg per METER (callers pass
+                deg-per-100m values divided by 100). Positive = wd increases
+                with height. 0 disables veer.
+            veer_ref_height: Height (m) where the veer offset is zero,
+                normally hub height, so hub-height wd equals the nominal wd.
+            episode_time_budget_s: Total seconds of simulation the episode will
+                consume (burn-in + sensor fill + episode). Only used by the
+                Precursor branch to bound the random start-time window; the env
+                passes it because it overrides time_max after
+                _calculate_time_parameters. Default None falls back to
+                t_developed + time_max as computed here.
 
         Returns:
             tuple: (site, site_baseline, t_developed, time_max, added_turbulence_model)
@@ -115,7 +196,10 @@ class TurbulenceManager:
 
         # Generate turbulence field
         tf_agent, added_turbulence_model = self._generate_turbulence_field(
-            ws=ws, ti=ti, rotor_diameter=rotor_diameter
+            ws=ws,
+            ti=ti,
+            rotor_diameter=rotor_diameter,
+            mann_overrides=mann_overrides,
         )
 
         # Calculate time parameters based on farm geometry
@@ -128,37 +212,72 @@ class TurbulenceManager:
         )
 
         # Calculate wind direction change rate limit
-        turb_pos = turbine_positions
-        center = (turb_pos.max(0) + turb_pos.min(0)) / 2
-        distances = np.sqrt(np.sum((turb_pos - center) ** 2, axis=1))
-        max_dist = np.max(distances)
-        # If only 1 turbine, max_dist is half rotor diameter
-        max_dist = max(max_dist, rotor_diameter / 2)
+        d_theta_lim = max_wd_step(turbine_positions, rotor_diameter, self.max_turb_move)
 
-        d_theta_lim = self.max_turb_move * 360 / (2 * np.pi * max_dist)
+        if self.turbulence_type == "Precursor":
+            self._check_precursor_episode(
+                turbine_positions=turbine_positions,
+                rotor_diameter=rotor_diameter,
+                veer_rate=veer_rate,
+                wd_list=wd_list,
+                episode_time_budget_s=(
+                    episode_time_budget_s
+                    if episode_time_budget_s is not None
+                    else t_developed + time_max
+                ),
+            )
 
-        # Create agent site
-        site = MetmastSite(
-            ws=ws,
-            turbulenceField=tf_agent,
-            wd_lst=wd_list,
-            dt=dt_sim,
-            max_wd_step=d_theta_lim,
-            update_interval=dt_sim,
-        )
-
-        # Create baseline site if requested
-        site_baseline = None
-        if create_baseline:
-            tf_base = copy.deepcopy(tf_agent)
-            site_baseline = MetmastSite(
+        def _make_site(tf):
+            if self.turbulence_type == "Precursor":
+                return self._precursor.site(tf, turbine_positions)
+            # Veer (veer_rate != 0) is carried by MetmastSite itself: a pure
+            # height-dependent rotation theta(z) = veer_rate*(z - ref) of the
+            # mean wind (|U| = ws at every height, hub-height wd pinned to the
+            # time-varying wd_slow), so veer composes with a changing wind
+            # direction. Replaces the old ConstantWindSpeedProfile site fork,
+            # which could not express a time-varying wd. Only forwarded when
+            # nonzero, since PyPI dynamiks has no veer.
+            veer = {}
+            if veer_rate != 0:
+                require(HAS_VEER, "wind veer (veer_rate != 0)")
+                veer = dict(veer_rate=veer_rate, veer_ref_height=veer_ref_height)
+            return MetmastSite(
                 ws=ws,
-                turbulenceField=tf_base,
+                turbulenceField=tf,
                 wd_lst=wd_list,
                 dt=dt_sim,
                 max_wd_step=d_theta_lim,
                 update_interval=dt_sim,
+                **veer,
             )
+
+        # Create agent site
+        site = _make_site(tf_agent)
+
+        # Create baseline site if requested
+        site_baseline = None
+        if create_baseline:
+            # Share the large `uvw` ndarray (~3.2 GB) by reference between the
+            # agent and baseline fields, while deep-copying everything else so
+            # each field keeps its own mutable `time_offset`/`ti` state.
+            # Pre-seeding the memo with `uvw` mapped to itself makes deepcopy
+            # skip (share) it. Safe only because `uvw` is read-only after
+            # `_generate_turbulence_field` returns — `scale_TI` (its only
+            # in-place mutator) has already run above. Revisit if any caller
+            # scales TI per-field after `create_sites`.
+            # RandomTurbulence has no `uvw` box and is cheap to copy outright.
+            if self.turbulence_type == "MannLoad" and self.memmap_boxes:
+                # A second lazy handle on the same file (own advection offset),
+                # never a deepcopy -- that would materialise the whole box.
+                tf_base = self._load_mann_box(ws=ws, ti=ti)
+            else:
+                memo = (
+                    {id(tf_agent.uvw): tf_agent.uvw}
+                    if hasattr(tf_agent, "uvw")
+                    else None
+                )
+                tf_base = copy.deepcopy(tf_agent, memo)
+            site_baseline = _make_site(tf_base)
             tf_base = None
 
         # Clean up
@@ -168,7 +287,11 @@ class TurbulenceManager:
         return site, site_baseline, t_developed, time_max, added_turbulence_model
 
     def _generate_turbulence_field(
-        self, ws: float, ti: float, rotor_diameter: float
+        self,
+        ws: float,
+        ti: float,
+        rotor_diameter: float,
+        mann_overrides: Optional[dict] = None,
     ) -> tuple:
         """
         Generate turbulence field based on turbulence_type.
@@ -177,27 +300,44 @@ class TurbulenceManager:
             ws: Wind speed (m/s)
             ti: Turbulence intensity (fraction)
             rotor_diameter: Rotor diameter (m)
+            mann_overrides: Per-episode Mann-box overrides (see ``create_sites``).
+                Only the ``MannGenerate`` branch can honor these; other branches
+                must reject non-empty overrides (defense-in-depth — the env
+                already guards on construction-time ``turbtype``).
 
         Returns:
             tuple: (turbulence_field, added_turbulence_model)
         """
-        if self.turbulence_type == "MannLoad":
-            return self._generate_mann_load(ws, ti)
+        if mann_overrides and self.turbulence_type != "MannGenerate":
+            raise ValueError(
+                f"mann_overrides={sorted(mann_overrides)} provided but "
+                f"turbulence_type={self.turbulence_type!r} cannot honor them. "
+                "Per-episode Mann statistics only take effect under "
+                "turbtype='MannGenerate'."
+            )
 
-        elif self.turbulence_type == "MannGenerate":
-            return self._generate_mann_generate(ws, ti, rotor_diameter)
+        generators = {
+            "MannLoad": lambda: self._generate_mann_load(ws, ti),
+            "MannGenerate": lambda: self._generate_mann_generate(
+                ws,
+                ti,
+                rotor_diameter,
+                mann_overrides=mann_overrides,
+            ),
+            "MannFixed": lambda: self._generate_mann_fixed(ws, ti, rotor_diameter),
+            "Random": lambda: self._generate_random(ws, ti),
+            "None": lambda: self._generate_none(ws),
+            "Precursor": lambda: self._generate_precursor(ws),
+        }
+        try:
+            generate = generators[self.turbulence_type]
+        except KeyError:
+            raise ValueError("Invalid turbulence type specified") from None
+        return generate()
 
-        elif self.turbulence_type == "MannFixed":
-            return self._generate_mann_fixed(ws, ti)
-
-        elif self.turbulence_type == "Random":
-            return self._generate_random(ws, ti)
-
-        elif self.turbulence_type == "None":
-            return self._generate_none(ws)
-
-        else:
-            raise ValueError("Invalid turbulence type specified")
+    def _added_turb_model(self):
+        """Synchronized Mann added turbulence, scaled per the DWMSetup."""
+        return make_added_turbulence_model(self.dwm_setup)
 
     def _generate_mann_load(self, ws: float, ti: float) -> tuple:
         """Load Mann turbulence box from pre-generated files."""
@@ -206,63 +346,97 @@ class TurbulenceManager:
 
         # Select random turbulence file
         self.tf_file = self.np_random.choice(self.turbulence_files)
-        tf = MannTurbulenceField.from_netcdf(filename=self.tf_file)
-        tf.scale_TI(TI=ti, U=ws)
+        tf = self._load_mann_box(ws=ws, ti=ti)
 
-        added_turb_model = SynchronizedAutoScalingIsotropicMannTurbulence(
-            cache_field=False
-        )
-        return tf, added_turb_model
+        return tf, self._added_turb_model()
+
+    def _load_mann_box(self, ws: float, ti: float):
+        """Open self.tf_file (eager or memmap) and scale it to (ti, ws)."""
+        if self.memmap_boxes:
+            tf = MannTurbulenceField.from_netcdf(filename=self.tf_file, memmap=True)
+        else:
+            tf = MannTurbulenceField.from_netcdf(filename=self.tf_file)
+        tf.scale_TI(TI=ti, U=ws)  # lazy (on read) for the memmap-backed field
+        return tf
 
     def _generate_mann_generate(
-        self, ws: float, ti: float, rotor_diameter: float
+        self,
+        ws: float,
+        ti: float,
+        rotor_diameter: float,
+        mann_overrides: Optional[dict] = None,
     ) -> tuple:
-        """Generate new Mann turbulence box (explicit box_seed if set, else random)."""
+        """Generate new Mann turbulence box (explicit box_seed if set, else random).
+
+        The box follows ``self.dwm_setup.mann``; ``rotor_diameter`` sets the
+        grid spacing when that spec is D-relative.
+
+        ``mann_overrides`` is a dict drawn from the calibrated posterior:
+        ``{"mann_L": ..., "mann_GAMMA": ..., "mann_AE": ...}``. Missing keys
+        fall back to ``self.dwm_setup.mann``.
+
+        When any override is present, ``tf.scale_TI(...)`` is skipped so that
+        αε directly sets the ambient TI of the box — matching the calibration's
+        reference implementation in ``calibration/simulator.py:_build_site``
+        (αε ≈ (TI_target/0.40)² at WS=9 for the canonical L=29.4, Γ=3.9 box).
+        Without overrides, the legacy ``scale_TI`` path remains so non-DR runs
+        are byte-identical to pre-change behaviour.
+        """
+        overrides = mann_overrides or {}
+        if overrides and "mann_AE" not in overrides:
+            # Any override skips scale_TI below, making alphaepsilon
+            # authoritative — a partial draw (e.g. only mann_L) would silently
+            # inherit the raw alphaepsilon=1.0 box and produce ~40% ambient TI.
+            raise ValueError(
+                f"mann_overrides={sorted(overrides)} lacks 'mann_AE': with any "
+                "Mann override present scale_TI is skipped, so mann_AE must be "
+                "drawn too (sample all Mann keys jointly, as the Stage-7 "
+                "posterior does)."
+            )
+
         if self.box_seed is not None:
             tf_seed = int(self.box_seed)
         else:
             tf_seed = int(self.np_random.integers(0, 100000))
         print(f"[TurbulenceManager] MannGenerate box seed = {tf_seed}", flush=True)
 
+        # Box spec from the DWMSetup; overrides come from the calibrated
+        # posterior and make alphaepsilon authoritative.
+        spec = self.dwm_setup.mann
         tf = MannTurbulenceField.generate(
-            alphaepsilon=0.1,  # turbulence dissipation parameter
-            L=33.6,  # length scale (m)
-            Gamma=3.9,  # anisotropy parameter
-            Nxyz=(1024, 512, 64),  # grid points (x, y, z); x wraps (Bounds.Repeat),
-            # so the ~9 km box recycles under longer episodes. 4096 was ~5.7 GB
-            # peak RSS to generate; 1024 is ~1.4 GB.
-            dxyz=(
-                rotor_diameter / 20,
-                rotor_diameter / 10,
-                rotor_diameter / 10,
-            ),  # grid spacing
+            alphaepsilon=float(overrides.get("mann_AE", spec.alphaepsilon)),
+            L=float(overrides.get("mann_L", spec.L)),
+            Gamma=float(overrides.get("mann_GAMMA", spec.gamma)),
+            Nxyz=spec.nxyz,
+            dxyz=spec.spacing(rotor_diameter),
             seed=tf_seed,
         )
-        tf.scale_TI(TI=ti, U=ws)
+        if not overrides:
+            # Nominal (non-DR) episodes: renormalise the raw box to the env's
+            # nominal ambient TI. With overrides, αε is authoritative — see
+            # docstring above.
+            tf.scale_TI(TI=ti, U=ws)
 
-        added_turb_model = SynchronizedAutoScalingIsotropicMannTurbulence(
-            cache_field=False
-        )
-        return tf, added_turb_model
+        return tf, self._added_turb_model()
 
-    def _generate_mann_fixed(self, ws: float, ti: float) -> tuple:
+    def _generate_mann_fixed(
+        self, ws: float, ti: float, rotor_diameter: float
+    ) -> tuple:
         """Generate fixed Mann turbulence box (reproducible)."""
         tf_seed = 1234  # Fixed seed for reproducibility
 
+        spec = self.dwm_setup.mann
         tf = MannTurbulenceField.generate(
-            alphaepsilon=0.1,
-            L=33.6,
-            Gamma=3.9,
-            Nxyz=(2048, 512, 64),
-            dxyz=(3.0, 3.0, 3.0),
+            alphaepsilon=spec.alphaepsilon,
+            L=spec.L,
+            Gamma=spec.gamma,
+            Nxyz=spec.nxyz,
+            dxyz=spec.spacing(rotor_diameter),
             seed=tf_seed,
         )
         tf.scale_TI(TI=ti, U=ws)
 
-        added_turb_model = SynchronizedAutoScalingIsotropicMannTurbulence(
-            cache_field=False
-        )
-        return tf, added_turb_model
+        return tf, self._added_turb_model()
 
     def _generate_random(self, ws: float, ti: float) -> tuple:
         """Generate random turbulence (fast, less realistic)."""
@@ -280,6 +454,28 @@ class TurbulenceManager:
         added_turb_model = None
         return tf, added_turb_model
 
+    def _generate_precursor(self, ws: float) -> tuple:
+        """PrecursorField around the shared memmap; see ``PrecursorSource.field``."""
+        return self._precursor.field(ws)
+
+    def _check_precursor_episode(
+        self,
+        turbine_positions: np.ndarray,
+        rotor_diameter: float,
+        veer_rate: float,
+        wd_list: list,
+        episode_time_budget_s: float,
+    ) -> None:
+        """Precursor-episode guards + start-time window draw; see ``PrecursorSource.check_episode``."""
+        self._precursor.check_episode(
+            self.np_random,
+            turbine_positions=turbine_positions,
+            rotor_diameter=rotor_diameter,
+            veer_rate=veer_rate,
+            wd_list=wd_list,
+            episode_time_budget_s=episode_time_budget_s,
+        )
+
     def _calculate_time_parameters(
         self,
         turbine_positions: np.ndarray,
@@ -288,45 +484,10 @@ class TurbulenceManager:
         n_passthrough: int,
         burn_in_passthroughs: int,
     ) -> tuple:
-        """
-        Calculate t_developed and time_max based on farm geometry.
-
-        Args:
-            turbine_positions: Turbine positions array (n_turb, 2)
-            rotor_diameter: Rotor diameter (m)
-            ws: Wind speed (m/s)
-            n_passthrough: Number of passthroughs for episode
-            burn_in_passthroughs: Number of passthroughs for flow development
-
-        Returns:
-            tuple: (t_developed, time_max) in seconds
-        """
-        n_turb = turbine_positions.shape[0]
-
-        # Calculate maximum distance between any turbines
-
-        diff = (
-            turbine_positions[:, np.newaxis, :] - turbine_positions[np.newaxis, :, :]
-        )  # (NT, NT, 2)
-        distances = np.linalg.norm(diff, axis=-1)  # (NT, NT)
-        max_distance = distances.max()
-
-        t_inflow = max_distance / ws
-
-        # Time for flow to develop
-        t_developed = math.ceil(t_inflow * burn_in_passthroughs)
-
-        # Maximum episode time
-        time_max = math.ceil(t_inflow * n_passthrough)
-
-        # Special case: single turbine uses rotor diameter
-        if n_turb == 1:
-            time_max = math.ceil((rotor_diameter * n_passthrough) / ws)
-
-        # Ensure at least 1 second
-        time_max = max(1, time_max)
-
-        return t_developed, time_max
+        """(t_developed, time_max) in seconds; see ``episode_timing.episode_time_parameters``."""
+        return episode_time_parameters(
+            turbine_positions, rotor_diameter, ws, n_passthrough, burn_in_passthroughs
+        )
 
     def _discover_turbulence_files(self, root: Union[str, Path]) -> list[str]:
         """

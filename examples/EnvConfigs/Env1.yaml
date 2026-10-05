@@ -5,7 +5,16 @@ yaw_init: "Random"
 noise: "None"
 BaseController: "Local"   #Can be "Local", "Global" or "PyWake"
 ActionMethod: "wind"      #Can be: "yaw", "wind", "absolute"
-Track_power: False       #If the farm should produce a specified power output
+Track_power: False       #If the farm should follow a power reference instead of maximizing power (requires Power_reward: "None")
+
+#Power tracking settings (only used when Track_power is True)
+# track_def:
+#   Track_reward: "abs"            #Tracking reward shape: "abs" or "gaussian"
+#   track_sigma: 0.1               #Width of the gaussian reward, as a fraction of rated farm power
+#   track_ref_range: [0.2, 0.8]    #Default sampler range, as a fraction of the episode freestream farm power
+#   track_obs_setpoint: True       #Observe the current power reference
+#   track_obs_error: True          #Observe the tracking error (farm power - reference)
+#   track_obs_preview: 0           #Number of future reference steps to observe
 
 
 #Farm parameters
@@ -16,6 +25,10 @@ farm:
   yDist: 3
   nx: 2
   ny: 2
+  # Optional fixed rotor tilt [deg] for all turbines (default 0). Positive
+  # deflects the wake upward in DWM; needed for veer to give a yaw-sign
+  # asymmetry. Realistic shaft tilt ~5 deg.
+  # tilt: 5.0
 
 #Wind conditions
 wind:
@@ -25,6 +38,12 @@ wind:
   TI_max: 0.15
   wd_min: 255
   wd_max: 285
+  # Optional linear veer rate range [deg per 100 m], sampled per episode.
+  # Positive = wd increases with height; pinned to 0 at hub height.
+  # Veer lives in the site's vertical wind profile (MetmastSite) and composes
+  # with any wd series, including a time-varying wd_function.
+  # veer_min: 0.0
+  # veer_max: 2.0
 
 #Penalty parameters
 act_pen:

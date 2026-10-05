@@ -11,8 +11,10 @@ from .turbulence_manager import TurbulenceManager
 from .renderer import WindFarmRenderer
 from .baseline_manager import BaselineManager
 from .probe_manager import ProbeManager
+from .power_tracking import PowerTrackingManager
 from .mes_class import Mes, TurbMes, FarmMes
 from .wind_probe import WindProbe
+from .operating_point import OperatingPointLookup
 from .measurement_manager import (
     MeasurementType,
     MeasurementSpec,
@@ -33,10 +35,12 @@ __all__ = [
     "WindFarmRenderer",
     "BaselineManager",
     "ProbeManager",
+    "PowerTrackingManager",
     "Mes",
     "TurbMes",
     "FarmMes",
     "WindProbe",
+    "OperatingPointLookup",
     "MeasurementType",
     "MeasurementSpec",
     "NoiseModel",

@@ -3,3 +3,4 @@ from .curriculum_wrapper import CurriculumWrapper
 from .power_wrapper import PowerWrapper
 from .adversary_wrapper import AdversaryWrapper
 from .per_turbine_wrapper import PerTurbineObservationWrapper
+from .dwm_randomization_wrapper import DWMRandomizationWrapper

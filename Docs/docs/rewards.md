@@ -140,7 +140,7 @@ Returns `0.0` (no power reward is applied).
 
 - **Config value:** `Power_reward: "None"`
 
-**When to use:** When you are using a custom reward wrapper around the environment, or when you want a penalty-only reward signal.
+**When to use:** When you are using a custom reward wrapper around the environment, when you want a penalty-only reward signal, or when [power tracking](power_tracking.md) is enabled (which requires it).
 
 **Config example:**
 ```yaml
@@ -148,6 +148,38 @@ power_def:
   Power_reward: "None"
   Power_scaling: 1.0
   Power_avg: 50
+```
+
+### 1.6 Power tracking
+
+When `Track_power: true` is set, the power reward is replaced by a *tracking*
+reward that rewards matching a farm power reference instead of maximizing
+power. It is **mutually exclusive** with every power reward type above:
+`Track_power: true` together with a `Power_reward` other than `"None"` raises
+a `ValueError` at construction.
+
+Both forms compare the `Power_avg`-window mean of the farm power against the
+same-window mean of the reference, with `P_norm` the rated (nameplate) farm
+power:
+
+- `Track_reward: "abs"` (default): `r = -|P̄_farm − P̄_ref| / P_norm`
+- `Track_reward: "gaussian"`: `r = exp(-((P̄_farm − P̄_ref) / (sigma · P_norm))²)`
+
+Like the maximization rewards, the tracking reward is multiplied by
+`Power_scaling` (§2) before the penalties are subtracted; both forms are
+already normalized by `P_norm`, so keep it at `1.0` unless you deliberately
+want to reweight tracking against the penalties. The reward breakdown gains a
+`tracking_error` entry. See [Power tracking](power_tracking.md) for the
+reference signal, observations, and the full `track_def` config reference.
+
+**Config example:**
+```yaml
+Track_power: true
+power_def:
+  Power_reward: "None"
+  Power_avg: 10
+track_def:
+  Track_reward: "abs"   # or "gaussian" (+ track_sigma)
 ```
 
 ---
