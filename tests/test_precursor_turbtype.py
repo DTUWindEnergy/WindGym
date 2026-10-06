@@ -146,3 +146,21 @@ def test_precursor_rejects_veer(nc_path):
             env.reset(seed=1)
     finally:
         env.close()
+
+
+def test_precursor_fixed_offset_kwarg_pins_the_window(nc_path):
+    """Stage-4 harness hook: WindFarmEnv(precursor_offset_s=...) replaces the draw."""
+    x_pos, y_pos = generate_square_grid(turbine=V80(), nx=2, ny=1, xDist=4, yDist=4)
+    env = WindFarmEnv(
+        turbine=V80(), x_pos=x_pos, y_pos=y_pos, config=CONFIG, turbtype="Precursor",
+        TurbBox=nc_path, Baseline_comp=False, dt_sim=1, dt_env=5, max_time_steps=5,
+        n_passthrough=0.1, burn_in_passthroughs=0.0001, fill_window=False, reset_init=False,
+        precursor_offset_s=3.0,
+    )
+    try:
+        env.reset(seed=1)
+        assert env.turbulence_manager.window_offset_s == 3.0
+        env.reset(seed=2)
+        assert env.turbulence_manager.window_offset_s == 3.0
+    finally:
+        env.close()

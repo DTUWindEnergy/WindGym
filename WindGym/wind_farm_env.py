@@ -77,7 +77,7 @@ class WindFarmEnv(gym.Env):
     # (forwarded to ``make_dwm``) from Mann-box overrides (forwarded to
     # ``TurbulenceManager.create_sites``). Anything outside the union raises so
     # DR typos don't silently no-op.
-    _CLOSURE_PARAM_KEYS = frozenset({"k1", "k2", "d_particle"})
+    _CLOSURE_PARAM_KEYS = frozenset({"k1", "k2", "d_particle", "hill_vortex_factor"})
     _MANN_PARAM_KEYS = frozenset({"mann_L", "mann_GAMMA", "mann_AE"})
     # Turbine-model perturbations (core.turbine_params): per-turbine arrays or
     # scalars, applied through backend.param_turbines on PyWake turbines only.
@@ -180,6 +180,9 @@ class WindFarmEnv(gym.Env):
         dwm_params: Optional[
             dict
         ] = None,  # Override DWM closure params (k1, k2, d_particle). Used for domain randomization; per-episode overrides go through reset(options={"dwm_params": ...}).
+        precursor_offset_s: Optional[
+            float
+        ] = None,  # turbtype="Precursor" only: fixed start-time window (s into the box) for every episode instead of the per-reset uniform draw (evaluation replays of a known LES window). None = draw.
         **kwargs,
     ):
         """
@@ -410,12 +413,16 @@ class WindFarmEnv(gym.Env):
         )
 
         # Initialize the turbulence manager
+        self.precursor_offset_s = (
+            None if precursor_offset_s is None else float(precursor_offset_s)
+        )
         self.turbulence_manager = TurbulenceManager(
             turbulence_type=turbtype,
             turbulence_box_path=TurbBox,
             max_turb_move=max_turb_move,
             memmap_boxes=self.turb_memmap,
             dwm_setup=self.dwm_setup,
+            precursor_offset_s=self.precursor_offset_s,
         )
 
         # Initialize the renderer
@@ -773,8 +780,9 @@ class WindFarmEnv(gym.Env):
 
     def _build_dwm_fs(self, site, windTurbines, closure_overrides):
         """Construct the DWM flow simulation from ``self.dwm_setup``
-        (dwm_defaults.make_dwm); closure_overrides (k1, k2, d_particle) are
-        the per-episode DR draws (empty dict = the setup's values)."""
+        (dwm_defaults.make_dwm); closure_overrides (k1, k2, d_particle,
+        hill_vortex_factor) are the per-episode DR draws (empty dict = the
+        setup's values)."""
         return make_dwm(
             site=site,
             windTurbines=windTurbines,

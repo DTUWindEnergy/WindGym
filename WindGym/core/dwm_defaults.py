@@ -33,6 +33,7 @@ from dynamiks.dwm.particle_motion_models import (
 from dynamiks.dwm.projection_models import FullProjection, NoProjection
 from dynamiks.utils.geometry import get_xyz
 from dynamiks.wind_turbines import PyWakeWindTurbines
+from jDWM import BoundaryCondition
 from jDWM.EddyViscosityModel import keck, madsen
 from jDWM.Solvers import implicit
 from py_wake.rotor_avg_models import CGIRotorAvg
@@ -47,7 +48,17 @@ from .dynamiks_features import (
 )
 
 _VISCOSITY_MODELS = {"madsen": madsen, "keck": keck}
+# Ainslie near-wake boundary condition (jDWM.BoundaryCondition classes; the
+# generator asserts a class and instantiates it). "madsen" is the dynamiks default.
+_BOUNDARY_CONDITIONS = {
+    "madsen": BoundaryCondition.madsen,
+    "iec": BoundaryCondition.IEC,
+    "keck": BoundaryCondition.keck,
+    "none": BoundaryCondition.none,
+}
 _PROJECTIONS = {"full": FullProjection, "none": NoProjection}
+# dynamiks hard-codes the Hill-vortex self-induction coefficient at 0.4
+HILL_VORTEX_DEFAULT = 0.4
 _X_SPEEDS = {"global": XSpeed.Global, "particle": XSpeed.Particle}
 
 
@@ -85,6 +96,7 @@ class DWMSetup:
     ainslie_n_r: int = 51  # radial grid points
     ainslie_dx: float = 0.1  # axial step
     projection: str = "full"  # "full" (FullProjection) or "none" (NoProjection)
+    boundary_condition: str = "madsen"  # Ainslie near-wake boundary condition: "madsen" (dynamiks default), "iec", "keck", "none"
 
     d_particle: float = 0.2  # streamwise particle spacing in rotor diameters
 
@@ -93,6 +105,10 @@ class DWMSetup:
     particle_cutoff_d: float | None = 4  # CutOffFrq temporal filter; None = no filter
     particle_include_wakes: bool = False  # particles also feel the other wakes
     particle_spatial_avg_n: int | None = None  # CGIRotorAvg spatial filter; None = off
+    # Hill-vortex self-induction coefficient (wake-deflection strength). 0.4 =
+    # dynamiks' hard-coded value (plain HillVortexParticleMotion, bit-identical);
+    # any other value selects WindGym's ScaledHillVortexParticleMotion.
+    hill_vortex_factor: float = HILL_VORTEX_DEFAULT
 
     # PyWake turbines
     rotor_avg_n: int | None = None  # CGIRotorAvg inflow kernel; None = dynamiks default
@@ -177,13 +193,15 @@ def make_dwm(
     d_particle: float | None = None,
     interpolation: str | None = None,
     lateral_cutoff: float | None = None,
+    hill_vortex_factor: float | None = None,
 ) -> DWMFlowSimulation:
     """Assemble a DWMFlowSimulation from ``setup``.
 
     The caller drives it via ``fs.step()`` in a time loop.
 
-    ``k1``, ``k2`` and ``d_particle`` override the setup's values for one
-    episode (domain randomization); None keeps the setup's value.
+    ``k1``, ``k2``, ``d_particle`` and ``hill_vortex_factor`` override the
+    setup's values for one episode (domain randomization); None keeps the
+    setup's value.
 
     ``interpolation`` / ``lateral_cutoff`` are dev-dynamiks speed-ups; None
     leaves them out (dynamiks default: pchip, no cutoff).
@@ -195,6 +213,9 @@ def make_dwm(
     k1 = setup.k1 if k1 is None else k1
     k2 = setup.k2 if k2 is None else k2
     d_particle = setup.d_particle if d_particle is None else d_particle
+    hill_vortex_factor = (
+        setup.hill_vortex_factor if hill_vortex_factor is None else float(hill_vortex_factor)
+    )
 
     # Particle count: dynamiks auto-computes ceil(farm_size_x*1.2/d_particle)
     # with a floor of 10 particles, which degenerates for layouts where all
@@ -216,16 +237,24 @@ def make_dwm(
     n_particles = max(int(np.ceil(_desired / (d_particle * float(_D.min())))), 10)
 
     closure = {k: v for k, v in (("k1", k1), ("k2", k2)) if v is not None}
+    try:
+        boundary = _BOUNDARY_CONDITIONS[setup.boundary_condition]
+    except KeyError:
+        raise ValueError(
+            f"Unknown boundary_condition {setup.boundary_condition!r} "
+            f"(expected one of {sorted(_BOUNDARY_CONDITIONS)})"
+        ) from None
     deficit_gen = jDWMAinslieGenerator(
         viscosity_model=_VISCOSITY_MODELS[setup.viscosity_model](TI=1.0, **closure),
         solver=implicit(),
         projectionModel=_PROJECTIONS[setup.projection](),
+        boundaryConditionModel=boundary,
         r_max=setup.ainslie_r_max,
         n_r=setup.ainslie_n_r,
         dx=setup.ainslie_dx,
     )
 
-    particle_motion = HillVortexParticleMotion(
+    motion_kwargs = dict(
         x_speed=_X_SPEEDS[setup.particle_x_speed],
         temporal_filter=(
             None
@@ -239,6 +268,14 @@ def make_dwm(
         ),
         include_wakes=setup.particle_include_wakes,
     )
+    if float(hill_vortex_factor) == HILL_VORTEX_DEFAULT:
+        particle_motion = HillVortexParticleMotion(**motion_kwargs)
+    else:
+        from .particle_motion import ScaledHillVortexParticleMotion
+
+        particle_motion = ScaledHillVortexParticleMotion(
+            c=float(hill_vortex_factor), **motion_kwargs
+        )
 
     # Speedups, not part of the LES calibration (which ran pchip / no cutoff,
     # the dynamiks defaults): linear centerline interpolation and the lateral

@@ -30,9 +30,14 @@ class PrecursorSource:
         window_offset_s: Start-time window (seconds into the box) drawn by
             ``check_episode`` for the current episode; exposed for
             logging/tests.
+        fixed_window_offset_s: When not None, every episode starts at this
+            offset instead of a uniform draw over the slack (evaluation
+            harnesses replaying a known LES window); still bounded by the
+            slack check.
     """
 
-    def __init__(self, path: Optional[Union[str, Path]]):
+    def __init__(self, path: Optional[Union[str, Path]],
+                 fixed_window_offset_s: Optional[float] = None):
         if not path:
             raise FileNotFoundError(
                 "Provide 'TurbBox' (precursor .nc or sidecar .npy/.meta.npz "
@@ -42,14 +47,21 @@ class PrecursorSource:
 
         self.uvw, self.meta = load_sidecar(path)
         self.window_offset_s = 0.0
+        self.fixed_window_offset_s = (
+            None if fixed_window_offset_s is None else float(fixed_window_offset_s)
+        )
 
     @classmethod
-    def from_arrays(cls, uvw, meta) -> "PrecursorSource":
+    def from_arrays(cls, uvw, meta,
+                    fixed_window_offset_s: Optional[float] = None) -> "PrecursorSource":
         """Build a source around already-loaded data (tests / custom loaders)."""
         self = cls.__new__(cls)
         self.uvw = uvw
         self.meta = meta
         self.window_offset_s = 0.0
+        self.fixed_window_offset_s = (
+            None if fixed_window_offset_s is None else float(fixed_window_offset_s)
+        )
         return self
 
     def field(self, ws: float) -> tuple:
@@ -156,6 +168,15 @@ class PrecursorSource:
                 f"{float(meta['t_data_s']):.0f} s, upstream margin "
                 f"{-x_min:.0f} m). Reduce max_time_steps / burn-in."
             )
+        if self.fixed_window_offset_s is not None:
+            if not (0.0 <= self.fixed_window_offset_s <= slack):
+                raise ValueError(
+                    f"fixed window_offset_s={self.fixed_window_offset_s:.0f} s is "
+                    f"outside the feasible range [0, {slack:.0f}] s for this episode "
+                    f"budget ({episode_time_budget_s:.0f} s)."
+                )
+            self.window_offset_s = self.fixed_window_offset_s
+            return
         self.window_offset_s = float(np_random.uniform(0.0, slack))
 
     def site(self, tf, turbine_positions: np.ndarray) -> TurbulenceFieldSite:

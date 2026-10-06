@@ -109,3 +109,17 @@ def test_set_turbulence_files_accepts_single_path():
     with pytest.warns(UserWarning):
         tm.set_turbulence_files(Path("/x/TF_b.nc"))
     assert tm.turbulence_files == [Path("/x/TF_b.nc")]
+
+
+def test_check_episode_honours_a_fixed_window_offset():
+    """Stage-4 harness hook: a fixed window_offset_s (ctor kwarg) replaces the draw."""
+    src = PrecursorSource.from_arrays(uvw=None, meta=META, fixed_window_offset_s=120.0)
+    _check(src, rng=np.random.default_rng(7))
+    assert src.window_offset_s == 120.0
+    assert src.fixed_window_offset_s == 120.0
+
+
+def test_fixed_window_offset_beyond_slack_raises():
+    src = PrecursorSource.from_arrays(uvw=None, meta=META, fixed_window_offset_s=1e5)
+    with pytest.raises(ValueError, match="window_offset_s"):
+        _check(src)

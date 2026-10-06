@@ -49,6 +49,7 @@ class TurbulenceManager:
         max_turb_move: float = 2.0,
         memmap_boxes: bool = False,
         dwm_setup: Optional[DWMSetup] = None,
+        precursor_offset_s: Optional[float] = None,
     ):
         """
         Initialize the turbulence manager.
@@ -61,6 +62,9 @@ class TurbulenceManager:
                           Used to calculate wind direction change rate limits
             dwm_setup: DWM physics; supplies the Mann box spec and the
                 added-turbulence scaling. None = plain-dynamiks ``DWMSetup()``.
+            precursor_offset_s: Precursor only. Fixed start-time window
+                (seconds into the box) for every episode instead of the
+                uniform draw over the slack (evaluation replays).
         """
         self.turbulence_type = turbulence_type
         self.dwm_setup = dwm_setup if dwm_setup is not None else DWMSetup()
@@ -96,7 +100,9 @@ class TurbulenceManager:
             require(HAS_PRECURSOR, "turbtype='Precursor'")
             from .precursor_source import PrecursorSource
 
-            self._precursor = PrecursorSource(turbulence_box_path)
+            self._precursor = PrecursorSource(
+                turbulence_box_path, fixed_window_offset_s=precursor_offset_s
+            )
 
     # -- precursor state (delegating properties; None/0.0 without a precursor)
     @property
