@@ -16,6 +16,8 @@ cutoff.
 
 from __future__ import annotations
 
+import dataclasses
+
 from .dwm_defaults import DWMSetup, MannBoxSpec
 
 # Mann turbulence box (turbtype MannGenerate / MannFixed).
@@ -71,8 +73,35 @@ LES_CALIBRATED = DWMSetup(
     mann=LES_CALIBRATED_MANN,
 )
 
+# DWM re-calibration v2 (LESRL calibration/RECAL_V2.md, Stage-3 MAP 3.8,
+# confirmed in the surrogate and HAWC2 cells 3.9 / 3.11): the Ainslie wake-shear
+# coefficient k2 and the Hill-vortex self-induction factor refit against the
+# LES rollouts, d_particle fixed at 0.2 (unidentified, flat posterior). The
+# inflow is the FITTED Mann box (``mann_fit.npz``: L 72.7 m, Gamma 2.0,
+# ``ae_for_ti`` 0.0129 at the nominal TI), same grid as LES_CALIBRATED_MANN.
+# One-line revert to the Keck inflow: ``mann=LES_CALIBRATED_MANN``.
+LES_V2_MANN = MannBoxSpec(
+    L=72.7,
+    gamma=2.0,
+    alphaepsilon=0.0129,
+    nxyz=(1024, 256, 128),
+    dxyz=(3.2, 3.2, 3.2),
+)
+
+LES_V2 = dataclasses.replace(
+    LES_CALIBRATED,
+    k2=0.020,
+    d_particle=0.2,
+    hill_vortex_factor=0.30,
+    mann=LES_V2_MANN,
+)
+
 # Names accepted by ``dwm_setup:`` in the env config / ``dwm_setup=`` strings.
-DWM_SETUPS = {"default": DWMSetup(), "les_calibrated": LES_CALIBRATED}
+DWM_SETUPS = {
+    "default": DWMSetup(),
+    "les_calibrated": LES_CALIBRATED,
+    "les_v2": LES_V2,
+}
 
 
 def resolve_dwm_setup(value) -> DWMSetup:
