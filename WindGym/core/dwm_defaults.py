@@ -305,14 +305,25 @@ def validate_dwm_params(params: dict, where: str = "") -> None:
             _check_numeric(key, spec, value, where)
 
 
-def make_wts(x, y, windTurbine) -> PyWakeWindTurbines:
-    """PyWakeWindTurbines wired with the calibrated rotor-average + TI sensor."""
-    return PyWakeWindTurbines(
-        x=x,
-        y=y,
-        windTurbine=windTurbine,
+def make_wts(x, y, windTurbine, turbine_params=None) -> PyWakeWindTurbines:
+    """PyWakeWindTurbines wired with the calibrated rotor-average + TI sensor.
+
+    ``turbine_params`` (a ``core.turbine_params.TurbineParams``) selects the
+    perturbed subclass ``backend.param_turbines.ParamPyWakeWindTurbines``
+    (per-turbine Cp/Ct gains, yaw actuator lag, power lag) for turbine-parameter
+    domain randomization. ``None`` or an all-default vector returns the plain
+    dynamiks class, so the nominal path is unchanged.
+    """
+    kwargs = dict(
         rotorAvgModel=CGIRotorAvg(ROTOR_AVG_N),
         turbulenceIntensityModel = TISensor(mean_method=MeanMethod.TURBULENCE_TRANSPORT_SPEED, T=600),
+    )
+    if turbine_params is None or turbine_params.is_nominal:
+        return PyWakeWindTurbines(x=x, y=y, windTurbine=windTurbine, **kwargs)
+    from ..backend.param_turbines import ParamPyWakeWindTurbines  # lazy: dynamiks subclass
+
+    return ParamPyWakeWindTurbines(
+        x=x, y=y, windTurbine=windTurbine, params=turbine_params, **kwargs
     )
 
 
@@ -390,6 +401,10 @@ def make_dwm(
     - ``meandering_d``: ``CutOffFrq(d)`` meandering filter; ``None`` = none
 
     See ``DWM_PARAM_SPEC`` for the per-key documentation.
+
+    Turbines that expose ``attach_to`` (``ParamPyWakeWindTurbines``) are
+    attached to the new flow simulation here, so both the agent and the
+    baseline farm get their actuator step handler through this one builder.
     """
     # Particle count: dynamiks auto-computes ceil(farm_size_x*1.2/d_particle)
     # with a floor of 10 particles, which degenerates for layouts where all
@@ -434,7 +449,7 @@ def make_dwm(
     else:
         particle_motion = ScaledHillVortexParticleMotion(c=deflection_c, **motion_kwargs)
 
-    return DWMFlowSimulation(
+    fs = DWMFlowSimulation(
         site=site,
         windTurbines=windTurbines,
         particleDeficitGenerator=deficit_gen,
@@ -452,6 +467,9 @@ def make_dwm(
         # when the installed dynamiks accepts them; see _dwm_speed_kwargs.
         **_dwm_speed_kwargs(interpolation, lateral_cutoff),
     )
+    if hasattr(windTurbines, "attach_to"):
+        windTurbines.attach_to(fs)
+    return fs
 
 
 def add_hawc2_yaw_sensor(wts, mode: str = "bearing2_slot", slot: int = 1):

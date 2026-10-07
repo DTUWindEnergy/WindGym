@@ -25,6 +25,7 @@ from py_wake.superposition_models import LinearSum
 
 import WindGym.core.dwm_defaults as dwm_defaults
 from WindGym import WindFarmEnv
+from WindGym.core.turbine_params import TURBINE_PARAM_SPECS
 from WindGym.core.dwm_defaults import (
     AINSLIE_DX,
     AINSLIE_N_R,
@@ -88,12 +89,14 @@ def _spy_make_dwm(monkeypatch, **overrides) -> dict:
 
 
 def test_spec_matches_env_key_sets():
-    """DWM_PARAM_SPEC is the single source of truth for the env's key sets."""
+    """DWM_PARAM_SPEC (plus TURBINE_PARAM_SPECS for the turbine-model keys) is
+    the single source of truth for the env's key sets."""
     make_dwm_keys = {k for k, s in DWM_PARAM_SPEC.items() if s.group == "make_dwm"}
     mann_keys = {k for k, s in DWM_PARAM_SPEC.items() if s.group == "mann"}
     assert WindFarmEnv._CLOSURE_PARAM_KEYS == make_dwm_keys
     assert WindFarmEnv._MANN_PARAM_KEYS == mann_keys
-    assert WindFarmEnv._DWM_PARAM_KEYS == set(DWM_PARAM_SPEC)
+    assert WindFarmEnv._TURBINE_PARAM_KEYS == set(TURBINE_PARAM_SPECS)
+    assert WindFarmEnv._DWM_PARAM_KEYS == set(DWM_PARAM_SPEC) | set(TURBINE_PARAM_SPECS)
     assert mann_keys == {"mann_L", "mann_GAMMA", "mann_AE", "mann_Nxyz", "mann_dxyz"}
     assert make_dwm_keys == {
         "k1", "k2", "d_particle", "viscosity_model", "superposition", "x_speed",

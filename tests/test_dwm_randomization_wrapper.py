@@ -156,3 +156,17 @@ def test_wrapper_passes_categorical_model_keys_through():
     wrapped = DWMRandomizationWrapper(env, sampler=_const_sampler({"viscosity_model": "madsen"}))
     wrapped.reset()
     assert env.last_options == {"dwm_params": {"viscosity_model": "madsen"}}
+
+
+def test_array_valued_theta_passes_through_and_is_recorded():
+    """Turbine-parameter DR draws per-turbine ARRAYS; the wrapper must forward
+    them untouched (no scalar coercion) and expose them via last_theta."""
+    env = _StubEnv()
+    theta = {"k1": 0.05, "cp_gain": np.array([1.1, 0.9, 1.0]), "tau_yaw": np.array([0.0, 20.0, 5.0])}
+    wrapped = DWMRandomizationWrapper(env, sampler=lambda rng: dict(theta))
+    wrapped.reset()
+    sent = env.last_options["dwm_params"]
+    np.testing.assert_array_equal(sent["cp_gain"], [1.1, 0.9, 1.0])
+    np.testing.assert_array_equal(sent["tau_yaw"], [0.0, 20.0, 5.0])
+    assert sent["k1"] == 0.05
+    np.testing.assert_array_equal(wrapped.last_theta["cp_gain"], [1.1, 0.9, 1.0])

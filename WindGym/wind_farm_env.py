@@ -20,6 +20,7 @@ from IPython import display
 
 # WindGym imports
 from . import utils
+from .core.turbine_params import TURBINE_PARAM_KEYS, normalize_turbine_params
 from .core.mes_class import FarmMes
 from .core.reward_calculator import RewardCalculator
 from .core.wind_manager import WindManager
@@ -88,7 +89,10 @@ class WindFarmEnv(gym.Env):
     _MANN_PARAM_KEYS = frozenset(
         k for k, spec in DWM_PARAM_SPEC.items() if spec.group == "mann"
     )
-    _DWM_PARAM_KEYS     = _CLOSURE_PARAM_KEYS | _MANN_PARAM_KEYS
+    # Turbine-model perturbations (core.turbine_params): per-turbine arrays or
+    # scalars, applied through backend.param_turbines on PyWake turbines only.
+    _TURBINE_PARAM_KEYS = TURBINE_PARAM_KEYS
+    _DWM_PARAM_KEYS     = _CLOSURE_PARAM_KEYS | _MANN_PARAM_KEYS | _TURBINE_PARAM_KEYS
 
     @classmethod
     def _validate_dwm_keys(cls, params: dict, where: str = "") -> None:
@@ -97,8 +101,49 @@ class WindFarmEnv(gym.Env):
         ``where`` is appended to the message (e.g. " in reset options") so the
         caller is identifiable from the traceback. Categorical keys must name
         a registered choice; numeric keys must be finite and positive.
+
+        Turbine-model keys are only name-checked here: ``yaw_exp`` may be
+        negative and every turbine key may be a per-turbine array, which the
+        scalar, positive check would reject. Their values are validated by
+        ``normalize_turbine_params``, which needs ``n_turb`` and ``dt_sim``.
         """
-        validate_dwm_params(params, where)
+        unknown = set(params) - cls._DWM_PARAM_KEYS
+        if unknown:
+            raise ValueError(
+                f"Unknown dwm_params keys{where}: {sorted(unknown)}. "
+                f"Allowed: {sorted(cls._DWM_PARAM_KEYS)}"
+            )
+        validate_dwm_params(
+            {k: v for k, v in params.items() if k not in cls._TURBINE_PARAM_KEYS},
+            where,
+        )
+
+    def _turbine_param_overrides(self, params: dict) -> dict:
+        """The turbine-model keys of a ``dwm_params`` dict."""
+        return {k: v for k, v in params.items() if k in self._TURBINE_PARAM_KEYS}
+
+    def _check_turbine_params_supported(self, params: dict, where: str = "") -> None:
+        """Turbine-parameter keys need PyWake turbines on the dynamiks backend.
+
+        HAWC2 turbines are the deployment target this DR imitates, so they are
+        never perturbed (``ValueError``); the steady pywake backend has no
+        turbine object to perturb (``NotImplementedError``).
+        """
+        turb = sorted(set(params) & self._TURBINE_PARAM_KEYS)
+        if not turb:
+            return
+        if self.HTC_path is not None:
+            raise ValueError(
+                f"dwm_params{where} contains turbine-parameter keys {turb} but the "
+                "env runs HAWC2 turbines (HTC_path set). HAWC2 turbines are the "
+                "target model and are not perturbed; use PyWake turbines for "
+                "turbine-parameter DR."
+            )
+        if self.backend != "dynamiks":
+            raise NotImplementedError(
+                f"turbine-parameter keys {turb} require backend='dynamiks' "
+                f"(got {self.backend!r})"
+            )
 
     def __init__(
         self,
@@ -456,7 +501,17 @@ class WindFarmEnv(gym.Env):
         # Unknown keys raise immediately.
         self._base_dwm_params: dict = dict(dwm_params) if dwm_params else {}
         self._validate_dwm_keys(self._base_dwm_params)
+        self._check_turbine_params_supported(self._base_dwm_params)
+        # Value check of the turbine keys now (shape, bounds), not at the first reset.
+        normalize_turbine_params(
+            self._turbine_param_overrides(self._base_dwm_params),
+            n_turb=self.n_turb,
+            dt_sim=self.dt_sim,
+        )
         self._active_dwm_params: dict = dict(self._base_dwm_params)
+        # Resolved per-episode turbine-parameter vector (TurbineParams); None
+        # until the first reset. See the ``turbine_params`` property.
+        self._turbine_params = None
 
         if reset_init:
             # We should have this here, to set the seeding correctly
@@ -546,11 +601,14 @@ class WindFarmEnv(gym.Env):
                 add_hawc2_derate_sensor(self.wts, self.n_turb)
         else:  # If we have no HTC path, use the pywake turbine
             # Calibrated rotor-average (CGIRotorAvg) + transport-speed TI
-            # sensor -- the turbine wiring the LES calibration was run with.
+            # sensor -- the turbine wiring the LES calibration was run with;
+            # the perturbed subclass when this episode carries turbine-parameter
+            # DR keys.
             self.wts = make_wts(
                 x=self.x_pos,
                 y=self.y_pos,  # x and y position of two wind turbines
                 windTurbine=self.turbine,
+                turbine_params=self._turbine_params,
             )
             if self.derate_action:
                 self.wts.add_sensor("derate", expose=True)
@@ -561,7 +619,8 @@ class WindFarmEnv(gym.Env):
             # Pass name_string if we have it (only created for HAWC2 turbines)
             baseline_name = name_string if self.HTC_path is not None else None
             self.wts_baseline = self.baseline_manager.initialize_baseline_turbines(
-                name_string=baseline_name
+                name_string=baseline_name,
+                turbine_params=self._turbine_params,
             )
         else:
             self.wts_baseline = None
@@ -839,8 +898,9 @@ class WindFarmEnv(gym.Env):
         Domain-randomization hook: pass
         ``options={"dwm_params": {"k1": ..., "mann_L": ..., ...}}`` to override
         DWM parameters for this episode only (any key of
-        ``core.dwm_defaults.DWM_PARAM_SPEC``, merged over the constructor's
-        ``dwm_params``). Two parameter groups are supported:
+        ``core.dwm_defaults.DWM_PARAM_SPEC`` or
+        ``core.turbine_params.TURBINE_PARAM_SPECS``, merged over the
+        constructor's ``dwm_params``). Three parameter groups are supported:
 
         * **make_dwm** (closure ``k1``, ``k2``, ``d_particle``; model choices
           ``viscosity_model``, ``superposition``, ``x_speed``,
@@ -854,6 +914,18 @@ class WindFarmEnv(gym.Env):
           honored under ``turbtype="MannGenerate"``** — under other turbtypes
           the box is not regenerated from these statistics and the env raises
           rather than silently dropping them.
+        * **Turbine model** (``yaw_exp``, ``cp_gain``, ``ct_gain``,
+          ``tau_yaw``, ``delay_yaw``, ``tau_power``; see
+          ``core.turbine_params``) — scalars or per-turbine arrays (arrays
+          longer than ``n_turb`` are sliced, shorter ones raise). Both the
+          agent and the baseline farm are built from the same perturbed
+          PyWake turbine (``backend.param_turbines``). Only honored with
+          PyWake turbines on the dynamiks backend. ``maxturbpower`` /
+          ``rated_power`` stay nominal: the power observation saturates at
+          +1 for ``cp_gain > 1`` near rated wind speed, and the ``Baseline``
+          / ``Wake_recovery`` rewards are invariant to a farm-wide
+          ``cp_gain`` while ``Power_avg`` is not. The resolved vector is
+          exposed as ``self.turbine_params``.
 
         The constructor's ``mean_wind`` is not a ``dwm_params`` key: it is
         built once and only its ``ws`` is refreshed per reset.
@@ -982,7 +1054,16 @@ class WindFarmEnv(gym.Env):
         """
         episode_overrides = (options or {}).get("dwm_params") or {}
         self._validate_dwm_keys(episode_overrides, " in reset options")
+        self._check_turbine_params_supported(episode_overrides, " in reset options")
         self._active_dwm_params = {**self._base_dwm_params, **episode_overrides}
+
+        # Turbine-model perturbations: validated/broadcast here so a bad draw
+        # fails before any heavy work; consumed by _init_wts (both farms).
+        self._turbine_params = normalize_turbine_params(
+            self._turbine_param_overrides(self._active_dwm_params),
+            n_turb=self.n_turb,
+            dt_sim=self.dt_sim,
+        )
 
         # Partition into the two subsystems that consume these keys.
         closure_overrides = {k: v for k, v in self._active_dwm_params.items()
@@ -1132,7 +1213,7 @@ class WindFarmEnv(gym.Env):
             ),
             dtype=float,
         ).copy()
-        self.fs.windTurbines.yaw = self.yaw_command
+        self._write_initial_yaw(self.fs.windTurbines, self.yaw_command)
 
         # Fixed rotor tilt (deg). Only set when nonzero so default behavior is
         # untouched. The tilt sensor exists on the PyWake turbines only; HAWC2
@@ -1181,7 +1262,9 @@ class WindFarmEnv(gym.Env):
             self.fs_baseline = self._build_pywake_fs(wd_list)
 
         # Start baseline with same yaw (and tilt) as agent at reset
-        self.fs_baseline.windTurbines.yaw = self.fs.windTurbines.yaw
+        # (realised == commanded for actuator-model turbines: reset_yaw_state
+        # has no transient).
+        self._write_initial_yaw(self.fs_baseline.windTurbines, self.fs.windTurbines.yaw)
         if self.tilt != 0:
             self.fs_baseline.windTurbines.tilt = np.full(
                 self.n_turb, float(self.tilt)
@@ -1334,7 +1417,7 @@ class WindFarmEnv(gym.Env):
             # Track the wind shift on our own command, not via read-modify-write of the
             # (physical, lagging for HAWC2) yaw getter, which would clobber the command.
             self.yaw_command = self.yaw_command + delta_wd
-            self.fs.windTurbines.yaw = self.yaw_command
+            self._shift_yaw_frame(self.fs.windTurbines, delta_wd, command=self.yaw_command)
 
             # Update the winddirection to match the flow sim
             self.wd = self.fs.wind_direction
@@ -1350,7 +1433,7 @@ class WindFarmEnv(gym.Env):
 
                 wd_new_baseline = self.fs_baseline.wind_direction
                 delta_wd_baseline = wd_new_baseline - wd_old_baseline
-                self.fs_baseline.windTurbines.yaw += delta_wd_baseline
+                self._shift_yaw_frame(self.fs_baseline.windTurbines, delta_wd_baseline)
 
             # 4) Measurements at this sim step
             self._take_measurements()
@@ -1415,6 +1498,49 @@ class WindFarmEnv(gym.Env):
                 baseline_power_mean=np.mean(baseline_powers, axis=0),  # per-turbine
             )
         return result
+
+    @staticmethod
+    def _write_initial_yaw(wts, yaw0) -> None:
+        """Initial yaw on a turbine object: ``reset_yaw_state`` (actuator model,
+        no transient) when available, else the plain sensor write."""
+        if hasattr(wts, "reset_yaw_state"):
+            wts.reset_yaw_state(yaw0)
+        else:
+            wts.yaw = yaw0
+
+    @staticmethod
+    def _shift_yaw_frame(wts, delta_wd, command=None) -> None:
+        """Apply a wind-direction frame shift to a turbine object's yaw.
+
+        Yaw is wind-relative while nacelles are fixed in the ground frame, so a
+        wd change of ``delta_wd`` shifts every yaw quantity by ``delta_wd``.
+        Actuator-model turbines shift command, actual and dead-time buffer
+        together (``shift_yaw_frame``); plain turbines get the historical
+        statements: ``wts.yaw = command`` when the caller tracks the command
+        itself, else the read-modify-write ``wts.yaw += delta_wd``.
+        """
+        if hasattr(wts, "shift_yaw_frame"):
+            wts.shift_yaw_frame(delta_wd)
+            if command is not None:
+                wts.yaw = command
+        elif command is not None:
+            wts.yaw = command
+        else:
+            wts.yaw += delta_wd
+
+    @property
+    def turbine_params(self):
+        """Resolved turbine-parameter vector of the current episode.
+
+        ``None`` before the first reset; otherwise a dict ``{name: ndarray
+        (n_turb,)}`` in the env's physical turbine order with every key of
+        ``core.turbine_params.TURBINE_PARAM_SPECS`` (defaults included), so
+        RMA / estimation code can read the full vector each episode. Not part
+        of ``info``; MultiLayoutEnv exposure is a follow-up.
+        """
+        if self._turbine_params is None:
+            return None
+        return self._turbine_params.as_dict()
 
     def _adjust_yaws(self, action):
         """

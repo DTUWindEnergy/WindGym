@@ -171,17 +171,27 @@ class BaselineManager:
         )
         self._base_controller = self._pywake_agent_wrapper
 
-    def initialize_baseline_turbines(self, name_string: Optional[str] = None):
+    def initialize_baseline_turbines(
+        self, name_string: Optional[str] = None, turbine_params=None
+    ):
         """
         Initialize baseline turbines (HAWC2 or PyWake).
 
         Args:
             name_string: Optional name string for HAWC2 case (required if htc_path is set)
+            turbine_params: Optional ``TurbineParams`` (turbine-parameter DR); the
+                baseline farm must see the same perturbed turbine as the agent farm
+                so Baseline / Wake_recovery rewards compare like with like. Only
+                supported for PyWake turbines.
 
         Returns:
             Baseline turbine object
         """
         if self.htc_path is not None:
+            if turbine_params is not None and not turbine_params.is_nominal:
+                raise ValueError(
+                    "turbine-parameter DR is not supported with HAWC2 baseline turbines"
+                )
             if name_string is None:
                 raise ValueError(
                     "name_string is required when initializing HAWC2 baseline turbines"
@@ -212,6 +222,7 @@ class BaselineManager:
                 x=self.x_pos,
                 y=self.y_pos,
                 windTurbine=self.turbine,
+                turbine_params=turbine_params,
             )
 
         return self.wts_baseline
