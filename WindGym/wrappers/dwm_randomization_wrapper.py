@@ -7,6 +7,7 @@ from is supplied by the caller as a ``sampler`` callable, so this wrapper is
 reusable for posterior-driven domain randomization, uniform priors, scripted
 schedules, etc.
 """
+
 from __future__ import annotations
 
 from typing import Callable, Optional
@@ -73,9 +74,7 @@ class DWMRandomizationWrapper(gym.Wrapper):
 
         theta = self._sampler(self._rng)
         if not isinstance(theta, dict):
-            raise TypeError(
-                f"sampler must return dict, got {type(theta).__name__}"
-            )
+            raise TypeError(f"sampler must return dict, got {type(theta).__name__}")
 
         merged_options = dict(options or {})
         caller_overrides = merged_options.get("dwm_params") or {}

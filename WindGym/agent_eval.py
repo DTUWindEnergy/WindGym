@@ -5,7 +5,9 @@ import matplotlib.pyplot as plt
 
 import torch
 
-from wetb.gtsdf import gtsdf  # re-exported: patch target `WindGym.agent_eval.gtsdf.load`
+from wetb.gtsdf import (
+    gtsdf,
+)  # re-exported: patch target `WindGym.agent_eval.gtsdf.load`
 
 from dynamiks.views import XYView
 from py_wake.utils.plotting import setup_plot
@@ -118,7 +120,9 @@ def eval_single_fast(
     )  # This is the number of steps per environment step
     # int(): dt_env may be a non-integer float (G1 tunnel env: 0.75 s), and
     # t_sim // 0.75 is a float that EpisodeRecorder cannot size arrays with.
-    total_steps = int(t_sim // env.dt_env) + 1  # This is the total number of steps to simulate
+    total_steps = (
+        int(t_sim // env.dt_env) + 1
+    )  # This is the total number of steps to simulate
     time = int(total_steps * step_val + 1)
 
     n_turb = env.n_turb  # Number of turbines

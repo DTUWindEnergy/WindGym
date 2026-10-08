@@ -10,6 +10,7 @@ is partitioned correctly:
   misconfigured DR run fails on the first reset rather than silently
   discarding the calibration's joint posterior over Mann statistics.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -31,9 +32,11 @@ def tiny_mann_generate(monkeypatch):
     call on a (32, 16, 8) grid — fast enough for unit tests, and the resulting
     object satisfies anything MetmastSite does with it during __init__.
     """
-    real_generate = MannTurbulenceField.generate.__func__ if hasattr(
-        MannTurbulenceField.generate, "__func__"
-    ) else MannTurbulenceField.generate
+    real_generate = (
+        MannTurbulenceField.generate.__func__
+        if hasattr(MannTurbulenceField.generate, "__func__")
+        else MannTurbulenceField.generate
+    )
 
     def fast_generate(**kwargs):
         kwargs["Nxyz"] = (32, 16, 8)
@@ -131,7 +134,9 @@ def test_mann_keys_under_non_mann_generate_turbtype_raises(temp_yaml_file_factor
 
 
 def test_partition_routes_keys_to_correct_subsystems(
-    tiny_mann_generate, monkeypatch, temp_yaml_file_factory,
+    tiny_mann_generate,
+    monkeypatch,
+    temp_yaml_file_factory,
 ):
     """Mixed dwm_params: closure keys → make_dwm, Mann keys → create_sites.
 
@@ -180,15 +185,17 @@ def test_partition_routes_keys_to_correct_subsystems(
         # closure trio).
         assert captured_make_dwm.get("k1") == 0.05
         for forbidden in ("mann_L", "mann_GAMMA", "mann_AE"):
-            assert forbidden not in captured_make_dwm, (
-                f"{forbidden} leaked into make_dwm kwargs; partition is broken."
-            )
+            assert (
+                forbidden not in captured_make_dwm
+            ), f"{forbidden} leaked into make_dwm kwargs; partition is broken."
     finally:
         env.close()
 
 
 def test_pure_closure_overrides_leave_mann_overrides_empty(
-    tiny_mann_generate, monkeypatch, temp_yaml_file_factory,
+    tiny_mann_generate,
+    monkeypatch,
+    temp_yaml_file_factory,
 ):
     """Legacy DR (closure-only) must still pass mann_overrides=None to create_sites.
 

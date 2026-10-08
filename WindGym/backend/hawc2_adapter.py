@@ -59,7 +59,9 @@ class HubWindFreeWindCoupling(FreeWindCoupling):
     """
 
     def __init__(self, windfield_update_interval=5, general_variable_uvw=(1, 2, 3)):
-        FreeWindCoupling.__init__(self, windfield_update_interval=windfield_update_interval)
+        FreeWindCoupling.__init__(
+            self, windfield_update_interval=windfield_update_interval
+        )
         self.general_variable_uvw = tuple(general_variable_uvw)
 
     def initialize(self, flowSimulation, windTurbine):
@@ -75,7 +77,9 @@ class HubWindFreeWindCoupling(FreeWindCoupling):
         for i in range(wts.N):
             uvw[:, i] = np.asarray(
                 flowSimulation.get_windspeed(
-                    xyz[:, i:i + 1], include_wakes=include_wakes, exclude_wake_from=[i]
+                    xyz[:, i : i + 1],
+                    include_wakes=include_wakes,
+                    exclude_wake_from=[i],
                 )
             ).reshape(3)
         return uvw

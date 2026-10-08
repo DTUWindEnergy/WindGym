@@ -29,7 +29,9 @@ def _fake_flow(uvw_by_turbine):
 def _fake_wts(n):
     wts = MagicMock()
     wts.N = n
-    wts.rotor_positions_xyz = np.array([[1000.0 * i for i in range(n)], [0.0] * n, [170.0] * n])
+    wts.rotor_positions_xyz = np.array(
+        [[1000.0 * i for i in range(n)], [0.0] * n, [170.0] * n]
+    )
     wts.h2 = MagicMock()
     return wts
 
@@ -48,7 +50,9 @@ def test_step_writes_general_variables_1_to_3():
 
     cpl.step(fs)
 
-    calls = {c.args[0]: c.args[1] for c in wts.h2.set_variable_sensor_value.call_args_list}
+    calls = {
+        c.args[0]: c.args[1] for c in wts.h2.set_variable_sensor_value.call_args_list
+    }
     assert set(calls) == {1, 2, 3}
     np.testing.assert_allclose(calls[1], [9.0, 6.5])
     np.testing.assert_allclose(calls[2], [0.1, 0.0])
@@ -60,4 +64,6 @@ def test_step_writes_general_variables_1_to_3():
 
 def test_is_a_free_wind_coupling():
     assert issubclass(HubWindFreeWindCoupling, FreeWindCoupling)
-    assert HubWindFreeWindCoupling(general_variable_uvw=(5, 6, 7)).general_variable_uvw == (5, 6, 7)
+    assert HubWindFreeWindCoupling(
+        general_variable_uvw=(5, 6, 7)
+    ).general_variable_uvw == (5, 6, 7)

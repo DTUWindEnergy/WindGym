@@ -9,6 +9,7 @@ Mann-box statistics, ``dwm_params`` now accepts
 The unit tests spy on the dynamiks constructors that ``make_dwm`` calls so no
 flow simulation is built; the integration tests (marked) run a real env.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -71,7 +72,11 @@ def _spy_make_dwm(monkeypatch, **overrides) -> dict:
         # Accept the speedup kwargs by name so _dwm_speed_kwargs forwards
         # them instead of warning about an old dynamiks.
         def __init__(self, *, interpolation=None, lateral_cutoff=None, **kw):
-            captured["fs"] = {**kw, "interpolation": interpolation, "lateral_cutoff": lateral_cutoff}
+            captured["fs"] = {
+                **kw,
+                "interpolation": interpolation,
+                "lateral_cutoff": lateral_cutoff,
+            }
 
     monkeypatch.setattr(dwm_defaults, "jDWMAinslieGenerator", FakeDeficitGen)
     monkeypatch.setattr(dwm_defaults, "HillVortexParticleMotion", FakeMotion)
@@ -100,12 +105,23 @@ def test_spec_matches_env_key_sets():
     assert WindFarmEnv._DWM_PARAM_KEYS == set(DWM_PARAM_SPEC) | set(TURBINE_PARAM_SPECS)
     assert mann_keys == {"mann_L", "mann_GAMMA", "mann_AE", "mann_Nxyz", "mann_dxyz"}
     assert make_dwm_keys == {
-        "k1", "k2", "d_particle", "viscosity_model", "superposition", "x_speed",
-        "r_max", "n_r", "dx", "lateral_cutoff",
-        "boundary_condition", "deflection_c", "meandering_d",
+        "k1",
+        "k2",
+        "d_particle",
+        "viscosity_model",
+        "superposition",
+        "x_speed",
+        "r_max",
+        "n_r",
+        "dx",
+        "lateral_cutoff",
+        "boundary_condition",
+        "deflection_c",
+        "meandering_d",
     }
     # Every make_dwm-group key is an actual make_dwm keyword.
     import inspect
+
     params = inspect.signature(make_dwm).parameters
     assert make_dwm_keys <= set(params)
 
@@ -125,8 +141,14 @@ def test_make_dwm_defaults_unchanged(monkeypatch):
 
 @pytest.mark.parametrize(
     "name, cls, k1_attr",
-    [("keck", keck, "k1"), ("madsen", madsen, "k1"), ("larsen", larsen, "kamb"),
-     ("iec", IEC, "k1"), ("IEC", IEC, "k1"), ("Madsen", madsen, "k1")],
+    [
+        ("keck", keck, "k1"),
+        ("madsen", madsen, "k1"),
+        ("larsen", larsen, "kamb"),
+        ("iec", IEC, "k1"),
+        ("IEC", IEC, "k1"),
+        ("Madsen", madsen, "k1"),
+    ],
 )
 def test_viscosity_registry(monkeypatch, name, cls, k1_attr):
     """Each choice builds the right jDWM class; explicit k1 lands on its coefficient name."""
@@ -166,9 +188,11 @@ def test_grid_kwargs_forwarded(monkeypatch):
 
 @pytest.mark.parametrize(
     "kwargs, listed",
-    [({"viscosity_model": "banana"}, "madsen"),
-     ({"superposition": "squared"}, "linear"),
-     ({"x_speed": "sideways"}, "rotor")],
+    [
+        ({"viscosity_model": "banana"}, "madsen"),
+        ({"superposition": "squared"}, "linear"),
+        ({"x_speed": "sideways"}, "rotor"),
+    ],
 )
 def test_invalid_choice_raises(monkeypatch, kwargs, listed):
     """An unknown categorical value raises and the message lists the choices."""
@@ -178,7 +202,9 @@ def test_invalid_choice_raises(monkeypatch, kwargs, listed):
 
 def test_validate_dwm_params_numeric():
     # good
-    validate_dwm_params({"k1": 0.1, "n_r": 52, "dx": np.float64(0.1), "lateral_cutoff": None})
+    validate_dwm_params(
+        {"k1": 0.1, "n_r": 52, "dx": np.float64(0.1), "lateral_cutoff": None}
+    )
     validate_dwm_params({"n_r": 52.0, "viscosity_model": "Keck"})
     validate_dwm_params({})
     # bad
@@ -213,9 +239,16 @@ def _build_env(temp_yaml_file_factory, **kwargs):
     yaml_path = temp_yaml_file_factory(_MINIMAL_YAML, "dwm_model_params")
     x_pos, y_pos = generate_square_grid(turbine=V80(), nx=2, ny=1, xDist=5, yDist=3)
     return WindFarmEnv(
-        turbine=V80(), x_pos=x_pos, y_pos=y_pos, config=yaml_path, seed=123,
-        turbtype="None", n_passthrough=0.01, burn_in_passthroughs=0.0001,
-        reset_init=False, **kwargs,
+        turbine=V80(),
+        x_pos=x_pos,
+        y_pos=y_pos,
+        config=yaml_path,
+        seed=123,
+        turbtype="None",
+        n_passthrough=0.01,
+        burn_in_passthroughs=0.0001,
+        reset_init=False,
+        **kwargs,
     )
 
 
@@ -244,13 +277,17 @@ def test_env_routes_model_keys_to_make_dwm(monkeypatch, temp_yaml_file_factory):
         env.close()
 
 
-def test_env_rejects_invalid_categorical_at_init_and_reset(monkeypatch, temp_yaml_file_factory):
+def test_env_rejects_invalid_categorical_at_init_and_reset(
+    monkeypatch, temp_yaml_file_factory
+):
     with pytest.raises(ValueError, match="viscosity_model"):
         _build_env(temp_yaml_file_factory, dwm_params={"viscosity_model": "banana"})
 
     env = _build_env(temp_yaml_file_factory)
     called = []
-    monkeypatch.setattr("WindGym.wind_farm_env.make_dwm", lambda **kw: called.append(kw))
+    monkeypatch.setattr(
+        "WindGym.wind_farm_env.make_dwm", lambda **kw: called.append(kw)
+    )
     try:
         with pytest.raises(ValueError, match="superposition"):
             env.reset(options={"dwm_params": {"superposition": "squared"}})
@@ -262,8 +299,13 @@ def test_env_rejects_invalid_categorical_at_init_and_reset(monkeypatch, temp_yam
 
 
 def test_active_dwm_params_property(monkeypatch, temp_yaml_file_factory):
-    env = _build_env(temp_yaml_file_factory, dwm_params={"k1": 0.05, "viscosity_model": "iec"})
-    monkeypatch.setattr("WindGym.wind_farm_env.make_dwm", lambda **kw: (_ for _ in ()).throw(_StopReset()))
+    env = _build_env(
+        temp_yaml_file_factory, dwm_params={"k1": 0.05, "viscosity_model": "iec"}
+    )
+    monkeypatch.setattr(
+        "WindGym.wind_farm_env.make_dwm",
+        lambda **kw: (_ for _ in ()).throw(_StopReset()),
+    )
     try:
         assert env.active_dwm_params == {"k1": 0.05, "viscosity_model": "iec"}
         with pytest.raises(_StopReset):
@@ -284,8 +326,12 @@ CONFIG = Path("examples/EnvConfigs/2turb.yaml")
 @pytest.fixture(scope="module")
 def mann_turbulence_field():
     return MannTurbulenceField.generate(
-        alphaepsilon=0.1, L=33.6, Gamma=3.9, Nxyz=(1024, 128, 32),
-        dxyz=(3.0, 3.0, 3.0), seed=1234,
+        alphaepsilon=0.1,
+        L=33.6,
+        Gamma=3.9,
+        Nxyz=(1024, 128, 32),
+        dxyz=(3.0, 3.0, 3.0),
+        seed=1234,
     )
 
 
@@ -298,8 +344,15 @@ def integration_env_kwargs(mann_turbulence_field, monkeypatch):
     turbine = DTU10MW()
     x_pos, y_pos = generate_square_grid(turbine=turbine, nx=2, ny=1, xDist=4, yDist=4)
     return dict(
-        turbine=turbine, x_pos=x_pos, y_pos=y_pos, config=CONFIG, turbtype="Random",
-        dt_sim=1, dt_env=1, n_passthrough=1.5, burn_in_passthroughs=0.0001,
+        turbine=turbine,
+        x_pos=x_pos,
+        y_pos=y_pos,
+        config=CONFIG,
+        turbtype="Random",
+        dt_sim=1,
+        dt_env=1,
+        n_passthrough=1.5,
+        burn_in_passthroughs=0.0001,
         reset_init=False,
     )
 

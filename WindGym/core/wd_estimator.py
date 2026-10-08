@@ -29,6 +29,7 @@ pywake's adapter hard-codes v = w = 0, so atan2(v, u) == 0 there — a measured
 local wd DOES NOT EXIST on the pywake backend and the trainer hard-errors on
 wd_source=est + backend=pywake.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -49,13 +50,16 @@ class WdEstimator:
 
     CONSENSUS = ("median", "mean", "front")
 
-    def __init__(self, n_turb: int, dt: float, tau: float,
-                 consensus: str = "median", x_pos=None):
+    def __init__(
+        self, n_turb: int, dt: float, tau: float, consensus: str = "median", x_pos=None
+    ):
         if tau <= 0:
             raise ValueError(f"wd_est_tau must be > 0, got {tau}")
         if consensus not in self.CONSENSUS:
-            raise ValueError(f"wd_est_consensus must be one of "
-                             f"{self.CONSENSUS}, got {consensus!r}")
+            raise ValueError(
+                f"wd_est_consensus must be one of "
+                f"{self.CONSENSUS}, got {consensus!r}"
+            )
         if consensus == "front" and x_pos is None:
             raise ValueError("consensus='front' needs x_pos")
         self.n_turb = int(n_turb)
@@ -75,8 +79,9 @@ class WdEstimator:
         and return the consensus estimate (deg, [0, 360))."""
         wd = np.asarray(wd_deg, dtype=float)
         if wd.shape != (self.n_turb,):
-            raise ValueError(f"expected ({self.n_turb},) measurements, "
-                             f"got {wd.shape}")
+            raise ValueError(
+                f"expected ({self.n_turb},) measurements, " f"got {wd.shape}"
+            )
         u = np.exp(1j * np.deg2rad(wd))
         if self._z is None:
             self._z = u.astype(complex)  # warm-start: converged at sample 1
@@ -101,8 +106,9 @@ class WdEstimator:
             return float(per[self._front])
         if self.consensus == "mean":
             rad = np.deg2rad(per)
-            return float(np.rad2deg(np.arctan2(
-                np.sin(rad).mean(), np.cos(rad).mean())) % 360.0)
+            return float(
+                np.rad2deg(np.arctan2(np.sin(rad).mean(), np.cos(rad).mean())) % 360.0
+            )
         # circular median: the sample minimizing summed abs circular distance
         # (exact O(n^2); n_turb <= ~25 in every campaign)
         d = np.abs((per[:, None] - per[None, :] + 180.0) % 360.0 - 180.0)

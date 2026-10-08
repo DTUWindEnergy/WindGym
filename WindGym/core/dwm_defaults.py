@@ -14,6 +14,7 @@ computed from the farm extent and ``d_particle`` like dynamiks does, but with
 a 15D-downstream floor (see ``make_dwm``), so that larger farms get more
 particles automatically and side-by-side layouts still carry wakes.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -26,11 +27,17 @@ import numpy as np
 
 from dynamiks.dwm import DWMFlowSimulation
 from dynamiks.dwm.particle_deficit_profiles.ainslie import jDWMAinslieGenerator
-from dynamiks.dwm.particle_motion_models import CutOffFrq, HillVortexParticleMotion, XSpeed
+from dynamiks.dwm.particle_motion_models import (
+    CutOffFrq,
+    HillVortexParticleMotion,
+    XSpeed,
+)
 from dynamiks.dwm.projection_models import NoProjection
+
 # from dynamiks.dwm.superposition import rss_superposition
 # from dynamiks.utils.data_dumper import runningAverageSensor
 from dynamiks.wind_turbines import PyWakeWindTurbines
+
 # from dynamiks.wind_turbines.ti_model import RunningAverageSensorTIModel
 from jDWM import BoundaryCondition
 from jDWM.EddyViscosityModel import IEC, keck, larsen, madsen
@@ -38,7 +45,7 @@ from jDWM.Solvers import implicit
 from py_wake.rotor_avg_models import CGIRotorAvg
 from py_wake.superposition_models import LinearSum
 
-from dynamiks.dwm.superposition import MixedSum #MixedSum instead of rss
+from dynamiks.dwm.superposition import MixedSum  # MixedSum instead of rss
 from dynamiks.wind_turbines.ti_models import TISensor, MeanMethod
 from dynamiks.utils.geometry import get_xyz
 
@@ -46,17 +53,17 @@ from .particle_motion import DEFLECTION_C, ScaledHillVortexParticleMotion
 
 
 # === DWM closure / particle setup ===========================================
-K1 = 0.0914                  # keck ambient eddy-viscosity coefficient
-K2 = 0.0216                  # keck wake-shear eddy-viscosity coefficient
-D_PARTICLE = 0.48            # streamwise particle spacing in rotor diameters
+K1 = 0.0914  # keck ambient eddy-viscosity coefficient
+K2 = 0.0216  # keck wake-shear eddy-viscosity coefficient
+D_PARTICLE = 0.48  # streamwise particle spacing in rotor diameters
 
-AINSLIE_R_MAX = 3            # radial domain extent (rotor diameters)
-AINSLIE_N_R = 52             # radial grid points
-AINSLIE_DX = 0.1             # axial step (rotor diameters)
+AINSLIE_R_MAX = 3  # radial domain extent (rotor diameters)
+AINSLIE_N_R = 52  # radial grid points
+AINSLIE_DX = 0.1  # axial step (rotor diameters)
 
-ROTOR_AVG_N = 21             # CGI rotor-average kernel for the WT inflow sensor
-PARTICLE_SPATIAL_AVG_N = 9   # CGI rotor-averaged spatial sampling for particle motion
-TI_RUNNING_AVG_S = 600       # RunningAverageSensorTIModel window in seconds
+ROTOR_AVG_N = 21  # CGI rotor-average kernel for the WT inflow sensor
+PARTICLE_SPATIAL_AVG_N = 9  # CGI rotor-averaged spatial sampling for particle motion
+TI_RUNNING_AVG_S = 600  # RunningAverageSensorTIModel window in seconds
 
 
 # === Mann turbulence box ====================================================
@@ -73,7 +80,7 @@ TI_RUNNING_AVG_S = 600       # RunningAverageSensorTIModel window in seconds
 # αε ≈ 0.0056 corresponds to TI ≈ 3%. If you ever switch the default branch
 # to skip `scale_TI` unconditionally, lower MANN_AE accordingly.
 MANN_L = 29.4
-MANN_AE = 1.0                # alphaepsilon — see docstring above re: scale_TI
+MANN_AE = 1.0  # alphaepsilon — see docstring above re: scale_TI
 MANN_GAMMA = 3.9
 # NOTE on box extent: 1024*3.2 = 3.28 km streamwise. Under Bounds.Repeat a
 # long episode re-samples the box many times (a Stage-7 10,300 s episode at
@@ -139,9 +146,7 @@ def _lookup(registry: dict, value, name: str):
     """Resolve a categorical ``dwm_params`` value; raise listing the choices."""
     key = value.lower() if isinstance(value, str) else None
     if key not in registry:
-        raise ValueError(
-            f"Unknown {name} {value!r}. Choices: {sorted(registry)}"
-        )
+        raise ValueError(f"Unknown {name} {value!r}. Choices: {sorted(registry)}")
     return registry[key]
 
 
@@ -190,82 +195,148 @@ class DWMParamSpec:
 
 
 DWM_PARAM_SPEC: dict[str, DWMParamSpec] = {
-    "k1": DWMParamSpec("float", None, "make_dwm", nullable=True,
-                       doc="Ambient eddy-viscosity coefficient (larsen: kamb). "
-                           "None = the selected viscosity model's own value "
-                           f"(keck: calibrated {K1})."),
-    "k2": DWMParamSpec("float", None, "make_dwm", nullable=True,
-                       doc="Wake-shear eddy-viscosity coefficient. None = the "
-                           f"selected model's own value (keck: calibrated {K2})."),
-    "d_particle": DWMParamSpec("float", D_PARTICLE, "make_dwm",
-                               doc="Streamwise particle spacing [D]."),
-    "viscosity_model": DWMParamSpec("choice", "keck", "make_dwm",
-                                    choices=tuple(VISCOSITY_MODELS),
-                                    doc="jDWM eddy-viscosity closure."),
-    "superposition": DWMParamSpec("choice", "mixed", "make_dwm",
-                                  choices=tuple(SUPERPOSITION_MODELS),
-                                  doc="Wake deficit superposition (PyWake model)."),
-    "x_speed": DWMParamSpec("choice", "particle", "make_dwm",
-                            choices=tuple(X_SPEEDS),
-                            doc="Particle streamwise advection speed. global/rotor "
-                                "change the dynamics materially vs the calibrated "
-                                "particle setting."),
-    "r_max": DWMParamSpec("float", AINSLIE_R_MAX, "make_dwm",
-                          doc="Ainslie radial domain extent [R]. Also rescales the "
-                              "lateral_cutoff radius (cutoff = lateral_cutoff*r_max*R)."),
-    "n_r": DWMParamSpec("int", AINSLIE_N_R, "make_dwm",
-                        doc="Ainslie radial grid points. dynamiks warns when "
-                            "dr = r_max/(n_r-1) > 0.2 (implicit solver stability)."),
-    "dx": DWMParamSpec("float", AINSLIE_DX, "make_dwm",
-                       doc="Ainslie axial step [D]. dynamiks warns when dx < 25*dr**2."),
-    "lateral_cutoff": DWMParamSpec("float", None, "make_dwm", nullable=True,
-                                   doc="Lateral wake-interaction cutoff in units of "
-                                       "r_max*R; None = no cutoff. Overrides the env's "
-                                       "constructor value for the episode."),
-    "boundary_condition": DWMParamSpec("choice", "madsen", "make_dwm",
-                                       choices=tuple(BOUNDARY_CONDITIONS),
-                                       doc="Ainslie near-wake boundary condition "
-                                           "(jDWM.BoundaryCondition)."),
-    "deflection_c": DWMParamSpec("float", DEFLECTION_C, "make_dwm",
-                                 doc="Hill-vortex self-induction coefficient: how hard "
-                                     "a yawed rotor deflects its own wake. dynamiks "
-                                     f"hardcodes {DEFLECTION_C}; see core.particle_motion."),
-    "meandering_d": DWMParamSpec("float", None, "make_dwm", nullable=True,
-                                 doc="Meandering low-pass filter CutOffFrq(d): cut-off "
-                                     "fc = U/(d*D), so d is in rotor diameters and scales "
-                                     "with the turbine. None (calibrated) = no temporal "
-                                     "filter; 4 is dynamiks' own default (Lio 2021), "
-                                     "fitted with x_speed=global. NOTE: under the "
-                                     "calibrated x_speed='particle' the same filter also "
-                                     "low-passes the streamwise particle speed (dynamiks "
-                                     "only resets u for global/rotor), so it changes wake "
-                                     "advection, not just lateral meandering. For pure "
-                                     "meandering damping pair it with x_speed='global' "
-                                     "or re-fit the closure with it on."),
-    "rotor_power": DWMParamSpec("choice", "mean", "make_wts",
-                                choices=ROTOR_POWER_CHOICES,
-                                doc="How power is computed from the wind over the rotor: "
-                                    "'mean' evaluates the power curve at dynamiks' "
-                                    "arithmetic rotor average, 'cubic' at the cube-mean "
-                                    "(sum w u^3)^(1/3) over the same nodes (FLORIS v2.3), "
-                                    "which a partial wake needs. Thrust keeps the "
-                                    "arithmetic mean. See backend.rotor_power."),
+    "k1": DWMParamSpec(
+        "float",
+        None,
+        "make_dwm",
+        nullable=True,
+        doc="Ambient eddy-viscosity coefficient (larsen: kamb). "
+        "None = the selected viscosity model's own value "
+        f"(keck: calibrated {K1}).",
+    ),
+    "k2": DWMParamSpec(
+        "float",
+        None,
+        "make_dwm",
+        nullable=True,
+        doc="Wake-shear eddy-viscosity coefficient. None = the "
+        f"selected model's own value (keck: calibrated {K2}).",
+    ),
+    "d_particle": DWMParamSpec(
+        "float", D_PARTICLE, "make_dwm", doc="Streamwise particle spacing [D]."
+    ),
+    "viscosity_model": DWMParamSpec(
+        "choice",
+        "keck",
+        "make_dwm",
+        choices=tuple(VISCOSITY_MODELS),
+        doc="jDWM eddy-viscosity closure.",
+    ),
+    "superposition": DWMParamSpec(
+        "choice",
+        "mixed",
+        "make_dwm",
+        choices=tuple(SUPERPOSITION_MODELS),
+        doc="Wake deficit superposition (PyWake model).",
+    ),
+    "x_speed": DWMParamSpec(
+        "choice",
+        "particle",
+        "make_dwm",
+        choices=tuple(X_SPEEDS),
+        doc="Particle streamwise advection speed. global/rotor "
+        "change the dynamics materially vs the calibrated "
+        "particle setting.",
+    ),
+    "r_max": DWMParamSpec(
+        "float",
+        AINSLIE_R_MAX,
+        "make_dwm",
+        doc="Ainslie radial domain extent [R]. Also rescales the "
+        "lateral_cutoff radius (cutoff = lateral_cutoff*r_max*R).",
+    ),
+    "n_r": DWMParamSpec(
+        "int",
+        AINSLIE_N_R,
+        "make_dwm",
+        doc="Ainslie radial grid points. dynamiks warns when "
+        "dr = r_max/(n_r-1) > 0.2 (implicit solver stability).",
+    ),
+    "dx": DWMParamSpec(
+        "float",
+        AINSLIE_DX,
+        "make_dwm",
+        doc="Ainslie axial step [D]. dynamiks warns when dx < 25*dr**2.",
+    ),
+    "lateral_cutoff": DWMParamSpec(
+        "float",
+        None,
+        "make_dwm",
+        nullable=True,
+        doc="Lateral wake-interaction cutoff in units of "
+        "r_max*R; None = no cutoff. Overrides the env's "
+        "constructor value for the episode.",
+    ),
+    "boundary_condition": DWMParamSpec(
+        "choice",
+        "madsen",
+        "make_dwm",
+        choices=tuple(BOUNDARY_CONDITIONS),
+        doc="Ainslie near-wake boundary condition " "(jDWM.BoundaryCondition).",
+    ),
+    "deflection_c": DWMParamSpec(
+        "float",
+        DEFLECTION_C,
+        "make_dwm",
+        doc="Hill-vortex self-induction coefficient: how hard "
+        "a yawed rotor deflects its own wake. dynamiks "
+        f"hardcodes {DEFLECTION_C}; see core.particle_motion.",
+    ),
+    "meandering_d": DWMParamSpec(
+        "float",
+        None,
+        "make_dwm",
+        nullable=True,
+        doc="Meandering low-pass filter CutOffFrq(d): cut-off "
+        "fc = U/(d*D), so d is in rotor diameters and scales "
+        "with the turbine. None (calibrated) = no temporal "
+        "filter; 4 is dynamiks' own default (Lio 2021), "
+        "fitted with x_speed=global. NOTE: under the "
+        "calibrated x_speed='particle' the same filter also "
+        "low-passes the streamwise particle speed (dynamiks "
+        "only resets u for global/rotor), so it changes wake "
+        "advection, not just lateral meandering. For pure "
+        "meandering damping pair it with x_speed='global' "
+        "or re-fit the closure with it on.",
+    ),
+    "rotor_power": DWMParamSpec(
+        "choice",
+        "mean",
+        "make_wts",
+        choices=ROTOR_POWER_CHOICES,
+        doc="How power is computed from the wind over the rotor: "
+        "'mean' evaluates the power curve at dynamiks' "
+        "arithmetic rotor average, 'cubic' at the cube-mean "
+        "(sum w u^3)^(1/3) over the same nodes (FLORIS v2.3), "
+        "which a partial wake needs. Thrust keeps the "
+        "arithmetic mean. See backend.rotor_power.",
+    ),
     "mann_L": DWMParamSpec("float", MANN_L, "mann", doc="Mann length scale [m]."),
     "mann_GAMMA": DWMParamSpec("float", MANN_GAMMA, "mann", doc="Mann anisotropy Γ."),
-    "mann_AE": DWMParamSpec("float", MANN_AE, "mann", nullable=True,
-                            doc="Mann αε. Required whenever any Mann key is active. A "
-                                "number makes αε authoritative: σ_u is then fixed, so the "
-                                "box's TI drifts with the episode's ws (a 5-6 m/s band is "
-                                "a 20% TI swing). None = generate at the default αε and "
-                                "rescale the box to the episode's TI per reset "
-                                "(scale_TI(TI, U=ws)), as the non-DR path does; this is "
-                                "the right choice when the ambient TI is held fixed while "
-                                "ws varies (a wind tunnel), and it needs no fitted αε."),
-    "mann_Nxyz": DWMParamSpec("int3", MANN_NXYZ, "mann",
-                              doc="Mann box grid points (nx, ny, nz)."),
-    "mann_dxyz": DWMParamSpec("float3", MANN_DXYZ, "mann",
-                              doc="Mann box grid spacing (dx, dy, dz) [m]. dy/dx sets "
-                                  "the inertial slope of the streamwise spectrum."),
+    "mann_AE": DWMParamSpec(
+        "float",
+        MANN_AE,
+        "mann",
+        nullable=True,
+        doc="Mann αε. Required whenever any Mann key is active. A "
+        "number makes αε authoritative: σ_u is then fixed, so the "
+        "box's TI drifts with the episode's ws (a 5-6 m/s band is "
+        "a 20% TI swing). None = generate at the default αε and "
+        "rescale the box to the episode's TI per reset "
+        "(scale_TI(TI, U=ws)), as the non-DR path does; this is "
+        "the right choice when the ambient TI is held fixed while "
+        "ws varies (a wind tunnel), and it needs no fitted αε.",
+    ),
+    "mann_Nxyz": DWMParamSpec(
+        "int3", MANN_NXYZ, "mann", doc="Mann box grid points (nx, ny, nz)."
+    ),
+    "mann_dxyz": DWMParamSpec(
+        "float3",
+        MANN_DXYZ,
+        "mann",
+        doc="Mann box grid spacing (dx, dy, dz) [m]. dy/dx sets "
+        "the inertial slope of the streamwise spectrum.",
+    ),
 }
 
 
@@ -275,11 +346,17 @@ def _check_numeric(key: str, spec: DWMParamSpec, value, where: str) -> None:
     try:
         f = float(value)
     except (TypeError, ValueError):
-        raise ValueError(f"dwm_params[{key!r}]{where} must be a number, got {value!r}") from None
+        raise ValueError(
+            f"dwm_params[{key!r}]{where} must be a number, got {value!r}"
+        ) from None
     if not math.isfinite(f) or f <= 0:
-        raise ValueError(f"dwm_params[{key!r}]{where} must be finite and > 0, got {value!r}")
+        raise ValueError(
+            f"dwm_params[{key!r}]{where} must be finite and > 0, got {value!r}"
+        )
     if spec.kind == "int" and f != int(f):
-        raise ValueError(f"dwm_params[{key!r}]{where} must be an integer, got {value!r}")
+        raise ValueError(
+            f"dwm_params[{key!r}]{where} must be an integer, got {value!r}"
+        )
 
 
 def validate_dwm_params(params: dict, where: str = "") -> None:
@@ -308,7 +385,11 @@ def validate_dwm_params(params: dict, where: str = "") -> None:
                     f"got {value!r}"
                 )
         elif spec.kind in ("int3", "float3"):
-            if isinstance(value, (str, bytes)) or not hasattr(value, "__len__") or len(value) != 3:
+            if (
+                isinstance(value, (str, bytes))
+                or not hasattr(value, "__len__")
+                or len(value) != 3
+            ):
                 raise ValueError(
                     f"dwm_params[{key!r}]{where} must be a sequence of 3 numbers, got {value!r}"
                 )
@@ -319,7 +400,9 @@ def validate_dwm_params(params: dict, where: str = "") -> None:
             _check_numeric(key, spec, value, where)
 
 
-def make_wts(x, y, windTurbine, turbine_params=None, rotor_power="mean") -> PyWakeWindTurbines:
+def make_wts(
+    x, y, windTurbine, turbine_params=None, rotor_power="mean"
+) -> PyWakeWindTurbines:
     """PyWakeWindTurbines wired with the calibrated rotor-average + TI sensor.
 
     ``turbine_params`` (a ``core.turbine_params.TurbineParams``) selects the
@@ -334,7 +417,9 @@ def make_wts(x, y, windTurbine, turbine_params=None, rotor_power="mean") -> PyWa
     _lookup(dict.fromkeys(ROTOR_POWER_CHOICES), rotor_power, "rotor_power")
     kwargs = dict(
         rotorAvgModel=CGIRotorAvg(ROTOR_AVG_N),
-        turbulenceIntensityModel = TISensor(mean_method=MeanMethod.TURBULENCE_TRANSPORT_SPEED, T=600),
+        turbulenceIntensityModel=TISensor(
+            mean_method=MeanMethod.TURBULENCE_TRANSPORT_SPEED, T=600
+        ),
     )
     nominal = turbine_params is None or turbine_params.is_nominal
     if nominal and rotor_power.lower() == "mean":
@@ -438,7 +523,8 @@ def make_dwm(
     # to the center_offset translation.)
     try:
         _en = np.asarray(windTurbines.rotor_positions_east_north, dtype=float)
-    except Exception:  # HAWC2 variants expose it as a property that may need fs
+    # HAWC2: the property reads _rotor_position, unset before HAWC2 starts
+    except AttributeError:
         _en = np.asarray(windTurbines.positions_east_north, dtype=float)
     _x = get_xyz(_en, wind_direction)[0]
     _D = np.atleast_1d(windTurbines.diameter()).astype(float)
@@ -446,7 +532,9 @@ def make_dwm(
     n_particles = max(int(np.ceil(_desired / (d_particle * float(_D.min())))), 10)
 
     deficit_gen = jDWMAinslieGenerator(
-        boundaryConditionModel=_lookup(BOUNDARY_CONDITIONS, boundary_condition, "boundary_condition"),
+        boundaryConditionModel=_lookup(
+            BOUNDARY_CONDITIONS, boundary_condition, "boundary_condition"
+        ),
         viscosity_model=_make_viscosity_model(viscosity_model, k1, k2),
         solver=implicit(),
         projectionModel=NoProjection(),
@@ -457,7 +545,9 @@ def make_dwm(
 
     motion_kwargs = dict(
         x_speed=_lookup(X_SPEEDS, x_speed, "x_speed"),
-        temporal_filter=None if meandering_d is None else CutOffFrq(float(meandering_d)),
+        temporal_filter=None
+        if meandering_d is None
+        else CutOffFrq(float(meandering_d)),
         spatial_filter=CGIRotorAvg(PARTICLE_SPATIAL_AVG_N),
         include_wakes=True,
         include_own_wake=False,
@@ -467,7 +557,9 @@ def make_dwm(
     if float(deflection_c) == DEFLECTION_C:
         particle_motion = HillVortexParticleMotion(**motion_kwargs)
     else:
-        particle_motion = ScaledHillVortexParticleMotion(c=deflection_c, **motion_kwargs)
+        particle_motion = ScaledHillVortexParticleMotion(
+            c=deflection_c, **motion_kwargs
+        )
 
     fs = DWMFlowSimulation(
         site=site,
@@ -477,7 +569,9 @@ def make_dwm(
         d_particle=d_particle,
         n_particles=n_particles,
         addedTurbulenceModel=addedTurbulenceModel,
-        superpositionModel=_lookup(SUPERPOSITION_MODELS, superposition, "superposition")(),
+        superpositionModel=_lookup(
+            SUPERPOSITION_MODELS, superposition, "superposition"
+        )(),
         wind_direction=wind_direction,
         dt=dt,
         # Speedups, not part of the LES calibration (which ran pchip / no

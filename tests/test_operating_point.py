@@ -76,9 +76,7 @@ def test_out_of_grid_clamps_to_edge(synthetic_lookup):
 def test_full_surrogate_physical_trends():
     lut = OperatingPointLookup.from_netcdf(FULL_SURROGATE_NC, rotor_diameter=178.3)
     derates = np.array([0.0, 0.2, 0.5, 0.8])
-    pitch, rpm = lut.pitch_rpm(
-        np.full(4, 10.0), np.zeros(4), derates
-    )
+    pitch, rpm = lut.pitch_rpm(np.full(4, 10.0), np.zeros(4), derates)
     # Deeper derate at ws=10 -> blades pitch up, rotor slows (min-Omega floor).
     assert np.all(np.diff(pitch) > 0)
     assert np.all(np.diff(rpm) <= 1e-9)

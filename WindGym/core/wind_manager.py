@@ -279,7 +279,8 @@ class WindManager:
         """
         try:
             params = [
-                p for p in inspect.signature(wd_function).parameters.values()
+                p
+                for p in inspect.signature(wd_function).parameters.values()
                 if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
             ]
         except (TypeError, ValueError):

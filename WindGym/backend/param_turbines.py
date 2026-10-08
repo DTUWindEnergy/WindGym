@@ -53,7 +53,9 @@ class ParamPyWakeWindTurbines(PyWakeWindTurbines):
     def __init__(self, x, y, windTurbine, params: TurbineParams, **kwargs):
         super().__init__(x=x, y=y, windTurbine=windTurbine, **kwargs)
         if not isinstance(params, TurbineParams):
-            raise TypeError("params must be a TurbineParams (see normalize_turbine_params)")
+            raise TypeError(
+                "params must be a TurbineParams (see normalize_turbine_params)"
+            )
         if params.n_turb != self.N:
             raise ValueError(f"params has {params.n_turb} turbines, farm has {self.N}")
         self.params = params
@@ -96,9 +98,9 @@ class ParamPyWakeWindTurbines(PyWakeWindTurbines):
 
     def attach_to(self, fs) -> None:
         """Register ``step_actuators`` as the FIRST step handler of ``fs``."""
-        assert float(fs.dt) == float(self.params.dt_sim), (
-            f"flow simulation dt {fs.dt} != TurbineParams.dt_sim {self.params.dt_sim}"
-        )
+        assert float(fs.dt) == float(
+            self.params.dt_sim
+        ), f"flow simulation dt {fs.dt} != TurbineParams.dt_sim {self.params.dt_sim}"
         fs.step_handlers.insert(0, self.step_actuators)
         self._attached_fs = fs
 
@@ -112,7 +114,9 @@ class ParamPyWakeWindTurbines(PyWakeWindTurbines):
         effective = hist[self.params.k_delay, np.arange(self.N)]
         a = self.params.a_yaw
         # np.where (not y + 1.0*(e-y)) so tau == 0 turbines stay bitwise exact.
-        self._yaw_act = np.where(a >= 1.0, effective, self._yaw_act + a * (effective - self._yaw_act))
+        self._yaw_act = np.where(
+            a >= 1.0, effective, self._yaw_act + a * (effective - self._yaw_act)
+        )
 
     def step_power_lag(self, fs) -> None:
         """First-order lag on the waked power signal (after the sensors are current)."""
@@ -134,7 +138,11 @@ class ParamPyWakeWindTurbines(PyWakeWindTurbines):
         yaw = self._yaw_act[idx]
         cos = np.maximum(np.cos(np.deg2rad(yaw)), 0.0)
         # 0.0 ** 0.0 == 1.0 and cp_gain 1.0: the defaults are a bitwise identity.
-        return p * self.params.values["cp_gain"][idx] * cos ** self.params.values["yaw_exp"][idx]
+        return (
+            p
+            * self.params.values["cp_gain"][idx]
+            * cos ** self.params.values["yaw_exp"][idx]
+        )
 
     def power(self, include_wakes=True, idx=slice(None)):
         live = self._static_power(include_wakes=include_wakes, idx=idx)
