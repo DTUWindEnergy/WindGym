@@ -172,7 +172,8 @@ class BaselineManager:
         self._base_controller = self._pywake_agent_wrapper
 
     def initialize_baseline_turbines(
-        self, name_string: Optional[str] = None, turbine_params=None
+        self, name_string: Optional[str] = None, turbine_params=None,
+        rotor_power: str = "mean",
     ):
         """
         Initialize baseline turbines (HAWC2 or PyWake).
@@ -183,6 +184,9 @@ class BaselineManager:
                 baseline farm must see the same perturbed turbine as the agent farm
                 so Baseline / Wake_recovery rewards compare like with like. Only
                 supported for PyWake turbines.
+            rotor_power: how power is computed from the rotor nodes
+                (``dwm_defaults.ROTOR_POWER_CHOICES``); must match the agent farm,
+                for the same reason. PyWake turbines only.
 
         Returns:
             Baseline turbine object
@@ -223,6 +227,7 @@ class BaselineManager:
                 y=self.y_pos,
                 windTurbine=self.turbine,
                 turbine_params=turbine_params,
+                rotor_power=rotor_power,
             )
 
         return self.wts_baseline

@@ -96,6 +96,7 @@ def test_spec_matches_env_key_sets():
     assert WindFarmEnv._CLOSURE_PARAM_KEYS == make_dwm_keys
     assert WindFarmEnv._MANN_PARAM_KEYS == mann_keys
     assert WindFarmEnv._TURBINE_PARAM_KEYS == set(TURBINE_PARAM_SPECS)
+    assert WindFarmEnv._WTS_PARAM_KEYS == {"rotor_power"}
     assert WindFarmEnv._DWM_PARAM_KEYS == set(DWM_PARAM_SPEC) | set(TURBINE_PARAM_SPECS)
     assert mann_keys == {"mann_L", "mann_GAMMA", "mann_AE", "mann_Nxyz", "mann_dxyz"}
     assert make_dwm_keys == {

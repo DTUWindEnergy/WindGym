@@ -129,6 +129,11 @@ BOUNDARY_CONDITIONS: dict[str, type] = {
     "none": BoundaryCondition.none,
 }
 
+# How a turbine turns the wind over its rotor into power; the classes live in
+# backend.rotor_power (imported lazily, like the turbine-parameter DR class).
+# "mean" is dynamiks' own arithmetic rotor average.
+ROTOR_POWER_CHOICES: tuple[str, ...] = ("mean", "cubic")
+
 
 def _lookup(registry: dict, value, name: str):
     """Resolve a categorical ``dwm_params`` value; raise listing the choices."""
@@ -171,8 +176,9 @@ class DWMParamSpec:
 
     ``kind`` is ``"float"``, ``"int"``, ``"choice"``, or ``"int3"`` /
     ``"float3"`` (a 3-sequence, e.g. a Mann grid); ``group`` says which
-    subsystem consumes the key (``"make_dwm"`` or ``"mann"``, the latter
-    routed to ``TurbulenceManager.create_sites``).
+    subsystem consumes the key (``"make_dwm"``, ``"mann"``, routed to
+    ``TurbulenceManager.create_sites``, or ``"make_wts"``, the turbine
+    objects of both farms).
     """
 
     kind: str
@@ -236,6 +242,14 @@ DWM_PARAM_SPEC: dict[str, DWMParamSpec] = {
                                      "advection, not just lateral meandering. For pure "
                                      "meandering damping pair it with x_speed='global' "
                                      "or re-fit the closure with it on."),
+    "rotor_power": DWMParamSpec("choice", "mean", "make_wts",
+                                choices=ROTOR_POWER_CHOICES,
+                                doc="How power is computed from the wind over the rotor: "
+                                    "'mean' evaluates the power curve at dynamiks' "
+                                    "arithmetic rotor average, 'cubic' at the cube-mean "
+                                    "(sum w u^3)^(1/3) over the same nodes (FLORIS v2.3), "
+                                    "which a partial wake needs. Thrust keeps the "
+                                    "arithmetic mean. See backend.rotor_power."),
     "mann_L": DWMParamSpec("float", MANN_L, "mann", doc="Mann length scale [m]."),
     "mann_GAMMA": DWMParamSpec("float", MANN_GAMMA, "mann", doc="Mann anisotropy Γ."),
     "mann_AE": DWMParamSpec("float", MANN_AE, "mann", nullable=True,
@@ -305,26 +319,32 @@ def validate_dwm_params(params: dict, where: str = "") -> None:
             _check_numeric(key, spec, value, where)
 
 
-def make_wts(x, y, windTurbine, turbine_params=None) -> PyWakeWindTurbines:
+def make_wts(x, y, windTurbine, turbine_params=None, rotor_power="mean") -> PyWakeWindTurbines:
     """PyWakeWindTurbines wired with the calibrated rotor-average + TI sensor.
 
     ``turbine_params`` (a ``core.turbine_params.TurbineParams``) selects the
     perturbed subclass ``backend.param_turbines.ParamPyWakeWindTurbines``
     (per-turbine Cp/Ct gains, yaw actuator lag, power lag) for turbine-parameter
-    domain randomization. ``None`` or an all-default vector returns the plain
-    dynamiks class, so the nominal path is unchanged.
+    domain randomization. ``rotor_power`` (``ROTOR_POWER_CHOICES``) selects how
+    power is computed from the rotor nodes; the two compose
+    (``backend.rotor_power.ROTOR_POWER_CLASSES``). ``None`` or an all-default
+    vector with ``rotor_power="mean"`` returns the plain dynamiks class, so the
+    nominal path is unchanged.
     """
+    _lookup(dict.fromkeys(ROTOR_POWER_CHOICES), rotor_power, "rotor_power")
     kwargs = dict(
         rotorAvgModel=CGIRotorAvg(ROTOR_AVG_N),
         turbulenceIntensityModel = TISensor(mean_method=MeanMethod.TURBULENCE_TRANSPORT_SPEED, T=600),
     )
-    if turbine_params is None or turbine_params.is_nominal:
+    nominal = turbine_params is None or turbine_params.is_nominal
+    if nominal and rotor_power.lower() == "mean":
         return PyWakeWindTurbines(x=x, y=y, windTurbine=windTurbine, **kwargs)
-    from ..backend.param_turbines import ParamPyWakeWindTurbines  # lazy: dynamiks subclass
+    from ..backend.rotor_power import ROTOR_POWER_CLASSES  # lazy: dynamiks subclasses
 
-    return ParamPyWakeWindTurbines(
-        x=x, y=y, windTurbine=windTurbine, params=turbine_params, **kwargs
-    )
+    plain, perturbed = ROTOR_POWER_CLASSES[rotor_power.lower()]
+    if nominal:
+        return plain(x=x, y=y, windTurbine=windTurbine, **kwargs)
+    return perturbed(x=x, y=y, windTurbine=windTurbine, params=turbine_params, **kwargs)
 
 
 # Set once a dropped-kwargs warning has been emitted, so we only warn once per
