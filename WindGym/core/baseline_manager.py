@@ -172,7 +172,9 @@ class BaselineManager:
         self._base_controller = self._pywake_agent_wrapper
 
     def initialize_baseline_turbines(
-        self, name_string: Optional[str] = None, turbine_params=None,
+        self,
+        name_string: Optional[str] = None,
+        turbine_params=None,
         rotor_power: str = "mean",
     ):
         """

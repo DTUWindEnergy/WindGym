@@ -33,11 +33,13 @@ class CubeMeanPowerWindTurbines(PyWakeWindTurbines):
     def power(self, include_wakes=True, idx=slice(None)):
         uvw, w = self._get_rotor_windspeed(include_wakes, idx)
         u = np.maximum(np.asarray(uvw)[0], 0.0)
-        ws = np.average(u ** 3, axis=-1, weights=w) ** (1.0 / 3.0)
+        ws = np.average(u**3, axis=-1, weights=w) ** (1.0 / 3.0)
         return self.windTurbine.power(ws, **self.get_kwargs(idx))
 
 
-class CubeMeanParamPyWakeWindTurbines(ParamPyWakeWindTurbines, CubeMeanPowerWindTurbines):
+class CubeMeanParamPyWakeWindTurbines(
+    ParamPyWakeWindTurbines, CubeMeanPowerWindTurbines
+):
     """Turbine-parameter DR on top of cube-mean power.
 
     MRO: this class, ``ParamPyWakeWindTurbines``, ``CubeMeanPowerWindTurbines``,
