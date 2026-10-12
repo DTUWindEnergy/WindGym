@@ -15,12 +15,23 @@ DT = 5.0
 
 def test_spec_keys_and_defaults():
     assert list(TURBINE_PARAM_SPECS) == [
-        "yaw_exp", "cp_gain", "ct_gain", "tau_yaw", "delay_yaw", "tau_power",
+        "yaw_exp",
+        "cp_gain",
+        "ct_gain",
+        "tau_yaw",
+        "delay_yaw",
+        "tau_power",
     ]
     assert TURBINE_PARAM_KEYS == frozenset(TURBINE_PARAM_SPECS)
     defaults = {k: s.default for k, s in TURBINE_PARAM_SPECS.items()}
-    assert defaults == {"yaw_exp": 0.0, "cp_gain": 1.0, "ct_gain": 1.0,
-                        "tau_yaw": 0.0, "delay_yaw": 0.0, "tau_power": 0.0}
+    assert defaults == {
+        "yaw_exp": 0.0,
+        "cp_gain": 1.0,
+        "ct_gain": 1.0,
+        "tau_yaw": 0.0,
+        "delay_yaw": 0.0,
+        "tau_power": 0.0,
+    }
     for k, s in TURBINE_PARAM_SPECS.items():
         assert s.lo <= s.default <= s.hi, k
 
@@ -50,19 +61,24 @@ def test_scalar_broadcasts_and_marks_non_nominal():
 
 
 def test_long_array_is_sliced_to_n_turb():
-    tp = normalize_turbine_params({"yaw_exp": [0.1, 0.2, 0.3, 0.4, 0.5]}, n_turb=3, dt_sim=DT)
+    tp = normalize_turbine_params(
+        {"yaw_exp": [0.1, 0.2, 0.3, 0.4, 0.5]}, n_turb=3, dt_sim=DT
+    )
     np.testing.assert_array_equal(tp.values["yaw_exp"], [0.1, 0.2, 0.3])
 
 
-@pytest.mark.parametrize("bad, match", [
-    ({"yaw_exp": [0.1, 0.2]}, "yaw_exp.*len 2.*n_turb 3"),
-    ({"yaw_exp": np.zeros((3, 1))}, "yaw_exp.*ndim"),
-    ({"bogus": 1.0}, "Unknown turbine param.*bogus"),
-    ({"cp_gain": np.nan}, "cp_gain.*finite"),
-    ({"cp_gain": [1.0, np.inf, 1.0]}, "cp_gain.*finite"),
-    ({"ct_gain": 5.0}, r"ct_gain.*outside \[0.2, 1.6\]"),
-    ({"tau_yaw": -1.0}, r"tau_yaw.*outside"),
-])
+@pytest.mark.parametrize(
+    "bad, match",
+    [
+        ({"yaw_exp": [0.1, 0.2]}, "yaw_exp.*len 2.*n_turb 3"),
+        ({"yaw_exp": np.zeros((3, 1))}, "yaw_exp.*ndim"),
+        ({"bogus": 1.0}, "Unknown turbine param.*bogus"),
+        ({"cp_gain": np.nan}, "cp_gain.*finite"),
+        ({"cp_gain": [1.0, np.inf, 1.0]}, "cp_gain.*finite"),
+        ({"ct_gain": 5.0}, r"ct_gain.*outside \[0.2, 1.6\]"),
+        ({"tau_yaw": -1.0}, r"tau_yaw.*outside"),
+    ],
+)
 def test_invalid_inputs_raise(bad, match):
     with pytest.raises(ValueError, match=match):
         normalize_turbine_params(bad, n_turb=3, dt_sim=DT)
@@ -70,15 +86,23 @@ def test_invalid_inputs_raise(bad, match):
 
 def test_filter_coefficients():
     tp = normalize_turbine_params(
-        {"tau_yaw": [0.0, 30.0, 600.0], "tau_power": [20.0, 0.0, 5.0]}, n_turb=3, dt_sim=DT
+        {"tau_yaw": [0.0, 30.0, 600.0], "tau_power": [20.0, 0.0, 5.0]},
+        n_turb=3,
+        dt_sim=DT,
     )
     assert tp.a_yaw[0] == 1.0 and tp.a_power[1] == 1.0  # exactly 1.0 where tau == 0
-    np.testing.assert_allclose(tp.a_yaw[1:], 1.0 - np.exp(-DT / np.array([30.0, 600.0])), rtol=1e-15)
-    np.testing.assert_allclose(tp.a_power[[0, 2]], 1.0 - np.exp(-DT / np.array([20.0, 5.0])), rtol=1e-15)
+    np.testing.assert_allclose(
+        tp.a_yaw[1:], 1.0 - np.exp(-DT / np.array([30.0, 600.0])), rtol=1e-15
+    )
+    np.testing.assert_allclose(
+        tp.a_power[[0, 2]], 1.0 - np.exp(-DT / np.array([20.0, 5.0])), rtol=1e-15
+    )
 
 
 def test_k_delay_rounds_to_sim_steps():
-    tp = normalize_turbine_params({"delay_yaw": [7.5, 10.0, 12.5, 0.0]}, n_turb=4, dt_sim=DT)
+    tp = normalize_turbine_params(
+        {"delay_yaw": [7.5, 10.0, 12.5, 0.0]}, n_turb=4, dt_sim=DT
+    )
     # np.rint: round half to even -> 7.5/5 = 1.5 -> 2, 12.5/5 = 2.5 -> 2
     np.testing.assert_array_equal(tp.k_delay, [2, 2, 2, 0])
     assert tp.k_delay.dtype.kind == "i"

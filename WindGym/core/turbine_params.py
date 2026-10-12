@@ -122,7 +122,9 @@ def normalize_turbine_params(params, n_turb: int, dt_sim: float) -> TurbineParam
             continue
         arr = np.asarray(params[key], dtype=np.float64)
         if arr.ndim > 1:
-            raise ValueError(f"turbine param {key!r}: ndim {arr.ndim} > 1 (shape {arr.shape})")
+            raise ValueError(
+                f"turbine param {key!r}: ndim {arr.ndim} > 1 (shape {arr.shape})"
+            )
         if arr.ndim == 0:
             arr = np.full(n_turb, float(arr), dtype=np.float64)
         elif arr.shape[0] < n_turb:

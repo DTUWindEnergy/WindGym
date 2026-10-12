@@ -7,6 +7,7 @@ these tests pin the online estimator to the offline reference: same trace in
 -> same estimate out. If either side drifts, the T1-selected (tau, consensus)
 no longer transfers to training and this file must fail.
 """
+
 import numpy as np
 import pytest
 
@@ -14,6 +15,7 @@ from WindGym.core.wd_estimator import WdEstimator
 
 
 # --- offline reference (t1_probe.py math, reimplemented independently) -----
+
 
 def ref_circ_ewma(deg_t, dt, tau):
     alpha = 1.0 - np.exp(-dt / tau)
@@ -34,19 +36,18 @@ def ref_circ_median(deg):
 
 def ref_circ_mean(deg):
     rad = np.deg2rad(np.asarray(deg, dtype=float))
-    return float(np.rad2deg(np.arctan2(np.sin(rad).mean(),
-                                       np.cos(rad).mean())) % 360.0)
+    return float(np.rad2deg(np.arctan2(np.sin(rad).mean(), np.cos(rad).mean())) % 360.0)
 
 
 def make_trace(rng, n_steps=80, n_turb=9, base=270.0):
     """Wd trace with a ramp + per-turbine noise, crossing nothing weird."""
     t = np.arange(n_steps)
     ramp = np.clip((t - 20) * 1.5, 0.0, 45.0)
-    return (base + ramp[:, None]
-            + rng.normal(0.0, 4.0, size=(n_steps, n_turb))) % 360.0
+    return (base + ramp[:, None] + rng.normal(0.0, 4.0, size=(n_steps, n_turb))) % 360.0
 
 
 # --- equivalence with the offline reference --------------------------------
+
 
 @pytest.mark.parametrize("tau", [5.0, 30.0, 120.0])
 @pytest.mark.parametrize("consensus", ["median", "mean", "front"])
@@ -56,8 +57,7 @@ def test_online_matches_offline_reference(tau, consensus):
     n_turb = trace.shape[1]
     x_pos = np.arange(n_turb, dtype=float)[::-1]  # front = last index
 
-    est = WdEstimator(n_turb=n_turb, dt=10.0, tau=tau, consensus=consensus,
-                      x_pos=x_pos)
+    est = WdEstimator(n_turb=n_turb, dt=10.0, tau=tau, consensus=consensus, x_pos=x_pos)
     online = np.array([est.update(row) for row in trace])
 
     smoothed = ref_circ_ewma(trace, dt=10.0, tau=tau)

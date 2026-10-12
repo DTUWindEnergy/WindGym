@@ -5,6 +5,7 @@
 constructor argument. Every one defaults to the calibrated setup, so the
 default path is unchanged; the tests below pin that as well as the overrides.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -86,10 +87,16 @@ def test_deflection_c_selects_scaled_motion(monkeypatch):
 
 
 def test_validation_of_new_keys():
-    validate_dwm_params({
-        "boundary_condition": "IEC", "deflection_c": 0.3, "meandering_d": None,
-        "mann_AE": None, "mann_Nxyz": (64, 32, 16), "mann_dxyz": [0.05, 0.05, 0.05],
-    })
+    validate_dwm_params(
+        {
+            "boundary_condition": "IEC",
+            "deflection_c": 0.3,
+            "meandering_d": None,
+            "mann_AE": None,
+            "mann_Nxyz": (64, 32, 16),
+            "mann_dxyz": [0.05, 0.05, 0.05],
+        }
+    )
     for bad in (
         {"boundary_condition": "banana"},
         {"deflection_c": 0.0},
@@ -118,8 +125,11 @@ class _FakeField:
 
 @pytest.fixture
 def fake_mann(monkeypatch):
-    monkeypatch.setattr(tm_module.MannTurbulenceField, "generate",
-                        staticmethod(lambda **kw: _FakeField(**kw)))
+    monkeypatch.setattr(
+        tm_module.MannTurbulenceField,
+        "generate",
+        staticmethod(lambda **kw: _FakeField(**kw)),
+    )
     tm = TurbulenceManager(turbulence_type="MannGenerate")
     tm.np_random = np.random.default_rng(0)
     return tm
@@ -127,9 +137,16 @@ def fake_mann(monkeypatch):
 
 def test_mann_grid_and_scale_to_ti(fake_mann):
     tf, _ = fake_mann._generate_mann_generate(
-        ws=5.5, ti=0.06, rotor_diameter=1.1,
-        mann_overrides={"mann_L": 0.5, "mann_GAMMA": 1.0, "mann_AE": None,
-                        "mann_Nxyz": (512, 96, 48), "mann_dxyz": (0.05, 0.05, 0.05)},
+        ws=5.5,
+        ti=0.06,
+        rotor_diameter=1.1,
+        mann_overrides={
+            "mann_L": 0.5,
+            "mann_GAMMA": 1.0,
+            "mann_AE": None,
+            "mann_Nxyz": (512, 96, 48),
+            "mann_dxyz": (0.05, 0.05, 0.05),
+        },
     )
     assert tf.kw["L"] == 0.5 and tf.kw["Gamma"] == 1.0
     assert tf.kw["Nxyz"] == (512, 96, 48) and tf.kw["dxyz"] == (0.05, 0.05, 0.05)
@@ -138,7 +155,9 @@ def test_mann_grid_and_scale_to_ti(fake_mann):
 
 def test_numeric_mann_ae_stays_authoritative(fake_mann):
     tf, _ = fake_mann._generate_mann_generate(
-        ws=5.5, ti=0.06, rotor_diameter=1.1,
+        ws=5.5,
+        ti=0.06,
+        rotor_diameter=1.1,
         mann_overrides={"mann_L": 0.5, "mann_AE": 0.01},
     )
     assert tf.kw["alphaepsilon"] == 0.01
@@ -149,7 +168,8 @@ def test_numeric_mann_ae_stays_authoritative(fake_mann):
 def test_missing_mann_ae_still_raises(fake_mann):
     with pytest.raises(ValueError, match="mann_AE=None"):
         fake_mann._generate_mann_generate(
-            ws=5.5, ti=0.06, rotor_diameter=1.1, mann_overrides={"mann_L": 0.5})
+            ws=5.5, ti=0.06, rotor_diameter=1.1, mann_overrides={"mann_L": 0.5}
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -170,10 +190,18 @@ def _create_sites(mean_wind, **kw):
     tm = TurbulenceManager(turbulence_type="Random")
     tm.np_random = np.random.default_rng(0)
     return tm.create_sites(
-        ws=5.5, wd=270.0, ti=0.06, wd_list=[270.0] * 50, dt_sim=0.1,
-        turbine_positions=np.array([[0.0, 0.0], [5.5, 0.0]]), rotor_diameter=1.1,
-        n_passthrough=1, burn_in_passthroughs=0.1, create_baseline=True,
-        mean_wind=mean_wind, **kw,
+        ws=5.5,
+        wd=270.0,
+        ti=0.06,
+        wd_list=[270.0] * 50,
+        dt_sim=0.1,
+        turbine_positions=np.array([[0.0, 0.0], [5.5, 0.0]]),
+        rotor_diameter=1.1,
+        n_passthrough=1,
+        burn_in_passthroughs=0.1,
+        create_baseline=True,
+        mean_wind=mean_wind,
+        **kw,
     )
 
 
@@ -212,16 +240,22 @@ def _yawed_downstream_power(env_kwargs, n_steps=60, **dwm_params):
 
 
 @pytest.mark.integration
-def test_scaled_motion_matches_upstream_at_default_c(integration_env_kwargs, monkeypatch):
+def test_scaled_motion_matches_upstream_at_default_c(
+    integration_env_kwargs,  # noqa: F811  (pytest fixture, imported above)
+    monkeypatch,
+):
     stock = _yawed_downstream_power(integration_env_kwargs)
-    monkeypatch.setattr(dwm_defaults, "HillVortexParticleMotion",
-                        lambda **kw: ScaledHillVortexParticleMotion(c=DEFLECTION_C, **kw))
+    monkeypatch.setattr(
+        dwm_defaults,
+        "HillVortexParticleMotion",
+        lambda **kw: ScaledHillVortexParticleMotion(c=DEFLECTION_C, **kw),
+    )
     copy = _yawed_downstream_power(integration_env_kwargs)
     np.testing.assert_array_equal(copy, stock)
 
 
 @pytest.mark.integration
-def test_deflection_c_changes_downstream_power(integration_env_kwargs):
+def test_deflection_c_changes_downstream_power(integration_env_kwargs):  # noqa: F811
     stock = _yawed_downstream_power(integration_env_kwargs)
     weak = _yawed_downstream_power(integration_env_kwargs, deflection_c=0.2)
     assert not np.allclose(stock[:, 1], weak[:, 1])

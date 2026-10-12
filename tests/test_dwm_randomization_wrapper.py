@@ -4,6 +4,7 @@ These tests use a tiny stub env (no DWM physics, no Mann box) — the wrapper's
 contract with the env is just ``reset(options=)`` forwarding, so we don't
 need a real WindFarmEnv to verify it.
 """
+
 from __future__ import annotations
 
 import gymnasium as gym
@@ -68,8 +69,7 @@ def test_wrapper_uses_rng_for_reproducibility():
     a.reset()
     b.reset()
     assert (
-        a.env.last_options["dwm_params"]["k1"]
-        == b.env.last_options["dwm_params"]["k1"]
+        a.env.last_options["dwm_params"]["k1"] == b.env.last_options["dwm_params"]["k1"]
     )
 
 
@@ -153,7 +153,9 @@ def test_last_theta_returns_a_copy():
 def test_wrapper_passes_categorical_model_keys_through():
     """Model-structure keys (e.g. viscosity_model) are forwarded untouched."""
     env = _StubEnv()
-    wrapped = DWMRandomizationWrapper(env, sampler=_const_sampler({"viscosity_model": "madsen"}))
+    wrapped = DWMRandomizationWrapper(
+        env, sampler=_const_sampler({"viscosity_model": "madsen"})
+    )
     wrapped.reset()
     assert env.last_options == {"dwm_params": {"viscosity_model": "madsen"}}
 
@@ -162,7 +164,11 @@ def test_array_valued_theta_passes_through_and_is_recorded():
     """Turbine-parameter DR draws per-turbine ARRAYS; the wrapper must forward
     them untouched (no scalar coercion) and expose them via last_theta."""
     env = _StubEnv()
-    theta = {"k1": 0.05, "cp_gain": np.array([1.1, 0.9, 1.0]), "tau_yaw": np.array([0.0, 20.0, 5.0])}
+    theta = {
+        "k1": 0.05,
+        "cp_gain": np.array([1.1, 0.9, 1.0]),
+        "tau_yaw": np.array([0.0, 20.0, 5.0]),
+    }
     wrapped = DWMRandomizationWrapper(env, sampler=lambda rng: dict(theta))
     wrapped.reset()
     sent = env.last_options["dwm_params"]

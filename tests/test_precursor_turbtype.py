@@ -1,4 +1,5 @@
 """Tests for turbtype="Precursor": memmap-backed LES-precursor inflow."""
+
 import shutil
 from pathlib import Path
 
@@ -13,15 +14,30 @@ from dynamiks.sites.precursor import convert_precursor
 from WindGym import WindFarmEnv
 from WindGym.utils.generate_layouts import generate_square_grid
 
-FIXTURE_NC = Path(dynamiks.__file__).parent.parent / 'tests' / 'test_files' / 'precursor.nc'
-FARM = dict(hub_height=70.0, Lfarm=[500.0, 840.0, 460.0], yref=430.0)  # V80 hub, fixture box
+FIXTURE_NC = (
+    Path(dynamiks.__file__).parent.parent / "tests" / "test_files" / "precursor.nc"
+)
+FARM = dict(
+    hub_height=70.0, Lfarm=[500.0, 840.0, 460.0], yref=430.0
+)  # V80 hub, fixture box
+
 
 def _config(**wind_overrides):
     import yaml
-    cfg_path = Path(__file__).parent.parent / 'examples' / 'EnvConfigs' / '2turb.yaml'
+
+    cfg_path = Path(__file__).parent.parent / "examples" / "EnvConfigs" / "2turb.yaml"
     cfg = yaml.safe_load(cfg_path.read_text())
-    cfg["wind"].update({"ws_min": 9, "ws_max": 9, "TI_min": 0.07, "TI_max": 0.07,
-                        "wd_min": 270, "wd_max": 270, **wind_overrides})
+    cfg["wind"].update(
+        {
+            "ws_min": 9,
+            "ws_max": 9,
+            "TI_min": 0.07,
+            "TI_max": 0.07,
+            "wd_min": 270,
+            "wd_max": 270,
+            **wind_overrides,
+        }
+    )
     return cfg
 
 
@@ -30,7 +46,7 @@ CONFIG = _config()
 
 @pytest.fixture(scope="module")
 def nc_path(tmp_path_factory):
-    p = tmp_path_factory.mktemp("precursor") / 'precursor.nc'
+    p = tmp_path_factory.mktemp("precursor") / "precursor.nc"
     shutil.copy(FIXTURE_NC, p)
     convert_precursor(str(p), **FARM, chunk_t=32)
     return str(p)
@@ -62,9 +78,9 @@ def env(nc_path):
 def test_precursor_env_pins_wind_and_shares_memmap(env):
     env.reset(seed=1)
     meta = env.turbulence_manager.precursor_meta
-    assert env.ws == pytest.approx(float(meta['advection_speed']))
+    assert env.ws == pytest.approx(float(meta["advection_speed"]))
     assert env.wd == 270.0
-    assert env.ti == pytest.approx(float(meta['ti_hub']))
+    assert env.ti == pytest.approx(float(meta["ti_hub"]))
 
     assert isinstance(env.site, TurbulenceFieldSite)
     assert env.site.turbulence_transport_speed == pytest.approx(env.ws)
@@ -102,10 +118,21 @@ def test_precursor_rejects_mann_dr_keys(env):
 def test_precursor_rejects_veer(nc_path):
     x_pos, y_pos = generate_square_grid(turbine=V80(), nx=2, ny=1, xDist=4, yDist=4)
     cfg = _config(veer_min=2.0, veer_max=2.0)
-    env = WindFarmEnv(turbine=V80(), x_pos=x_pos, y_pos=y_pos, config=cfg,
-                      turbtype="Precursor", TurbBox=nc_path, dt_sim=1, dt_env=5,
-                      max_time_steps=5, n_passthrough=0.1, burn_in_passthroughs=0.0001,
-                      fill_window=False, reset_init=False)
+    env = WindFarmEnv(
+        turbine=V80(),
+        x_pos=x_pos,
+        y_pos=y_pos,
+        config=cfg,
+        turbtype="Precursor",
+        TurbBox=nc_path,
+        dt_sim=1,
+        dt_env=5,
+        max_time_steps=5,
+        n_passthrough=0.1,
+        burn_in_passthroughs=0.0001,
+        fill_window=False,
+        reset_init=False,
+    )
     try:
         with pytest.raises(ValueError, match="[Vv]eer"):
             env.reset(seed=1)

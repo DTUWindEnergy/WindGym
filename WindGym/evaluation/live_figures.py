@@ -355,7 +355,9 @@ class LiveFigureWriter:
             self.powT_max = max(self.powT_max, rec.powerT_a[end_idx].max() * 1.2)
             ax4.set_ylim(0.0, self.powT_max)
             if op_panels:
-                self.pitch_lo = min(self.pitch_lo, float(rec.pitch_a[end_idx].min()) - 0.5)
+                self.pitch_lo = min(
+                    self.pitch_lo, float(rec.pitch_a[end_idx].min()) - 0.5
+                )
                 self.rpm_lo = min(self.rpm_lo, float(rec.rpm_a[end_idx].min()) - 0.2)
                 self.rpm_hi = max(self.rpm_hi, float(rec.rpm_a[end_idx].max()) + 0.2)
                 ax5.set_ylim(self.pitch_lo, self.pitch_hi)
@@ -436,9 +438,7 @@ class LiveFigureWriter:
             # The figure-level legend hangs below the axes region, so it
             # must be an extra artist or bbox_inches="tight" clips it.
             bbox_extra_artists=tuple(
-                [ax1]
-                + right_axes
-                + ([fig_legend] if fig_legend is not None else [])
+                [ax1] + right_axes + ([fig_legend] if fig_legend is not None else [])
             ),
             bbox_inches="tight",
         )

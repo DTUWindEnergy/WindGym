@@ -208,8 +208,12 @@ def test_sub_second_dt_env_sizes_recorder():
         reset_init=False,
     )
     model = RandomModel(env.action_space.shape)
-    ds = AgentEvalFast(env, model, 1, deterministic=True, ws=8.0, ti=0.07, wd=270.0, t_sim=3, seed=1)
+    ds = AgentEvalFast(
+        env, model, 1, deterministic=True, ws=8.0, ti=0.07, wd=270.0, t_sim=3, seed=1
+    )
     ds = ds.load() if hasattr(ds, "load") else ds
     assert ds.time.dtype.kind == "f"
     assert np.unique(ds.time.values).size == ds.time.size
-    assert ds.time.size == 5 * 6 + 1  # (3 // 0.75 + 1) env steps of 6 sim steps, plus t=0
+    assert (
+        ds.time.size == 5 * 6 + 1
+    )  # (3 // 0.75 + 1) env steps of 6 sim steps, plus t=0

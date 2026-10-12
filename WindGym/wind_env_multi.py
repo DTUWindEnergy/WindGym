@@ -280,10 +280,10 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
         Same scaling/clipping as the parent (already applied)."""
         parent_obs = np.asarray(parent_obs, dtype=np.float32).reshape(-1)
         offsets = np.cumsum([0] + list(self._turb_obs_widths))
-        farm_part = parent_obs[offsets[-1]:]
+        farm_part = parent_obs[offsets[-1] :]
         return {
             a: np.concatenate(
-                [parent_obs[offsets[i]:offsets[i + 1]], farm_part]
+                [parent_obs[offsets[i] : offsets[i + 1]], farm_part]
             ).astype(np.float32)
             for i, a in enumerate(self.possible_agents)
         }
@@ -307,10 +307,17 @@ class WindFarmEnvMulti(ParallelEnv, WindFarmEnv):
         "Wind speed at turbines baseline": "Wind speed at turbines baseline",
     }
     _FARM_INFO_KEYS = (
-        "Wind speed Global", "Wind speed at farm measured", "Wind direction Global",
-        "Wind direction at farm measured", "Turbulence intensity", "Power agent",
-        "Power reference", "Tracking error", "Tracking error window mean",
-        "Power reference preview", "Power baseline",
+        "Wind speed Global",
+        "Wind speed at farm measured",
+        "Wind direction Global",
+        "Wind direction at farm measured",
+        "Turbulence intensity",
+        "Power agent",
+        "Power reference",
+        "Tracking error",
+        "Tracking error window mean",
+        "Power reference preview",
+        "Power baseline",
     )
 
     def _infos_from_parent(self, parent_info):

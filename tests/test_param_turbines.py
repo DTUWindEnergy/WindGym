@@ -23,7 +23,11 @@ def _set_inflow(wts, ws_waked, ws_free=None):
         wts.add_sensor("rotor_avg_windspeed", expose=True, ext_lst=["u", "v", "w"])
         wts.add_sensor("rotor_avg_freestream", expose=True, ext_lst=["u", "v", "w"])
     ws_waked = np.broadcast_to(np.asarray(ws_waked, float), (3,))
-    ws_free = ws_waked if ws_free is None else np.broadcast_to(np.asarray(ws_free, float), (3,))
+    ws_free = (
+        ws_waked
+        if ws_free is None
+        else np.broadcast_to(np.asarray(ws_free, float), (3,))
+    )
     wts.rotor_avg_windspeed = np.c_[ws_waked, np.zeros(3), np.zeros(3)]
     wts.rotor_avg_freestream = np.c_[ws_free, np.zeros(3), np.zeros(3)]
 
@@ -59,9 +63,13 @@ def test_nominal_params_are_bitwise_identical_to_plain(yaw):
     wts.reset_yaw_state(np.full(3, yaw))
     step(fs)
     np.testing.assert_array_equal(wts.power(), plain.power())
-    np.testing.assert_array_equal(wts.power(include_wakes=False), plain.power(include_wakes=False))
+    np.testing.assert_array_equal(
+        wts.power(include_wakes=False), plain.power(include_wakes=False)
+    )
     np.testing.assert_array_equal(wts.ct(), plain.ct())
-    np.testing.assert_array_equal(wts.rotor_avg_induction(), plain.rotor_avg_induction())
+    np.testing.assert_array_equal(
+        wts.rotor_avg_induction(), plain.rotor_avg_induction()
+    )
     np.testing.assert_array_equal(wts.yaw_tilt(), plain.yaw_tilt())
     np.testing.assert_array_equal(wts.yaw, plain.yaw)
 
@@ -80,7 +88,9 @@ def test_cp_gain_scales_power_both_branches():
     step(fs)
     g = np.array([1.2, 1.0, 0.8])
     np.testing.assert_allclose(wts.power(), plain.power() * g, rtol=1e-14)
-    np.testing.assert_allclose(wts.power(include_wakes=False), plain.power(include_wakes=False) * g, rtol=1e-14)
+    np.testing.assert_allclose(
+        wts.power(include_wakes=False), plain.power(include_wakes=False) * g, rtol=1e-14
+    )
     np.testing.assert_array_equal(wts.ct(), plain.ct())
 
 
@@ -89,7 +99,9 @@ def test_ct_gain_scales_ct_and_induction():
     wts, fs = make_param({"ct_gain": [0.9, 1.0, 1.1]})
     g = np.array([0.9, 1.0, 1.1])
     np.testing.assert_allclose(wts.ct(), plain.ct() * g, rtol=1e-14)
-    np.testing.assert_allclose(wts.rotor_avg_induction(), ct2a_madsen(plain.ct() * g), rtol=1e-14)
+    np.testing.assert_allclose(
+        wts.rotor_avg_induction(), ct2a_madsen(plain.ct() * g), rtol=1e-14
+    )
     np.testing.assert_array_equal(wts.power(), plain.power())
 
 
@@ -157,7 +169,8 @@ def test_shift_yaw_frame_moves_command_actual_and_history():
     wts, fs = make_param({"tau_yaw": 30.0, "delay_yaw": 5.0})
     wts.reset_yaw_state(np.zeros(3))
     wts.yaw = np.full(3, 10.0)
-    step(fs); step(fs)
+    step(fs)
+    step(fs)
     err_before = wts.yaw_command - wts.yaw
     wts.shift_yaw_frame(3.0)
     np.testing.assert_allclose(wts.yaw_command - wts.yaw, err_before, atol=1e-12)

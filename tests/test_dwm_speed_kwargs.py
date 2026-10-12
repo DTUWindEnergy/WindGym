@@ -29,9 +29,7 @@ def test_drops_unsupported_kwargs_and_warns(monkeypatch):
         def __init__(self, site, windTurbines, wind_direction, dt):
             pass
 
-    monkeypatch.setattr(
-        dwm_defaults, "DWMFlowSimulation", FakeDWMFlowSimulationOld
-    )
+    monkeypatch.setattr(dwm_defaults, "DWMFlowSimulation", FakeDWMFlowSimulationOld)
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
@@ -51,9 +49,7 @@ def test_passes_through_supported_kwargs(monkeypatch):
         ):
             pass
 
-    monkeypatch.setattr(
-        dwm_defaults, "DWMFlowSimulation", FakeDWMFlowSimulationNew
-    )
+    monkeypatch.setattr(dwm_defaults, "DWMFlowSimulation", FakeDWMFlowSimulationNew)
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
@@ -68,9 +64,7 @@ def test_warns_only_once_per_process(monkeypatch):
         def __init__(self, site, windTurbines, wind_direction, dt):
             pass
 
-    monkeypatch.setattr(
-        dwm_defaults, "DWMFlowSimulation", FakeDWMFlowSimulationOld
-    )
+    monkeypatch.setattr(dwm_defaults, "DWMFlowSimulation", FakeDWMFlowSimulationOld)
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
