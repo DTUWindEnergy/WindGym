@@ -136,6 +136,17 @@ BOUNDARY_CONDITIONS: dict[str, type] = {
     "none": BoundaryCondition.none,
 }
 
+# The wake deficit each particle carries. "ainslie" is jDWM's eddy-viscosity
+# solver (boundary_condition, viscosity_model, k1/k2, r_max/n_r/dx apply);
+# "bastankhah" is py_wake's BastankhahGaussianDeficit wrapped by dynamiks'
+# PyWakeDeficitGenerator: a self-similar Gaussian of width ceps + k x/D (those
+# Ainslie keys are then ignored). Its literature k fits time-averaged wakes,
+# which already contain meandering; DWM meanders the particles explicitly, so
+# under DWM k must be fitted in the wake-fixed frame, not taken from the paper.
+DEFICIT_MODELS: tuple[str, ...] = ("ainslie", "bastankhah")
+BASTANKHAH_K = 0.0324555  # py_wake's default (Bastankhah & Porte-Agel 2014)
+BASTANKHAH_CEPS = 0.2
+
 # How a turbine turns the wind over its rotor into power; the classes live in
 # backend.rotor_power (imported lazily, like the turbine-parameter DR class).
 # "mean" is dynamiks' own arithmetic rotor average.
@@ -298,6 +309,32 @@ DWM_PARAM_SPEC: dict[str, DWMParamSpec] = {
         "advection, not just lateral meandering. For pure "
         "meandering damping pair it with x_speed='global' "
         "or re-fit the closure with it on.",
+    ),
+    "deficit_model": DWMParamSpec(
+        "choice",
+        "ainslie",
+        "make_dwm",
+        choices=DEFICIT_MODELS,
+        doc="Particle wake deficit: 'ainslie' (jDWM eddy-viscosity "
+        "solver) or 'bastankhah' (py_wake's Gaussian, width "
+        "gauss_ceps + gauss_k x/D; the Ainslie keys are then "
+        "ignored). See DEFICIT_MODELS.",
+    ),
+    "gauss_k": DWMParamSpec(
+        "float",
+        BASTANKHAH_K,
+        "make_dwm",
+        doc="Bastankhah wake growth rate k (width per unit x/D). "
+        "Only with deficit_model='bastankhah'. The literature "
+        "value includes meandering; fit it in the wake-fixed frame.",
+    ),
+    "gauss_ceps": DWMParamSpec(
+        "float",
+        BASTANKHAH_CEPS,
+        "make_dwm",
+        doc="Bastankhah initial wake width coefficient ceps (the "
+        "width at x = 0 is ceps*sqrt(beta) D). Only with "
+        "deficit_model='bastankhah'.",
     ),
     "rotor_power": DWMParamSpec(
         "choice",
@@ -464,6 +501,58 @@ def _dwm_speed_kwargs(interpolation, lateral_cutoff) -> dict:
     return kwargs
 
 
+def _ScalarTIPyWakeDeficitGenerator(*args, **kwargs):
+    """dynamiks' PyWakeDeficitGenerator for an axisymmetric Gaussian deficit, with
+    two changes:
+
+    * the turbine's TI is read as jDWMAinslieGenerator reads it
+      (``rotor_avg_ti()[0]``). dynamiks' TISensor returns every turbine's TI
+      whatever the index, so the stock wrapper's reshape to (1, 1, 1) fails for
+      more than one turbine; the Ainslie generator takes element 0 -- the first
+      turbine's TI for every wake -- and this does the same. (Bastankhah's
+      deficit does not use TI.)
+    * the radial derivative dUdr, which dynamiks needs at every particle
+      evaluation, is analytic -- d(deficit)/dr = -(r / sigma^2) deficit for a
+      Gaussian -- instead of autograd through py_wake, which took ~2/3 of an
+      env step.
+    """
+    from dynamiks.dwm.particle_deficit_profiles.pywake_deficit_wrapper import (
+        PyWakeDeficitGenerator,
+        PyWakeDeficitProfile,
+    )
+
+    class _Profile(PyWakeDeficitProfile):
+        def _get_UVW_dUdr(self, rel_x, rel_y, rel_z, compute_gradient=True):
+            deficit = self._get_deficit_norm(rel_x, rel_y, rel_z)
+            if not compute_gradient:
+                return deficit, None
+            x = np.asarray(rel_x, dtype=float)
+            sigma = self.generator.deficitModel.sigma_ijlk(
+                dw_ijlk=x.reshape(1, -1, 1, 1), **self.kwargs
+            ).reshape(x.shape)
+            r = np.sqrt(np.asarray(rel_y, float) ** 2 + np.asarray(rel_z, float) ** 2)
+            # |grad| of the normalised deficit [1/m], times R as dynamiks normalises it
+            return deficit, r / sigma**2 * deficit[0] * self.R
+
+    class _Generator(PyWakeDeficitGenerator):
+        def get_kwargs_func(self):
+            stock = PyWakeDeficitGenerator.get_kwargs_func(self)
+
+            def get_kwargs(windTurbine):
+                kw = stock(windTurbine)
+                kw["TI"] = np.atleast_1d(kw["TI"])[0]
+                return kw
+
+            return get_kwargs
+
+        def new_particle_deficit(self, *a, **kw):
+            profile = PyWakeDeficitGenerator.new_particle_deficit(self, *a, **kw)
+            profile.__class__ = _Profile  # same state, analytic dUdr
+            return profile
+
+    return _Generator(*args, **kwargs)
+
+
 def make_dwm(
     *,
     site,
@@ -485,6 +574,9 @@ def make_dwm(
     boundary_condition: str = "madsen",
     deflection_c: float = DEFLECTION_C,
     meandering_d: float | None = None,
+    deficit_model: str = "ainslie",
+    gauss_k: float = BASTANKHAH_K,
+    gauss_ceps: float = BASTANKHAH_CEPS,
 ) -> DWMFlowSimulation:
     """Assemble a DWMFlowSimulation under the calibrated setup.
 
@@ -504,6 +596,8 @@ def make_dwm(
       through ``BOUNDARY_CONDITIONS``
     - ``deflection_c``: wake-deflection strength (dynamiks hardcodes 0.4)
     - ``meandering_d``: ``CutOffFrq(d)`` meandering filter; ``None`` = none
+    - ``deficit_model`` (``"ainslie"`` / ``"bastankhah"``), ``gauss_k``,
+      ``gauss_ceps``: the particle wake deficit; see ``DEFICIT_MODELS``
 
     See ``DWM_PARAM_SPEC`` for the per-key documentation.
 
@@ -531,7 +625,26 @@ def make_dwm(
     _desired = max(float(_x.max() - _x.min()) * 1.2, 15.0 * float(_D.max()))
     n_particles = max(int(np.ceil(_desired / (d_particle * float(_D.min())))), 10)
 
-    deficit_gen = jDWMAinslieGenerator(
+    deficit_model = str(deficit_model).lower()
+    if deficit_model not in DEFICIT_MODELS:
+        raise ValueError(
+            f"deficit_model must be one of {list(DEFICIT_MODELS)}, got {deficit_model!r}"
+        )
+    if deficit_model == "bastankhah":
+        from py_wake.deficit_models.gaussian import BastankhahGaussianDeficit
+
+        # Deficit relative to the rotor's own (possibly waked) inflow, as the
+        # Ainslie generator scales it; NoProjection as the Ainslie path.
+        deficit_gen = _ScalarTIPyWakeDeficitGenerator(
+            BastankhahGaussianDeficit(
+                k=float(gauss_k), ceps=float(gauss_ceps), use_effective_ws=True
+            ),
+            scale_with_freestream=False,
+            projectionModel=NoProjection(),
+        )
+    else:
+        deficit_gen = None
+    deficit_gen = deficit_gen or jDWMAinslieGenerator(
         boundaryConditionModel=_lookup(
             BOUNDARY_CONDITIONS, boundary_condition, "boundary_condition"
         ),

@@ -118,6 +118,9 @@ def test_spec_matches_env_key_sets():
         "boundary_condition",
         "deflection_c",
         "meandering_d",
+        "deficit_model",
+        "gauss_k",
+        "gauss_ceps",
     }
     # Every make_dwm-group key is an actual make_dwm keyword.
     import inspect
@@ -395,3 +398,15 @@ def test_model_switch_changes_simulation(integration_env_kwargs):
         assert not np.allclose(a, b)
     finally:
         env.close()
+
+
+def test_bastankhah_deficit_builds_and_differs():
+    """deficit_model='bastankhah' swaps the particle deficit for py_wake's
+    Gaussian (analytic dUdr), and rejects an unknown model."""
+    from WindGym.core.dwm_defaults import validate_dwm_params
+
+    validate_dwm_params({"deficit_model": "bastankhah", "gauss_k": 0.02, "gauss_ceps": 0.2})
+    with pytest.raises(ValueError):
+        validate_dwm_params({"deficit_model": "fuga"})
+    with pytest.raises(ValueError):
+        validate_dwm_params({"gauss_k": 0.0})
