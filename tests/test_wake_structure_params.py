@@ -86,6 +86,23 @@ def test_deflection_c_selects_scaled_motion(monkeypatch):
     assert isinstance(cap["scaled"]["temporal_filter"], CutOffFrq)
 
 
+def test_deflection_c_pos_splits_the_coefficient(monkeypatch):
+    """deflection_c_pos alone selects the scaled motion (c = the stock value for
+    negative yaw, c_pos for positive); None keeps the symmetric path."""
+    cap = _spy_with_scaled(monkeypatch, deflection_c_pos=0.1)
+    assert "motion" not in cap
+    assert cap["scaled"]["c"] == DEFLECTION_C and cap["scaled"]["c_pos"] == 0.1
+    cap = _spy_with_scaled(monkeypatch, deflection_c=0.2, deflection_c_pos=None)
+    assert cap["scaled"]["c"] == 0.2 and cap["scaled"].get("c_pos") is None
+    validate_dwm_params({"deflection_c_pos": None})
+    validate_dwm_params({"deflection_c_pos": 0.1})
+    with pytest.raises(ValueError):
+        validate_dwm_params({"deflection_c_pos": 0.0})
+    m = ScaledHillVortexParticleMotion(c=0.3, c_pos=0.1)
+    assert (m.c, m.c_pos) == (0.3, 0.1)
+    assert ScaledHillVortexParticleMotion(c=0.3).c_pos == 0.3
+
+
 def test_validation_of_new_keys():
     validate_dwm_params(
         {

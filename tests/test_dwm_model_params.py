@@ -117,6 +117,7 @@ def test_spec_matches_env_key_sets():
         "lateral_cutoff",
         "boundary_condition",
         "deflection_c",
+        "deflection_c_pos",
         "meandering_d",
         "deficit_model",
         "gauss_k",

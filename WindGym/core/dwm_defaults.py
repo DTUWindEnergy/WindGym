@@ -297,6 +297,16 @@ DWM_PARAM_SPEC: dict[str, DWMParamSpec] = {
         "a yawed rotor deflects its own wake. dynamiks "
         f"hardcodes {DEFLECTION_C}; see core.particle_motion.",
     ),
+    "deflection_c_pos": DWMParamSpec(
+        "float",
+        None,
+        "make_dwm",
+        nullable=True,
+        doc="Wake-deflection strength for wakes emitted at POSITIVE flow-relative "
+        "yaw (the yaw sensor's sign); deflection_c then serves negative yaw. "
+        "None (calibrated) = deflection_c for both signs. The G1's steering "
+        "gain is not symmetric in the yaw sign.",
+    ),
     "meandering_d": DWMParamSpec(
         "float",
         None,
@@ -609,6 +619,7 @@ def make_dwm(
     dx: float = AINSLIE_DX,
     boundary_condition: str = "madsen",
     deflection_c: float = DEFLECTION_C,
+    deflection_c_pos: float | None = None,
     meandering_d: float | None = None,
     deficit_model: str = "ainslie",
     gauss_k: float = BASTANKHAH_K,
@@ -633,7 +644,9 @@ def make_dwm(
     - ``r_max`` / ``n_r`` / ``dx``: Ainslie solver grid
     - ``boundary_condition``: Ainslie near-wake boundary condition, resolved
       through ``BOUNDARY_CONDITIONS``
-    - ``deflection_c``: wake-deflection strength (dynamiks hardcodes 0.4)
+    - ``deflection_c``: wake-deflection strength (dynamiks hardcodes 0.4);
+      ``deflection_c_pos``: the same for positive flow-relative yaw (``None`` =
+      symmetric)
     - ``meandering_d``: ``CutOffFrq(d)`` meandering filter; ``None`` = none
     - ``deficit_model`` (``"ainslie"`` / ``"bastankhah"``), ``gauss_k``,
       ``gauss_ceps``: the particle wake deficit; see ``DEFICIT_MODELS``
@@ -719,11 +732,13 @@ def make_dwm(
     )
     # The stock class at dynamiks' own coefficient, so the default path is
     # upstream's code rather than a copy of it.
-    if float(deflection_c) == DEFLECTION_C:
+    if float(deflection_c) == DEFLECTION_C and deflection_c_pos is None:
         particle_motion = HillVortexParticleMotion(**motion_kwargs)
     else:
         particle_motion = ScaledHillVortexParticleMotion(
-            c=deflection_c, **motion_kwargs
+            c=deflection_c,
+            c_pos=None if deflection_c_pos is None else float(deflection_c_pos),
+            **motion_kwargs,
         )
 
     fs = DWMFlowSimulation(

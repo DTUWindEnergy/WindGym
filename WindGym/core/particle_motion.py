@@ -23,11 +23,20 @@ DEFLECTION_C = 0.4  # dynamiks' hardcoded value
 
 
 class ScaledHillVortexParticleMotion(HillVortexParticleMotion):
-    """``HillVortexParticleMotion`` with the self-induction coefficient ``c`` exposed."""
+    """``HillVortexParticleMotion`` with the self-induction coefficient ``c`` exposed.
 
-    def __init__(self, c: float = DEFLECTION_C, **kwargs):
+    ``c_pos`` (default ``None`` = ``c``) is the coefficient for particles emitted
+    at a POSITIVE flow-relative yaw (the turbines' ``yaw`` sensor, the sign the
+    campaigns use); ``c`` then serves negative yaw. A yawed wake's deflection is
+    not symmetric in the yaw sign (the wake's rotation adds to or opposes the
+    yaw-induced vortex pair), and the G1 data show it: a split c is its
+    first-order representation.
+    """
+
+    def __init__(self, c: float = DEFLECTION_C, c_pos: float | None = None, **kwargs):
         HillVortexParticleMotion.__init__(self, **kwargs)
         self.c = float(c)
+        self.c_pos = self.c if c_pos is None else float(c_pos)
 
     def __call__(self, position_xip, velocity_uip, wt_idx):
         position, new_velocity_uip = ParticleMotionModel.__call__(
@@ -56,10 +65,14 @@ class ScaledHillVortexParticleMotion(HillVortexParticleMotion):
 
         for iwt, i in enumerate(wt_idx):
             y_m, t_m = [np.atleast_1d(v[i]) for v in [theta_yaw_rel_im, theta_tilt_im]]
-            # ONLY CHANGE FROM UPSTREAM: `.4` -> `self.c`
+            # ONLY CHANGE FROM UPSTREAM: `.4` -> the coefficient, per particle by
+            # the sign of its yaw. theta = yaw_abs - wind_direction = -yaw_rel
+            # (DWMFlowSimulation.update_particles), so theta < 0 is positive
+            # flow-relative yaw.
+            c_m = np.where(y_m < 0, self.c_pos, self.c)
             self_induc_um = (
                 delta_U_iu[iwt]
-                * self.c
+                * c_m
                 * [-np.cos(y_m) * np.cos(t_m), np.cos(t_m) * np.sin(y_m), np.sin(t_m)]
             )
             position[:, i, m[iwt]] = (
