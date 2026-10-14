@@ -33,6 +33,8 @@ from dynamiks.dwm.particle_motion_models import (
     XSpeed,
 )
 from dynamiks.dwm.projection_models import NoProjection
+from dynamiks.dwm.secondary_steering import DECAY_D as SS_DECAY_D
+from dynamiks.dwm.secondary_steering import SecondarySteeringGenerator
 
 # from dynamiks.dwm.superposition import rss_superposition
 # from dynamiks.utils.data_dumper import runningAverageSensor
@@ -181,7 +183,9 @@ def _make_viscosity_model(viscosity_model, k1, k2):
 #     Built at env construction, not per reset, so these need a
 #     constructor-only group.
 #   - make_dwm motion model: PARTICLE_SPATIAL_AVG_N (and None = no spatial
-#     filter), include_wakes, include_own_wake.
+#     filter), include_wakes (True: downstream particles are advected by the
+#     superposed wake field, which is what lets secondary_steering act),
+#     include_own_wake.
 #   - make_dwm deficit generator: solver (implicit), projectionModel
 #     (NoProjection), scale_with_freestream.
 #   - make_dwm: the 15 D downstream floor on n_particles.
@@ -190,7 +194,7 @@ def _make_viscosity_model(viscosity_model, k1, k2):
 class DWMParamSpec:
     """Validation metadata for one ``dwm_params`` key.
 
-    ``kind`` is ``"float"``, ``"int"``, ``"choice"``, or ``"int3"`` /
+    ``kind`` is ``"float"``, ``"int"``, ``"bool"``, ``"choice"``, or ``"int3"`` /
     ``"float3"`` (a 3-sequence, e.g. a Mann grid); ``group`` says which
     subsystem consumes the key (``"make_dwm"``, ``"mann"``, routed to
     ``TurbulenceManager.create_sites``, or ``"make_wts"``, the turbine
@@ -283,7 +287,7 @@ DWM_PARAM_SPEC: dict[str, DWMParamSpec] = {
         "madsen",
         "make_dwm",
         choices=tuple(BOUNDARY_CONDITIONS),
-        doc="Ainslie near-wake boundary condition " "(jDWM.BoundaryCondition).",
+        doc="Ainslie near-wake boundary condition (jDWM.BoundaryCondition).",
     ),
     "deflection_c": DWMParamSpec(
         "float",
@@ -335,6 +339,33 @@ DWM_PARAM_SPEC: dict[str, DWMParamSpec] = {
         doc="Bastankhah initial wake width coefficient ceps (the "
         "width at x = 0 is ceps*sqrt(beta) D). Only with "
         "deficit_model='bastankhah'.",
+    ),
+    "secondary_steering": DWMParamSpec(
+        "bool",
+        False,
+        "make_dwm",
+        doc="Secondary steering: each yawed turbine's particles carry the "
+        "GCH counter-rotating vortex pair's lateral velocity "
+        "(dynamiks.dwm.secondary_steering), which the include_wakes "
+        "particle advection turns into a deflection of downstream wakes. "
+        "False (calibrated) = off. The yawed turbine's own wake is "
+        "unaffected either way.",
+    ),
+    "ss_gain": DWMParamSpec(
+        "float",
+        1.0,
+        "make_dwm",
+        doc="Secondary steering: scale on the vortex circulation "
+        "(1.0 = FLORIS GCH). Only with secondary_steering=True.",
+    ),
+    "ss_decay_D": DWMParamSpec(
+        "float",
+        SS_DECAY_D,
+        "make_dwm",
+        doc="Secondary steering: downstream decay length of the vortex "
+        "field in rotor diameters, 1/(1 + x/L). The default is FLORIS's "
+        "mixing-length viscosity at the TUM tunnel's hub shear. Only with "
+        "secondary_steering=True.",
     ),
     "rotor_power": DWMParamSpec(
         "choice",
@@ -415,7 +446,12 @@ def validate_dwm_params(params: dict, where: str = "") -> None:
             if not spec.nullable:
                 raise ValueError(f"dwm_params[{key!r}]{where} may not be None")
             continue
-        if spec.kind == "choice":
+        if spec.kind == "bool":
+            if not isinstance(value, (bool, np.bool_)):
+                raise ValueError(  # noqa: TRY004  (ValueError is this function's contract)
+                    f"dwm_params[{key!r}]{where} must be a bool, got {value!r}"
+                )
+        elif spec.kind == "choice":
             if not isinstance(value, str) or value.lower() not in spec.choices:
                 raise ValueError(
                     f"dwm_params[{key!r}]{where} must be one of {list(spec.choices)}, "
@@ -577,6 +613,9 @@ def make_dwm(
     deficit_model: str = "ainslie",
     gauss_k: float = BASTANKHAH_K,
     gauss_ceps: float = BASTANKHAH_CEPS,
+    secondary_steering: bool = False,
+    ss_gain: float = 1.0,
+    ss_decay_D: float = SS_DECAY_D,
 ) -> DWMFlowSimulation:
     """Assemble a DWMFlowSimulation under the calibrated setup.
 
@@ -598,6 +637,10 @@ def make_dwm(
     - ``meandering_d``: ``CutOffFrq(d)`` meandering filter; ``None`` = none
     - ``deficit_model`` (``"ainslie"`` / ``"bastankhah"``), ``gauss_k``,
       ``gauss_ceps``: the particle wake deficit; see ``DEFICIT_MODELS``
+    - ``secondary_steering`` (bool), ``ss_gain``, ``ss_decay_D``: wrap the
+      deficit generator in dynamiks' ``SecondarySteeringGenerator`` so yawed
+      wakes carry the vortex pair's lateral velocity and deflect downstream
+      wakes; off by default (the calibrated setup)
 
     See ``DWM_PARAM_SPEC`` for the per-key documentation.
 
@@ -655,6 +698,15 @@ def make_dwm(
         n_r=int(n_r),
         dx=float(dx),
     )
+    if not isinstance(secondary_steering, (bool, np.bool_)):
+        raise TypeError(
+            f"secondary_steering must be a bool, got {secondary_steering!r}"
+        )
+    if secondary_steering:
+        # Wraps either generator; r_max / projectionModel read through to it.
+        deficit_gen = SecondarySteeringGenerator(
+            deficit_gen, gain=float(ss_gain), decay_D=float(ss_decay_D)
+        )
 
     motion_kwargs = dict(
         x_speed=_lookup(X_SPEEDS, x_speed, "x_speed"),
@@ -745,6 +797,5 @@ def add_hawc2_yaw_sensor(wts, mode: str = "bearing2_slot", slot: int = 1):
         )
     else:
         raise ValueError(
-            f"Unknown hawc2_yaw_mode: {mode!r} "
-            "(expected 'bearing2_slot' or 'yaw_tilt')"
+            f"Unknown hawc2_yaw_mode: {mode!r} (expected 'bearing2_slot' or 'yaw_tilt')"
         )

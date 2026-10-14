@@ -121,6 +121,9 @@ def test_spec_matches_env_key_sets():
         "deficit_model",
         "gauss_k",
         "gauss_ceps",
+        "secondary_steering",
+        "ss_gain",
+        "ss_decay_D",
     }
     # Every make_dwm-group key is an actual make_dwm keyword.
     import inspect
