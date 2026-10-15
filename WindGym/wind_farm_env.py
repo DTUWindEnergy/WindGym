@@ -89,6 +89,9 @@ class WindFarmEnv(gym.Env):
     _MANN_PARAM_KEYS = frozenset(
         k for k, spec in DWM_PARAM_SPEC.items() if spec.group == "mann"
     )
+    _WAT_PARAM_KEYS = frozenset(
+        k for k, spec in DWM_PARAM_SPEC.items() if spec.group == "wat"
+    )
     # Turbine-model perturbations (core.turbine_params): per-turbine arrays or
     # scalars, applied through backend.param_turbines on PyWake turbines only.
     _TURBINE_PARAM_KEYS = TURBINE_PARAM_KEYS
@@ -97,7 +100,11 @@ class WindFarmEnv(gym.Env):
         k for k, spec in DWM_PARAM_SPEC.items() if spec.group == "make_wts"
     )
     _DWM_PARAM_KEYS = (
-        _CLOSURE_PARAM_KEYS | _MANN_PARAM_KEYS | _TURBINE_PARAM_KEYS | _WTS_PARAM_KEYS
+        _CLOSURE_PARAM_KEYS
+        | _MANN_PARAM_KEYS
+        | _WAT_PARAM_KEYS
+        | _TURBINE_PARAM_KEYS
+        | _WTS_PARAM_KEYS
     )
 
     @classmethod
@@ -965,7 +972,9 @@ class WindFarmEnv(gym.Env):
         """
         # Episode-level override of DWM params (domain randomization).
         # Done before any heavy work so a typo fails fast.
-        closure_overrides, mann_overrides = self._resolve_episode_overrides(options)
+        closure_overrides, mann_overrides, wat_overrides = (
+            self._resolve_episode_overrides(options)
+        )
 
         # Clean up previous episode resources FIRST
         self._soft_cleanup()
@@ -1042,7 +1051,9 @@ class WindFarmEnv(gym.Env):
         )
 
         # 3a) Main flow sim (turbulence box draw happens inside create_sites)
-        self._build_agent_flow_sim(wd_list, closure_overrides, mann_overrides)
+        self._build_agent_flow_sim(
+            wd_list, closure_overrides, mann_overrides, wat_overrides
+        )
 
         # Initial yaw (yaw_init="Random" draws here) and tilt
         self._init_yaw_and_tilt()
@@ -1076,8 +1087,8 @@ class WindFarmEnv(gym.Env):
     def _resolve_episode_overrides(self, options) -> tuple:
         """Merge ``options["dwm_params"]`` over the constructor's DWM params.
 
-        Returns ``(closure_overrides, mann_overrides)``, the two subsystems
-        that consume these keys, and records ``self._active_dwm_params``.
+        Returns ``(closure_overrides, mann_overrides, wat_overrides)``, the
+        subsystems that consume these keys, and records ``self._active_dwm_params``.
         """
         episode_overrides = (options or {}).get("dwm_params") or {}
         self._validate_dwm_keys(episode_overrides, " in reset options")
@@ -1103,6 +1114,11 @@ class WindFarmEnv(gym.Env):
             for k, v in self._active_dwm_params.items()
             if k in self._MANN_PARAM_KEYS
         }
+        wat_overrides = {
+            k: v
+            for k, v in self._active_dwm_params.items()
+            if k in self._WAT_PARAM_KEYS
+        }
 
         # Per-episode Mann statistics only take effect when the turbulence
         # manager actually regenerates the box. Fail loud rather than silently
@@ -1114,7 +1130,7 @@ class WindFarmEnv(gym.Env):
                 "those statistics. Set turbtype='MannGenerate' on env "
                 "construction, or remove the Mann keys from the DR sampler."
             )
-        return closure_overrides, mann_overrides
+        return closure_overrides, mann_overrides, wat_overrides
 
     def _sample_episode_conditions(self) -> None:
         """Sample ws/wd/ti/veer; a Precursor box then pins ws/wd/ti from its meta."""
@@ -1176,7 +1192,9 @@ class WindFarmEnv(gym.Env):
             wd_lst=wd_list,
         )
 
-    def _build_agent_flow_sim(self, wd_list, closure_overrides, mann_overrides) -> None:
+    def _build_agent_flow_sim(
+        self, wd_list, closure_overrides, mann_overrides, wat_overrides=None
+    ) -> None:
         """Create the sites (dynamiks) and ``self.fs`` for the agent farm."""
         if self.backend == "dynamiks":
             # --- ORIGINAL dynamic backend ---
@@ -1200,6 +1218,7 @@ class WindFarmEnv(gym.Env):
                 burn_in_passthroughs=self.burn_in_passthroughs,
                 create_baseline=self.Baseline_comp,
                 mann_overrides=mann_overrides or None,
+                wat_overrides=wat_overrides or None,
                 # User-facing veer is deg per 100 m; create_sites takes deg/m.
                 veer_rate=self.veer / 100.0,
                 veer_ref_height=float(self.turbine.hub_height()),

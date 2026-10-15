@@ -183,6 +183,7 @@ class TurbulenceManager:
         veer_ref_height: float = 0.0,
         episode_time_budget_s: Optional[float] = None,
         mean_wind=None,
+        wat_overrides: Optional[dict] = None,
     ) -> tuple:
         """
         Create turbulence fields and sites for agent and optionally baseline.
@@ -239,6 +240,7 @@ class TurbulenceManager:
             tuple: (site, site_baseline, t_developed, time_max, added_turbulence_model)
                   site_baseline is None if create_baseline=False
         """
+        self._wat = dict(wat_overrides or {})
         if self.np_random is None:
             raise RuntimeError(
                 "np_random must be set before creating sites. "
@@ -398,17 +400,26 @@ class TurbulenceManager:
         return generate()
 
     def _added_turb_model(self):
-        """The LES calibration was run with BranlardScaling; see ``added_turbulence``."""
+        """The LES calibration was run with BranlardScaling; see ``added_turbulence``.
+        ``self._wat`` (the episode's ``wat_*`` dwm_params, set by ``create_sites``)
+        carries the gain on the weights and the box's length scale."""
+        wat = getattr(self, "_wat", None) or {}
+        gain = float(wat.get("wat_gain", 1.0))
+        length_scale_D = float(wat.get("wat_length_scale_D", 1.0 / 16.0))
         if self.added_turbulence == "resolved":
             return AutoScalingIsotropicMannTurbulence(
                 scaling=BranlardScaling(
-                    Nxyz=RESOLVED_ADDED_TURB_NXYZ, Lxyz=list(RESOLVED_ADDED_TURB_LXYZ)
+                    Nxyz=RESOLVED_ADDED_TURB_NXYZ,
+                    Lxyz=list(RESOLVED_ADDED_TURB_LXYZ),
+                    gain=gain,
                 ),
                 cache_field=False,
+                length_scale_D=length_scale_D,
             )
         return SynchronizedAutoScalingIsotropicMannTurbulence(
-            scaling=BranlardScaling(),
+            scaling=BranlardScaling(gain=gain),
             cache_field=False,
+            length_scale_D=length_scale_D,
         )
 
     def _generate_mann_load(self, ws: float, ti: float) -> tuple:

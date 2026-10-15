@@ -196,9 +196,9 @@ class DWMParamSpec:
 
     ``kind`` is ``"float"``, ``"int"``, ``"bool"``, ``"choice"``, or ``"int3"`` /
     ``"float3"`` (a 3-sequence, e.g. a Mann grid); ``group`` says which
-    subsystem consumes the key (``"make_dwm"``, ``"mann"``, routed to
-    ``TurbulenceManager.create_sites``, or ``"make_wts"``, the turbine
-    objects of both farms).
+    subsystem consumes the key (``"make_dwm"``, ``"mann"`` and ``"wat"``,
+    routed to ``TurbulenceManager.create_sites``, or ``"make_wts"``, the
+    turbine objects of both farms).
     """
 
     kind: str
@@ -376,6 +376,22 @@ DWM_PARAM_SPEC: dict[str, DWMParamSpec] = {
         "field in rotor diameters, 1/(1 + x/L). The default is FLORIS's "
         "mixing-length viscosity at the TUM tunnel's hub shear. Only with "
         "secondary_steering=True.",
+    ),
+    "wat_gain": DWMParamSpec(
+        "float",
+        1.0,
+        "wat",
+        doc="Wake-added turbulence: factor on the Branlard scaling's weight "
+        "(1.0 = the paper's calibration). Routed to TurbulenceManager, "
+        "honoured at every reset.",
+    ),
+    "wat_length_scale_D": DWMParamSpec(
+        "float",
+        1.0 / 16.0,
+        "wat",
+        doc="Wake-added turbulence: the box's Mann length scale in rotor "
+        "diameters (dynamiks: 1/16; Branlard 2024 calibrated his weights "
+        "with 1). Routed to TurbulenceManager, honoured at every reset.",
     ),
     "rotor_power": DWMParamSpec(
         "choice",

@@ -48,6 +48,26 @@ class _FakeFS:
     windTurbines = _FakeTurbines()
 
 
+def test_wat_keys_reach_the_model():
+    """dwm_params wat_gain / wat_length_scale_D (group "wat") are routed to the
+    manager and set the scaling's gain and the box's length scale."""
+    from WindGym import WindFarmEnv
+    from WindGym.core.dwm_defaults import DWM_PARAM_SPEC, validate_dwm_params
+
+    assert WindFarmEnv._WAT_PARAM_KEYS == {"wat_gain", "wat_length_scale_D"}
+    assert DWM_PARAM_SPEC["wat_length_scale_D"].default == 1 / 16
+    validate_dwm_params({"wat_gain": 0.4, "wat_length_scale_D": 1.0})
+    with pytest.raises(ValueError):
+        validate_dwm_params({"wat_gain": 0.0})
+    m = TurbulenceManager(turbulence_type="MannGenerate")
+    d = m._added_turb_model()
+    assert d.scaling.gain == 1.0 and d.length_scale_D == 1 / 16
+    m._wat = {"wat_gain": 0.4, "wat_length_scale_D": 1.0}
+    d = m._added_turb_model()
+    assert type(d) is SynchronizedAutoScalingIsotropicMannTurbulence
+    assert d.scaling.gain == 0.4 and d.length_scale_D == 1.0
+
+
 def test_resolved_box_resolves_its_length_scale():
     m = TurbulenceManager(
         turbulence_type="MannGenerate", added_turbulence="resolved"
