@@ -202,6 +202,7 @@ class WindFarmEnv(gym.Env):
         wd_function=None,  # A function that takes in the timestep and returns the wind direction
         power_ref_function=None,  # A function (t_seconds, env) -> reference farm power in W. Only used when Track_power is True; None uses the default constant-setpoint sampler.
         max_turb_move=2,  # The maximum distance that the turbines can move in one timestep. This is used to avoid numerical issues with the DWM solver.
+        added_turbulence="synchronized",  # The wake-added turbulence box's grid: "synchronized" (the main Mann box's grid; white noise at the grid scale when that grid is coarser than ~D/50) or "resolved" (its own grid, 128 cells per diameter). See core.turbulence_manager.TurbulenceManager.
         op_lookup=None,  # Optional OperatingPointLookup: reports steady-state blade pitch / rotor RPM per turbine when derating.
         wd_est_tau=None,  # Sensor-derived wd estimator EWMA time constant (s). None = estimator off (env.wd_est unavailable).
         wd_est_consensus="median",  # Cross-turbine consensus for the wd estimator: median / mean / front.
@@ -257,6 +258,7 @@ class WindFarmEnv(gym.Env):
             raise ValueError("x_pos and y_pos must be the same length")
 
         self.max_turb_move = max_turb_move
+        self.added_turbulence = added_turbulence
         self.wd_function = wd_function
         self.power_ref_function = power_ref_function
 
@@ -444,6 +446,7 @@ class WindFarmEnv(gym.Env):
             turbulence_box_path=TurbBox,
             max_turb_move=max_turb_move,
             memmap_boxes=self.turb_memmap,
+            added_turbulence=added_turbulence,
         )
 
         # Initialize the renderer

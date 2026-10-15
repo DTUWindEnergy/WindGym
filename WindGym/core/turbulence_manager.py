@@ -40,6 +40,15 @@ import inspect
 _HAS_MEMMAP = "memmap" in inspect.signature(MannTurbulenceField.from_netcdf).parameters
 
 
+# The wake-added turbulence box's grid (TurbulenceManager added_turbulence):
+# "resolved" is the HAWC2 manual's wake-turbulence box, 128 cells per diameter
+# over 2.5 D x 1 D x 1 D, reused periodically; the box's Mann length scale is
+# D/16 (dynamiks), so this resolves it with ~8 cells.
+ADDED_TURBULENCE_GRIDS = ("synchronized", "resolved")
+RESOLVED_ADDED_TURB_NXYZ = (312, 128, 128)
+RESOLVED_ADDED_TURB_LXYZ = (2.5, 1.0, 1.0)
+
+
 class TurbulenceManager:
     """
     Manages turbulence field generation and site creation for wind farm simulations.
@@ -64,6 +73,7 @@ class TurbulenceManager:
         turbulence_box_path: Optional[Union[str, Path]] = None,
         max_turb_move: float = 2.0,
         memmap_boxes: bool = False,
+        added_turbulence: str = "synchronized",
     ):
         """
         Initialize the turbulence manager.
@@ -74,10 +84,26 @@ class TurbulenceManager:
             turbulence_box_path: Path to turbulence box files (required for MannLoad)
             max_turb_move: Maximum distance turbines can move in one timestep (m)
                           Used to calculate wind direction change rate limits
+            added_turbulence: the grid of the wake-added turbulence box (Branlard
+                          scaling either way). "synchronized" (default, the original
+                          behaviour): dynamiks' SynchronizedAutoScalingIsotropicMannTurbulence,
+                          the box on the main Mann box's grid. Its Mann length scale
+                          is D/16, so on a grid coarser than ~D/50 (the G1's 0.05 m
+                          box: 1.4 cells per L) the added turbulence is white noise at
+                          the grid scale. "resolved": AutoScalingIsotropicMannTurbulence
+                          on its own grid, 128 cells per diameter over a 2.5 D x 1 D x
+                          1 D box reused periodically (the HAWC2 manual's wake-turbulence
+                          box; ~8 cells per L), interpolated at the query points.
         """
         self.turbulence_type = turbulence_type
         self.turbulence_box_path = turbulence_box_path
         self.max_turb_move = max_turb_move
+        if added_turbulence not in ADDED_TURBULENCE_GRIDS:
+            raise ValueError(
+                f"added_turbulence must be one of {sorted(ADDED_TURBULENCE_GRIDS)}, "
+                f"got {added_turbulence!r}"
+            )
+        self.added_turbulence = added_turbulence
 
         self.memmap_boxes = bool(memmap_boxes)
         if self.memmap_boxes and not _HAS_MEMMAP:
@@ -372,7 +398,14 @@ class TurbulenceManager:
         return generate()
 
     def _added_turb_model(self):
-        """The LES calibration was run with BranlardScaling."""
+        """The LES calibration was run with BranlardScaling; see ``added_turbulence``."""
+        if self.added_turbulence == "resolved":
+            return AutoScalingIsotropicMannTurbulence(
+                scaling=BranlardScaling(
+                    Nxyz=RESOLVED_ADDED_TURB_NXYZ, Lxyz=list(RESOLVED_ADDED_TURB_LXYZ)
+                ),
+                cache_field=False,
+            )
         return SynchronizedAutoScalingIsotropicMannTurbulence(
             scaling=BranlardScaling(),
             cache_field=False,
