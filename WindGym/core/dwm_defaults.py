@@ -324,6 +324,16 @@ DWM_PARAM_SPEC: dict[str, DWMParamSpec] = {
         "meandering damping pair it with x_speed='global' "
         "or re-fit the closure with it on.",
     ),
+    "meandering_radius_scale": DWMParamSpec(
+        "float",
+        1.0,
+        "make_dwm",
+        doc="Meandering amplitude: the disk a particle's advection velocity is "
+        "averaged over, as a fraction of the local wake radius (CGI nodes). "
+        "1.0 = the whole wake (dynamiks' and WindGym's setup); 0 = the point "
+        "at the particle. A smaller disk passes more of the ambient lateral "
+        "turbulence to the wake, so it meanders more.",
+    ),
     "deficit_model": DWMParamSpec(
         "choice",
         "ainslie",
@@ -581,6 +591,22 @@ def _dwm_speed_kwargs(interpolation, lateral_cutoff) -> dict:
     return kwargs
 
 
+def _particle_spatial_filter(radius_scale: float):
+    """The disk a particle's advection velocity is averaged over: the CGI nodes
+    over ``radius_scale`` x the local wake radius. 1.0 is dynamiks' and
+    WindGym's setup (the whole wake: the wake moves with the mean flow over
+    its own extent, Larsen 2008); 0 collapses the nodes onto the particle (a
+    point sample). dynamiks multiplies the node coordinates by the wake
+    radius, so scaling the nodes scales the disk."""
+    s = float(radius_scale)
+    if not 0.0 <= s <= 2.0:
+        raise ValueError(f"meandering_radius_scale must be in [0, 2], got {radius_scale!r}")
+    f = CGIRotorAvg(PARTICLE_SPATIAL_AVG_N)
+    f.nodes_x = np.asarray(f.nodes_x, float) * s
+    f.nodes_y = np.asarray(f.nodes_y, float) * s
+    return f
+
+
 def _ScalarTIPyWakeDeficitGenerator(*args, **kwargs):
     """dynamiks' PyWakeDeficitGenerator for an axisymmetric Gaussian deficit, with
     two changes:
@@ -699,6 +725,7 @@ def make_dwm(
     deflection_c: float = DEFLECTION_C,
     deflection_c_pos: float | None = None,
     meandering_d: float | None = None,
+    meandering_radius_scale: float = 1.0,
     deficit_model: str = "ainslie",
     gauss_k: float = BASTANKHAH_K,
     gauss_ceps: float = BASTANKHAH_CEPS,
@@ -727,7 +754,9 @@ def make_dwm(
     - ``deflection_c``: wake-deflection strength (dynamiks hardcodes 0.4);
       ``deflection_c_pos``: the same for positive flow-relative yaw (``None`` =
       symmetric)
-    - ``meandering_d``: ``CutOffFrq(d)`` meandering filter; ``None`` = none
+    - ``meandering_d``: ``CutOffFrq(d)`` meandering filter; ``None`` = none;
+      ``meandering_radius_scale``: the fraction of the wake radius a particle's
+      advection velocity is averaged over (1.0 = the whole wake)
     - ``deficit_model`` (``"ainslie"`` / ``"bastankhah"``), ``gauss_k``,
       ``gauss_ceps``: the particle wake deficit; see ``DEFICIT_MODELS``;
       ``yaw_ct_exp``, ``yaw_width_exp``: the yawed Gaussian (weaker and
@@ -810,7 +839,7 @@ def make_dwm(
         temporal_filter=None
         if meandering_d is None
         else CutOffFrq(float(meandering_d)),
-        spatial_filter=CGIRotorAvg(PARTICLE_SPATIAL_AVG_N),
+        spatial_filter=_particle_spatial_filter(meandering_radius_scale),
         include_wakes=True,
         include_own_wake=False,
     )
