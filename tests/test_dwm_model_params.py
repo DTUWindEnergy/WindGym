@@ -123,6 +123,8 @@ def test_spec_matches_env_key_sets():
         "deficit_model",
         "gauss_k",
         "gauss_ceps",
+        "yaw_ct_exp",
+        "yaw_width_exp",
         "secondary_steering",
         "ss_gain",
         "ss_decay_D",

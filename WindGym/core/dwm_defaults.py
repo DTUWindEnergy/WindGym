@@ -350,6 +350,24 @@ DWM_PARAM_SPEC: dict[str, DWMParamSpec] = {
         "width at x = 0 is ceps*sqrt(beta) D). Only with "
         "deficit_model='bastankhah'.",
     ),
+    "yaw_ct_exp": DWMParamSpec(
+        "float",
+        0.0,
+        "make_dwm",
+        doc="Yawed Gaussian: extra cos(yaw)**yaw_ct_exp on the thrust in the "
+        "particle deficit, on top of the turbine's own Ct(yaw) (momentum "
+        "theory puts the streamwise deficit at cos^3 in all). 0 = off, the "
+        "stock profile. Only with deficit_model='bastankhah'.",
+    ),
+    "yaw_width_exp": DWMParamSpec(
+        "float",
+        0.0,
+        "make_dwm",
+        doc="Yawed Gaussian: the lateral onset width scales with "
+        "cos(yaw)**yaw_width_exp (Bastankhah & Porte-Agel 2016: 1, the "
+        "rotor's frontal projection); the vertical width does not. 0 = off. "
+        "Only with deficit_model='bastankhah'.",
+    ),
     "secondary_steering": DWMParamSpec(
         "bool",
         False,
@@ -577,6 +595,16 @@ def _ScalarTIPyWakeDeficitGenerator(*args, **kwargs):
       evaluation, is analytic -- d(deficit)/dr = -(r / sigma^2) deficit for a
       Gaussian -- instead of autograd through py_wake, which took ~2/3 of an
       env step.
+    * the YAWED Gaussian (``yaw_ct_exp``, ``yaw_width_exp``; both 0 = off, the
+      stock axisymmetric profile): the thrust in the deficit takes an extra
+      cos(yaw)**yaw_ct_exp on top of the turbine's own Ct(yaw), and the lateral
+      onset width takes cos(yaw)**yaw_width_exp (Bastankhah & Porte-Agel 2016:
+      the rotor's frontal projection, exponent 1) while the vertical width does
+      not -- an elliptical Gaussian, deficit_centre = 2 a(ct D^2 / (8 sy sz)).
+      py_wake's axisymmetric profile keeps a yawed wake as strong as an
+      unyawed one (the Ct-dependent onset width cancels the cos(yaw) thrust
+      drop); the TUM G1's wake at 30 deg is 25 % weaker and 30 % narrower.
+      The yaw is the particle's own at emission (yaw_ilk).
     """
     from dynamiks.dwm.particle_deficit_profiles.pywake_deficit_wrapper import (
         PyWakeDeficitGenerator,
@@ -584,19 +612,53 @@ def _ScalarTIPyWakeDeficitGenerator(*args, **kwargs):
     )
 
     class _Profile(PyWakeDeficitProfile):
+        def _yawed(self):
+            g = self.generator
+            return g.yaw_ct_exp != 0.0 or g.yaw_width_exp != 0.0
+
+        def _ellipse(self, x):
+            """The yawed Gaussian at downstream distance x [m]: the thrust in the
+            deficit and the lateral / vertical sigma [m]."""
+            g, dm = self.generator, self.generator.deficitModel
+            c = float(np.cos(np.deg2rad(float(np.ravel(self.kwargs["yaw_ilk"])[0]))))
+            ct = float(np.ravel(self.kwargs["ct_ilk"])[0]) * c**g.yaw_ct_exp
+            D = float(self.kwargs["D_src_il"][0, 0])
+            eps = float(np.ravel(dm.epsilon_ilk(np.reshape(ct, (1, 1, 1))))[0]) * D
+            k = float(np.ravel(dm.k_ilk())[0])
+            return ct, D, k * x + eps * c**g.yaw_width_exp, k * x + eps
+
+        def _get_deficit_norm(self, rel_x, rel_y, rel_z):
+            if not self._yawed():
+                return PyWakeDeficitProfile._get_deficit_norm(self, rel_x, rel_y, rel_z)
+            x, y, z = (np.asarray(v, dtype=float) for v in (rel_x, rel_y, rel_z))
+            ct, D, sy, sz = self._ellipse(x)
+            centre = np.minimum(1.0, 2.0 * self.generator.deficitModel.ct2a(ct * D**2 / (8.0 * sy * sz)))
+            d = centre * np.exp(-0.5 * (y / sy) ** 2 - 0.5 * (z / sz) ** 2)
+            return np.array([d, np.zeros_like(d), np.zeros_like(d)])
+
         def _get_UVW_dUdr(self, rel_x, rel_y, rel_z, compute_gradient=True):
             deficit = self._get_deficit_norm(rel_x, rel_y, rel_z)
             if not compute_gradient:
                 return deficit, None
             x = np.asarray(rel_x, dtype=float)
+            y, z = np.asarray(rel_y, float), np.asarray(rel_z, float)
+            if self._yawed():
+                _, _, sy, sz = self._ellipse(x)
+                # |grad| of the elliptical Gaussian [1/m], times R as dynamiks normalises it
+                return deficit, np.sqrt((y / sy**2) ** 2 + (z / sz**2) ** 2) * deficit[0] * self.R
             sigma = self.generator.deficitModel.sigma_ijlk(
                 dw_ijlk=x.reshape(1, -1, 1, 1), **self.kwargs
             ).reshape(x.shape)
-            r = np.sqrt(np.asarray(rel_y, float) ** 2 + np.asarray(rel_z, float) ** 2)
+            r = np.sqrt(y**2 + z**2)
             # |grad| of the normalised deficit [1/m], times R as dynamiks normalises it
             return deficit, r / sigma**2 * deficit[0] * self.R
 
     class _Generator(PyWakeDeficitGenerator):
+        def __init__(self, *a, yaw_ct_exp=0.0, yaw_width_exp=0.0, **kw):
+            PyWakeDeficitGenerator.__init__(self, *a, **kw)
+            self.yaw_ct_exp = float(yaw_ct_exp)
+            self.yaw_width_exp = float(yaw_width_exp)
+
         def get_kwargs_func(self):
             stock = PyWakeDeficitGenerator.get_kwargs_func(self)
 
@@ -640,6 +702,8 @@ def make_dwm(
     deficit_model: str = "ainslie",
     gauss_k: float = BASTANKHAH_K,
     gauss_ceps: float = BASTANKHAH_CEPS,
+    yaw_ct_exp: float = 0.0,
+    yaw_width_exp: float = 0.0,
     secondary_steering: bool = False,
     ss_gain: float = 1.0,
     ss_decay_D: float = SS_DECAY_D,
@@ -665,7 +729,9 @@ def make_dwm(
       symmetric)
     - ``meandering_d``: ``CutOffFrq(d)`` meandering filter; ``None`` = none
     - ``deficit_model`` (``"ainslie"`` / ``"bastankhah"``), ``gauss_k``,
-      ``gauss_ceps``: the particle wake deficit; see ``DEFICIT_MODELS``
+      ``gauss_ceps``: the particle wake deficit; see ``DEFICIT_MODELS``;
+      ``yaw_ct_exp``, ``yaw_width_exp``: the yawed Gaussian (weaker and
+      laterally narrower with yaw; 0 = off)
     - ``secondary_steering`` (bool), ``ss_gain``, ``ss_decay_D``: wrap the
       deficit generator in dynamiks' ``SecondarySteeringGenerator`` so yawed
       wakes carry the vortex pair's lateral velocity and deflect downstream
@@ -713,6 +779,8 @@ def make_dwm(
             ),
             scale_with_freestream=False,
             projectionModel=NoProjection(),
+            yaw_ct_exp=float(yaw_ct_exp),
+            yaw_width_exp=float(yaw_width_exp),
         )
     else:
         deficit_gen = None
