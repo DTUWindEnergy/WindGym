@@ -122,6 +122,7 @@ def test_spec_matches_env_key_sets():
         "meandering_d",
         "meandering_radius_scale",
         "wake_drift_deg",
+        "superposition_p",
         "deficit_model",
         "gauss_k",
         "gauss_ceps",

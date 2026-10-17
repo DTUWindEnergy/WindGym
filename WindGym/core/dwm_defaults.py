@@ -324,6 +324,15 @@ DWM_PARAM_SPEC: dict[str, DWMParamSpec] = {
         "meandering damping pair it with x_speed='global' "
         "or re-fit the closure with it on.",
     ),
+    "superposition_p": DWMParamSpec(
+        "float",
+        2.0,
+        "make_dwm",
+        doc="The exponent the streamwise wake deficits combine with, "
+        "(sum d^p)^(1/p): 2 = MixedSum's root-sum-square (the calibrated "
+        "setup), 1 = linear. Only with superposition='mixed'; v and w stay "
+        "linear.",
+    ),
     "wake_drift_deg": DWMParamSpec(
         "float",
         0.0,
@@ -600,6 +609,38 @@ def _dwm_speed_kwargs(interpolation, lateral_cutoff) -> dict:
     return kwargs
 
 
+class _PowerSum(MixedSum):
+    """dynamiks' MixedSum with the streamwise exponent exposed: the u-deficits
+    combine as (sum d^p)^(1/p), v and w linearly as in MixedSum. p = 2 is
+    MixedSum's root-sum-square, p = 1 the linear sum. Small negative
+    u-deficits (wake-edge speedups) are clipped to 0 as MixedSum does."""
+
+    def __init__(self, p: float = 2.0):
+        MixedSum.__init__(self)
+        self.p = float(p)
+        if not 1.0 <= self.p <= 4.0:
+            raise ValueError(f"superposition_p must be in [1, 4], got {p!r}")
+
+    def __call__(self, value_jxxx):
+        u = value_jxxx[:, 0]
+        min_u = u.min() if u.size else 0.0
+        if min_u < 0:
+            assert min_u > -self.CLIP_SPEEDUP_LIMIT, (
+                f"PowerSum only works for deficits - not speedups (min u-deficit {min_u:.3f} m/s)")
+            np.maximum(u, 0, out=u)
+        return np.array([np.sum(np.power(u, self.p), 0) ** (1.0 / self.p),
+                         np.sum(value_jxxx[:, 1], 0), np.sum(value_jxxx[:, 2], 0)])
+
+
+def _superposition_model(superposition: str, p: float):
+    """The superposition model instance: the named one, or with superposition
+    'mixed' and p != 2, MixedSum's exponent changed (_PowerSum)."""
+    cls = _lookup(SUPERPOSITION_MODELS, superposition, "superposition")
+    if cls is MixedSum and float(p) != 2.0:
+        return _PowerSum(float(p))
+    return cls()
+
+
 def _particle_spatial_filter(radius_scale: float):
     """The disk a particle's advection velocity is averaged over: the CGI nodes
     over ``radius_scale`` x the local wake radius. 1.0 is dynamiks' and
@@ -736,6 +777,7 @@ def make_dwm(
     meandering_d: float | None = None,
     meandering_radius_scale: float = 1.0,
     wake_drift_deg: float = 0.0,
+    superposition_p: float = 2.0,
     deficit_model: str = "ainslie",
     gauss_k: float = BASTANKHAH_K,
     gauss_ceps: float = BASTANKHAH_CEPS,
@@ -873,9 +915,7 @@ def make_dwm(
         d_particle=d_particle,
         n_particles=n_particles,
         addedTurbulenceModel=addedTurbulenceModel,
-        superpositionModel=_lookup(
-            SUPERPOSITION_MODELS, superposition, "superposition"
-        )(),
+        superpositionModel=_superposition_model(superposition, superposition_p),
         wind_direction=wind_direction,
         dt=dt,
         # Speedups, not part of the LES calibration (which ran pchip / no
