@@ -33,10 +33,19 @@ class ScaledHillVortexParticleMotion(HillVortexParticleMotion):
     first-order representation.
     """
 
-    def __init__(self, c: float = DEFLECTION_C, c_pos: float | None = None, **kwargs):
+    def __init__(self, c: float = DEFLECTION_C, c_pos: float | None = None,
+                 drift_deg: float = 0.0, **kwargs):
         HillVortexParticleMotion.__init__(self, **kwargs)
         self.c = float(c)
         self.c_pos = self.c if c_pos is None else float(c_pos)
+        # A mean lateral drift of every wake: the particles move sideways at
+        # tan(drift) x their streamwise speed, toward +y (the flow frame's
+        # lateral axis; wind_direction 270 = flow along +x). The TUM tunnel's
+        # unyawed wake at the 5 D column's lane drifts ~0.5 deg toward the
+        # centreline (SingleWake); the inflow map carries no mean lateral
+        # velocity (the CTA mapping removes it), so the env's wakes ran
+        # straight. Boundary particles (yaw None) do not move.
+        self.drift = float(np.tan(np.deg2rad(float(drift_deg))))
 
     def __call__(self, position_xip, velocity_uip, wt_idx):
         position, new_velocity_uip = ParticleMotionModel.__call__(
@@ -79,4 +88,6 @@ class ScaledHillVortexParticleMotion(HillVortexParticleMotion):
                 position_xip[:, i, m[iwt]]
                 + (new_velocity_uip[:, i, m[iwt]] + self_induc_um) * self.dt
             )
+            if self.drift:
+                position[1, i, m[iwt]] += self.drift * new_velocity_uip[0, i, m[iwt]] * self.dt
         return position, new_velocity_uip

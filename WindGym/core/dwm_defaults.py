@@ -324,6 +324,15 @@ DWM_PARAM_SPEC: dict[str, DWMParamSpec] = {
         "meandering damping pair it with x_speed='global' "
         "or re-fit the closure with it on.",
     ),
+    "wake_drift_deg": DWMParamSpec(
+        "float",
+        0.0,
+        "make_dwm",
+        doc="A mean lateral drift of every wake, degrees toward +y in the flow "
+        "frame: the particles move sideways at tan(drift) x their streamwise "
+        "speed. For a flow whose mean direction differs from the inflow map's "
+        "(which carries no lateral velocity). 0 = none.",
+    ),
     "meandering_radius_scale": DWMParamSpec(
         "float",
         1.0,
@@ -726,6 +735,7 @@ def make_dwm(
     deflection_c_pos: float | None = None,
     meandering_d: float | None = None,
     meandering_radius_scale: float = 1.0,
+    wake_drift_deg: float = 0.0,
     deficit_model: str = "ainslie",
     gauss_k: float = BASTANKHAH_K,
     gauss_ceps: float = BASTANKHAH_CEPS,
@@ -845,12 +855,13 @@ def make_dwm(
     )
     # The stock class at dynamiks' own coefficient, so the default path is
     # upstream's code rather than a copy of it.
-    if float(deflection_c) == DEFLECTION_C and deflection_c_pos is None:
+    if float(deflection_c) == DEFLECTION_C and deflection_c_pos is None and not float(wake_drift_deg):
         particle_motion = HillVortexParticleMotion(**motion_kwargs)
     else:
         particle_motion = ScaledHillVortexParticleMotion(
             c=deflection_c,
             c_pos=None if deflection_c_pos is None else float(deflection_c_pos),
+            drift_deg=float(wake_drift_deg),
             **motion_kwargs,
         )
 
