@@ -194,7 +194,8 @@ def _make_viscosity_model(viscosity_model, k1, k2):
 class DWMParamSpec:
     """Validation metadata for one ``dwm_params`` key.
 
-    ``kind`` is ``"float"``, ``"int"``, ``"bool"``, ``"choice"``, or ``"int3"`` /
+    ``kind`` is ``"float"`` (> 0), ``"float0"`` (>= 0), ``"real"`` (any finite),
+    ``"int"``, ``"bool"``, ``"choice"``, or ``"int3"`` /
     ``"float3"`` (a 3-sequence, e.g. a Mann grid); ``group`` says which
     subsystem consumes the key (``"make_dwm"``, ``"mann"`` and ``"wat"``,
     routed to ``TurbulenceManager.create_sites``, or ``"make_wts"``, the
@@ -334,7 +335,7 @@ DWM_PARAM_SPEC: dict[str, DWMParamSpec] = {
         "linear.",
     ),
     "wake_drift_deg": DWMParamSpec(
-        "float",
+        "real",
         0.0,
         "make_dwm",
         doc="A mean lateral drift of every wake, degrees toward +y in the flow "
@@ -343,7 +344,7 @@ DWM_PARAM_SPEC: dict[str, DWMParamSpec] = {
         "(which carries no lateral velocity). 0 = none.",
     ),
     "meandering_radius_scale": DWMParamSpec(
-        "float",
+        "float0",
         1.0,
         "make_dwm",
         doc="Meandering amplitude: the disk a particle's advection velocity is "
@@ -379,7 +380,7 @@ DWM_PARAM_SPEC: dict[str, DWMParamSpec] = {
         "deficit_model='bastankhah'.",
     ),
     "yaw_ct_exp": DWMParamSpec(
-        "float",
+        "float0",
         0.0,
         "make_dwm",
         doc="Yawed Gaussian: extra cos(yaw)**yaw_ct_exp on the thrust in the "
@@ -388,7 +389,7 @@ DWM_PARAM_SPEC: dict[str, DWMParamSpec] = {
         "stock profile. Only with deficit_model='bastankhah'.",
     ),
     "yaw_width_exp": DWMParamSpec(
-        "float",
+        "float0",
         0.0,
         "make_dwm",
         doc="Yawed Gaussian: the lateral onset width scales with "
@@ -489,7 +490,13 @@ def _check_numeric(key: str, spec: DWMParamSpec, value, where: str) -> None:
         raise ValueError(
             f"dwm_params[{key!r}]{where} must be a number, got {value!r}"
         ) from None
-    if not math.isfinite(f) or f <= 0:
+    if not math.isfinite(f):
+        raise ValueError(f"dwm_params[{key!r}]{where} must be finite, got {value!r}")
+    if spec.kind == "float0" and f < 0:
+        raise ValueError(
+            f"dwm_params[{key!r}]{where} must be finite and >= 0, got {value!r}"
+        )
+    if spec.kind in ("float", "int") and f <= 0:
         raise ValueError(
             f"dwm_params[{key!r}]{where} must be finite and > 0, got {value!r}"
         )
