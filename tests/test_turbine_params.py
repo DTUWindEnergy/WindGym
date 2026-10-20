@@ -21,6 +21,7 @@ def test_spec_keys_and_defaults():
         "tau_yaw",
         "delay_yaw",
         "tau_power",
+        "yaw_bias",
     ]
     assert TURBINE_PARAM_KEYS == frozenset(TURBINE_PARAM_SPECS)
     defaults = {k: s.default for k, s in TURBINE_PARAM_SPECS.items()}
@@ -31,6 +32,7 @@ def test_spec_keys_and_defaults():
         "tau_yaw": 0.0,
         "delay_yaw": 0.0,
         "tau_power": 0.0,
+        "yaw_bias": 0.0,
     }
     for k, s in TURBINE_PARAM_SPECS.items():
         assert s.lo <= s.default <= s.hi, k

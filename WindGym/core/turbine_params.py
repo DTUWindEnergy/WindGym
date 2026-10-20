@@ -22,6 +22,13 @@ of the nominal turbine:
 ``tau_power``
     first-order lag (s) on the waked power signal (rotor inertia + controller
     settling). Thrust is NOT lagged (documented trade-off).
+``yaw_bias``
+    heading error (deg): the flow sees ``yaw - yaw_bias`` while the commanded
+    and measured yaw stay in their own frame. A turbine mounted on a frame that
+    is rotated against the frame its yaw is commanded and measured in (a wind
+    tunnel turntable whose true angle differs from the reported one by
+    ``yaw_bias``) yaws with that frame: power, thrust and the wake all see the
+    flow-relative yaw, the controller and the observation the commanded one.
 
 Bounds are validation limits (typos, unit mistakes), not priors: the training
 ranges live in the trainer's ``--turb_dr`` spec. Pure numpy; no dynamiks.
@@ -51,6 +58,7 @@ TURBINE_PARAM_SPECS: dict[str, TurbineParamSpec] = {
     "tau_yaw": TurbineParamSpec(0.0, 0.0, 600.0, "yaw actuator lag (s)"),
     "delay_yaw": TurbineParamSpec(0.0, 0.0, 300.0, "yaw dead time (s)"),
     "tau_power": TurbineParamSpec(0.0, 0.0, 600.0, "power response lag (s)"),
+    "yaw_bias": TurbineParamSpec(0.0, -10.0, 10.0, "heading error: the flow sees yaw - yaw_bias (deg)"),
 }
 TURBINE_PARAM_KEYS = frozenset(TURBINE_PARAM_SPECS)
 

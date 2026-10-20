@@ -74,6 +74,7 @@ def test_keys_route_to_agent_and_baseline_farms():
         "tau_yaw",
         "delay_yaw",
         "tau_power",
+        "yaw_bias",
     }
     # both farms were attached (step_actuators first in the handler lists)
     assert env.fs.step_handlers[0] == agent.step_actuators

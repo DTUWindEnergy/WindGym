@@ -230,3 +230,43 @@ def test_attach_to_checks_dt():
     wts = ParamPyWakeWindTurbines(x=X, y=Y, windTurbine=V80(), params=tp)
     with pytest.raises(AssertionError):
         wts.attach_to(SimpleNamespace(time=0.0, dt=1.0, step_handlers=[]))
+
+
+# --------------------------------------------------------------- yaw_bias ---
+@pytest.mark.parametrize("yaw", [0.0, 10.0, -20.0])
+def test_yaw_bias_zero_is_bitwise_identical(yaw):
+    a, fa = make_param({})
+    b, fb = make_param({"yaw_bias": 0.0})
+    for w in (a, b):
+        w.reset_yaw_state(yaw)
+    assert np.array_equal(a.power(), b.power()) and np.array_equal(a.ct(), b.ct())
+    assert np.array_equal(a.yaw_tilt(), b.yaw_tilt())
+
+
+@pytest.mark.parametrize("bias", [1.0, -2.5])
+def test_yaw_bias_turns_the_physics_not_the_command_frame(bias):
+    """The flow sees yaw - bias (power, Ct, the particles' yaw); the yaw sensor,
+    which the env observes and its greedy controllers steer, stays commanded."""
+    w, fs = make_param({"yaw_bias": bias})
+    ref, _ = make_param({})
+    w.reset_yaw_state(15.0)
+    ref.reset_yaw_state(15.0 - bias)
+    np.testing.assert_allclose(w.yaw, 15.0)                       # commanded frame
+    np.testing.assert_allclose(w.sensors.yaw, 15.0)
+    np.testing.assert_allclose(w.yaw_tilt()[0], 15.0 - bias)      # what the wake is emitted with
+    np.testing.assert_allclose(w.power(), ref.power())            # = a turbine at yaw - bias
+    np.testing.assert_allclose(w.ct(), ref.ct())
+    # stepping keeps both frames: the command moves, the physics follows minus the bias
+    w.yaw = np.full(3, 5.0)
+    step(fs)
+    np.testing.assert_allclose(w.yaw, 5.0)
+    np.testing.assert_allclose(w.yaw_tilt()[0], 5.0 - bias)
+
+
+def test_yaw_bias_at_zero_command_is_a_misaligned_rotor():
+    """Commanded 0 with a bias loses power like a rotor yawed by -bias."""
+    w, _ = make_param({"yaw_bias": 8.0})
+    ref, _ = make_param({})
+    w.reset_yaw_state(0.0)
+    ref.reset_yaw_state(0.0)
+    assert np.all(w.power() < ref.power())

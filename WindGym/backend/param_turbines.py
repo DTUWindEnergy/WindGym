@@ -11,7 +11,13 @@ dynamiks edits) and applies a ``TurbineParams`` vector:
   returns the ACTUAL yaw after a dead time ``delay_yaw`` (whole sim steps) and
   a first-order lag ``tau_yaw``. ``wts.yaw``, ``sensors.yaw``, ``yaw_tilt()``
   and ``get_kwargs()`` (the PyWake yaw kwarg) therefore all see the realised
-  yaw, so wake deflection, power and the observed yaw are consistent.
+  yaw, so wake deflection, power and the observed yaw are consistent;
+* ``yaw_bias`` (a heading error): the PHYSICS reads the realised yaw minus the
+  bias -- ``yaw_tilt()`` (the yaw the wake particles are emitted with),
+  ``get_kwargs()`` (power and thrust) and the ``yaw_exp`` cosine -- while
+  ``wts.yaw`` / ``sensors.yaw`` (the observation, the env's command logic and
+  the greedy controllers) stay in the commanded frame. bias 0 is a bitwise
+  identity.
 
 Step-handler placement (``FlowSimulation.step_handlers`` =
 ``[update_particles] + site + windTurbines + user``):
@@ -133,9 +139,24 @@ class ParamPyWakeWindTurbines(PyWakeWindTurbines):
             self._power_state = self._power_state + a * (p_qs - self._power_state)
 
     # ------------------------------------------------------------ physics --
+    def _yaw_flow(self, idx=slice(None)):
+        """The realised yaw the FLOW sees: the commanded frame minus ``yaw_bias``."""
+        return self._yaw_act[idx] - self.params.values["yaw_bias"][idx]
+
+    def yaw_tilt(self, idx=slice(None)):
+        """The yaw the wake particles are emitted with: flow-relative (bias removed)."""
+        return np.array([self._yaw_flow(idx), self.sensors.tilt[idx]])
+
+    def get_kwargs(self, idx=slice(None)):
+        """PyWake's power / Ct inputs, with the flow-relative yaw."""
+        kw = super().get_kwargs(idx)
+        if "yaw" in kw:
+            kw["yaw"] = self._yaw_flow(idx)
+        return kw
+
     def _static_power(self, include_wakes=True, idx=slice(None)):
         p = super().power(include_wakes=include_wakes, idx=idx)
-        yaw = self._yaw_act[idx]
+        yaw = self._yaw_flow(idx)
         cos = np.maximum(np.cos(np.deg2rad(yaw)), 0.0)
         # 0.0 ** 0.0 == 1.0 and cp_gain 1.0: the defaults are a bitwise identity.
         return (
