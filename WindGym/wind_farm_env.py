@@ -171,6 +171,7 @@ class WindFarmEnv(gym.Env):
         op_lookup=None,  # Optional OperatingPointLookup: reports steady-state blade pitch / rotor RPM per turbine when derating.
         wd_est_tau=None,  # Sensor-derived wd estimator EWMA time constant (s). None = estimator off (env.wd_est unavailable).
         wd_est_consensus="median",  # Cross-turbine consensus for the wd estimator: median / mean / front.
+        wd_est_deadband=0.0,  # Hold the wd estimate unless it moves > this many deg (0 = off).
         interpolation=None,  # Particle trajectory interpolation in the DWM solver: 'linear' (fast) or 'pchip' (cubic, original). None = dynamiks default (pchip). Setting it needs the dev dynamiks build.
         lateral_cutoff=None,  # Skip wake deficit evaluation beyond this factor times the deficit profile half-width (r_max*R) from the meandered wake centerline. None disables (original behavior). Setting it needs the dev dynamiks build.
         tilt: Optional[
@@ -312,6 +313,7 @@ class WindFarmEnv(gym.Env):
         # extra flow queries. See core/wd_estimator.py.
         self.wd_est_tau = wd_est_tau
         self.wd_est_consensus = wd_est_consensus
+        self.wd_est_deadband = wd_est_deadband
         self._wd_estimator = None
         # The maximum time of the simulation. This is used to make sure that the simulation doesnt run forever.
         self.time_max = 0
@@ -955,6 +957,7 @@ class WindFarmEnv(gym.Env):
                 tau=self.wd_est_tau,
                 consensus=self.wd_est_consensus,
                 x_pos=self.x_pos,
+                deadband_deg=self.wd_est_deadband,
             )
         self.current_derate = np.zeros(self.n_turb)
         # Commanded derate fraction (what the agent asked for). Differs from

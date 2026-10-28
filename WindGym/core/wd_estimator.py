@@ -46,15 +46,29 @@ class WdEstimator:
         consensus: "median" (default, robust), "mean", or "front".
         x_pos: turbine x positions; required for consensus="front"
             (front = argmin x, the upwind-most turbine at westerly winds).
+        deadband_deg: hold the consensus estimate unless the fresh consensus
+            moves more than this many degrees (circular) away from the held
+            value; 0 = off (the estimate is the fresh consensus every
+            update, bit-identical to the pre-v3 estimator). The hold kills
+            the sub-degree jitter that made the est-fed LUT flip its yaw
+            sign at the 270 symmetry point (Optuna v3, 2026-10-28).
     """
 
     CONSENSUS = ("median", "mean", "front")
 
     def __init__(
-        self, n_turb: int, dt: float, tau: float, consensus: str = "median", x_pos=None
+        self,
+        n_turb: int,
+        dt: float,
+        tau: float,
+        consensus: str = "median",
+        x_pos=None,
+        deadband_deg: float = 0.0,
     ):
         if tau <= 0:
             raise ValueError(f"wd_est_tau must be > 0, got {tau}")
+        if deadband_deg < 0:
+            raise ValueError(f"wd_est_deadband must be >= 0, got {deadband_deg}")
         if consensus not in self.CONSENSUS:
             raise ValueError(
                 f"wd_est_consensus must be one of "
@@ -68,11 +82,14 @@ class WdEstimator:
         self.alpha = 1.0 - float(np.exp(-self.dt / self.tau))
         self.consensus = consensus
         self._front = int(np.argmin(x_pos)) if x_pos is not None else None
+        self.deadband_deg = float(deadband_deg)
         self._z = None  # complex (n_turb,); None = lazy warm-start pending
+        self._held = None  # deadband-held consensus (deg); None = no update yet
 
     def reset(self) -> None:
         """Forget all state; the next update() warm-starts the filter."""
         self._z = None
+        self._held = None
 
     def update(self, wd_deg) -> float:
         """Fold one substep of measured per-turbine wd (deg) into the filter
@@ -87,6 +104,13 @@ class WdEstimator:
             self._z = u.astype(complex)  # warm-start: converged at sample 1
         else:
             self._z = (1.0 - self.alpha) * self._z + self.alpha * u
+        new = self._consensus()
+        if (
+            self._held is None
+            or self.deadband_deg == 0.0
+            or abs((new - self._held + 180.0) % 360.0 - 180.0) > self.deadband_deg
+        ):
+            self._held = new
         return self.estimate
 
     @property
@@ -98,7 +122,17 @@ class WdEstimator:
 
     @property
     def estimate(self) -> float:
-        """Consensus wd estimate (deg, [0, 360))."""
+        """Consensus wd estimate (deg, [0, 360)); nan before the first update.
+
+        Updated once per ``update()`` (deadband applied there), so every
+        reader within a step — env.wd_est, the info dict, the harnesses —
+        sees the same held value."""
+        if self._held is None:
+            return float("nan")
+        return self._held
+
+    def _consensus(self) -> float:
+        """Fresh cross-turbine consensus of the filtered state (no hold)."""
         per = self.per_turbine
         if np.isnan(per).any():
             return float("nan")

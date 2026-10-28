@@ -137,3 +137,67 @@ def test_median_robust_to_waked_outlier():
     sample = [270.0, 271.0, 269.0, 270.5, 300.0]  # last one waked
     assert abs(est_med.update(sample) - 270.0) < 1.5
     assert abs(est_mean.update(sample) - 270.0) > 4.0
+
+
+# --- deadband (v3: hold the consensus unless it moves more than d deg) ------
+
+
+def test_deadband_holds_the_consensus_until_it_moves_more_than_d():
+    rng = np.random.default_rng(1)
+    est = WdEstimator(n_turb=3, dt=10.0, tau=30.0, deadband_deg=1.0)
+    first = est.update([270.0, 270.0, 270.0])
+    for _ in range(40):
+        out = est.update(270.0 + rng.uniform(-0.4, 0.4, size=3))
+        assert out == first  # jitter inside the band: held exactly
+    for _ in range(40):
+        out = est.update([275.0, 275.0, 275.0])
+    assert out != first
+    # a real step gets through; the hold may trail the converged filter by
+    # at most d (the residual a deadband accepts by construction)
+    assert out == pytest.approx(275.0, abs=1.0)
+    assert abs(out - est._consensus()) <= 1.0
+
+
+def test_deadband_is_wrap_safe_at_360():
+    est = WdEstimator(n_turb=1, dt=10.0, tau=1e9, consensus="mean", deadband_deg=1.0)
+    est.update([359.5])
+    est._z = np.exp(1j * np.deg2rad(np.array([0.3])))  # force the filter past the wrap
+    assert est.update([0.3]) == pytest.approx(359.5)  # 0.8 deg apart: holds
+
+
+@pytest.mark.parametrize("consensus", ["median", "mean", "front"])
+def test_zero_deadband_is_the_old_estimator(consensus):
+    rng = np.random.default_rng(0)
+    trace = make_trace(rng)
+    n_turb = trace.shape[1]
+    x_pos = np.arange(n_turb, dtype=float)[::-1]
+    old = WdEstimator(n_turb=n_turb, dt=10.0, tau=30.0, consensus=consensus, x_pos=x_pos)
+    new = WdEstimator(
+        n_turb=n_turb, dt=10.0, tau=30.0, consensus=consensus, x_pos=x_pos, deadband_deg=0.0
+    )
+    a = np.array([old.update(r) for r in trace])
+    b = np.array([new.update(r) for r in trace])
+    assert np.array_equal(a, b)
+
+
+def test_reset_clears_the_held_value():
+    est = WdEstimator(n_turb=2, dt=10.0, tau=60.0, deadband_deg=5.0)
+    est.update([100.0, 100.0])
+    assert est.update([102.0, 102.0]) == pytest.approx(100.0)  # held
+    est.reset()
+    assert np.isnan(est.estimate)
+    assert est.update([200.0, 200.0]) == pytest.approx(200.0)
+
+
+def test_negative_deadband_is_rejected():
+    with pytest.raises(ValueError):
+        WdEstimator(n_turb=2, dt=10.0, tau=60.0, deadband_deg=-0.5)
+
+
+def test_env_passes_wd_est_deadband_to_the_estimator():
+    from test_utils import make_fast_pywake_env
+
+    env = make_fast_pywake_env(wd_est_tau=30.0, wd_est_deadband=2.0)
+    env.reset(seed=0)
+    assert env._wd_estimator.deadband_deg == 2.0
+    assert env._wd_estimator.tau == 30.0
