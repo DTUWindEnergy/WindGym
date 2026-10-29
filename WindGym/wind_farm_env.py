@@ -173,6 +173,9 @@ class WindFarmEnv(gym.Env):
         wd_est_tau=None,  # Sensor-derived wd estimator EWMA time constant (s). None = estimator off (env.wd_est unavailable).
         wd_est_consensus="median",  # Cross-turbine consensus for the wd estimator: median / mean / front.
         wd_est_deadband=0.0,  # Hold the wd estimate unless it moves > this many deg (0 = off).
+        prior_wd_est_tau=None,  # A SECOND, independent WdEstimator (env.wd_est_prior) for an action prior's table index, e.g. the residual-on-lut3 prior's harness-lut3 feed (60 s). None = not built.
+        prior_wd_est_consensus="front",  # Consensus of the prior estimator.
+        prior_wd_est_deadband=0.0,  # Hold of the prior estimator (deg).
         yaw_frame_source: str = "true",  # Yaw frame the agent observes / commands in: "true" (the simulator's wind, historical) or "est" (its own wd_est, what a deployed controller has; needs wd_est_tau). See core/yaw_frame.py.
         interpolation=None,  # Particle trajectory interpolation in the DWM solver: 'linear' (fast) or 'pchip' (cubic, original). None = dynamiks default (pchip). Setting it needs the dev dynamiks build.
         lateral_cutoff=None,  # Skip wake deficit evaluation beyond this factor times the deficit profile half-width (r_max*R) from the meandered wake centerline. None disables (original behavior). Setting it needs the dev dynamiks build.
@@ -317,6 +320,10 @@ class WindFarmEnv(gym.Env):
         self.wd_est_consensus = wd_est_consensus
         self.wd_est_deadband = wd_est_deadband
         self._wd_estimator = None
+        self.prior_wd_est_tau = prior_wd_est_tau
+        self.prior_wd_est_consensus = prior_wd_est_consensus
+        self.prior_wd_est_deadband = prior_wd_est_deadband
+        self._prior_wd_estimator = None
         # Yaw frame of the agent (core/yaw_frame.py). "est": yaw observations
         # and yaw targets are expressed in the frame of the sensor-derived wd
         # estimate (phi_frame, slew-limited at the true-wd rate limit
@@ -730,6 +737,8 @@ class WindFarmEnv(gym.Env):
         # the circular EWMA every substep (zero extra flow queries).
         if self._wd_estimator is not None:
             self._wd_estimator.update(self.current_wd)
+        if self._prior_wd_estimator is not None:
+            self._prior_wd_estimator.update(self.current_wd)
 
         # Copy: on dynamiks 0.0.7 the sensor getter returns the live array, so a
         # bare reference would keep changing inside already-returned info dicts.
@@ -790,6 +799,16 @@ class WindFarmEnv(gym.Env):
                 "(the sensor-derived estimator is off)"
             )
         return self._wd_estimator.estimate
+
+    @property
+    def wd_est_prior(self) -> float:
+        """Consensus of the SECOND estimator (prior_wd_est_tau): the one an action prior
+        indexes its table with, independent of the agent's wd_est."""
+        if self._prior_wd_estimator is None:
+            raise AttributeError(
+                "wd_est_prior requires the env to be built with prior_wd_est_tau"
+            )
+        return self._prior_wd_estimator.estimate
 
     @property
     def wd_est_per_turbine(self) -> np.ndarray:
@@ -1001,6 +1020,17 @@ class WindFarmEnv(gym.Env):
                 consensus=self.wd_est_consensus,
                 x_pos=self.x_pos,
                 deadband_deg=self.wd_est_deadband,
+            )
+        if self.prior_wd_est_tau is not None:
+            from .core.wd_estimator import WdEstimator
+
+            self._prior_wd_estimator = WdEstimator(
+                n_turb=self.n_turb,
+                dt=self.dt_sim,
+                tau=self.prior_wd_est_tau,
+                consensus=self.prior_wd_est_consensus,
+                x_pos=self.x_pos,
+                deadband_deg=self.prior_wd_est_deadband,
             )
         # Agent yaw frame: starts on the true wind (the burn-in holds base_wd
         # and the estimator warm-starts there), then follows wd_est at the

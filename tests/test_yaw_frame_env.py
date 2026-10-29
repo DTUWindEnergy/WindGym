@@ -109,3 +109,24 @@ def test_current_yaw_ctrl_is_derived_so_a_subclassed_measurement_still_steps():
     env.step(np.zeros(2, dtype=np.float32))
     np.testing.assert_array_equal(env.current_yaw_ctrl, env.current_yaw)
     env.close()
+
+
+def test_prior_estimator_is_a_second_independent_filter():
+    """prior_wd_est_tau builds a SECOND WdEstimator (the residual-on-lut3 prior's: tau 60, front,
+    deadband 0 = the harness lut3 feed) next to the agent's; both update every sim step from the
+    same measured wd. Default None = not built (byte-identical env)."""
+    env = _env(cls=WindFarmEnv, wd_est_tau=120.0, wd_est_consensus="median",
+               prior_wd_est_tau=60.0, prior_wd_est_consensus="front")
+    env.reset(seed=0)
+    env.step(np.zeros(2, dtype=np.float32))
+    assert env._prior_wd_estimator is not env._wd_estimator
+    assert env._prior_wd_estimator.tau == 60.0 and env._prior_wd_estimator.consensus == "front"
+    assert env._wd_estimator.tau == 120.0
+    assert np.isfinite(env.wd_est_prior)
+    env.close()
+    plain = _env(cls=WindFarmEnv)
+    plain.reset(seed=0)
+    assert getattr(plain, "_prior_wd_estimator", None) is None
+    with pytest.raises(AttributeError):
+        plain.wd_est_prior
+    plain.close()
