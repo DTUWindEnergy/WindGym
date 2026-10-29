@@ -43,7 +43,8 @@ def test_keys_route_to_agent_and_baseline_farms():
     tp = env.turbine_params
     np.testing.assert_array_equal(tp["cp_gain"], [1.2, 1.0, 0.8])
     np.testing.assert_array_equal(tp["ct_gain"], [0.9, 0.9, 0.9])
-    assert set(tp) == {"yaw_exp", "cp_gain", "ct_gain", "tau_yaw", "delay_yaw", "tau_power"}
+    assert set(tp) == {"yaw_exp", "cp_gain", "ct_gain", "tau_yaw", "delay_yaw", "tau_power",
+                       "tau_ct"}
     # both farms were attached (step_actuators first in the handler lists)
     assert env.fs.step_handlers[0] == agent.step_actuators
     assert env.fs_baseline.step_handlers[0] == base.step_actuators

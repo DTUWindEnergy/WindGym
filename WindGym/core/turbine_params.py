@@ -20,8 +20,15 @@ of the nominal turbine:
     the realised yaw. The dead time is rounded to whole simulation steps;
     a lag below ~dt_sim/2 is invisible at the env's time resolution.
 ``tau_power``
-    first-order lag (s) on the waked power signal (rotor inertia + controller
-    settling). Thrust is NOT lagged (documented trade-off).
+    first-order lag (s) representing rotor inertia + controller settling. In
+    fraction mode (``ParamPyWakeWindTurbines``) it lags the whole waked power
+    signal; in setpoint mode (``SetpointPyWakeWindTurbines``) it lags the
+    wind-driven *available* power, while the power cap acts at once. Thrust is
+    NOT lagged by ``tau_power`` (documented trade-off).
+``tau_ct``
+    setpoint mode only: first-order lag (s) of the effective derate seen by
+    the Ct table after a cap change (the rotor has to move to the new
+    operating point). A no-op in fraction mode; the env refuses it there.
 
 Bounds are validation limits (typos, unit mistakes), not priors: the training
 ranges live in the trainer's ``--turb_dr`` spec. Pure numpy; no dynamiks.
@@ -51,6 +58,9 @@ TURBINE_PARAM_SPECS: dict[str, TurbineParamSpec] = {
     "tau_yaw": TurbineParamSpec(0.0, 0.0, 600.0, "yaw actuator lag (s)"),
     "delay_yaw": TurbineParamSpec(0.0, 0.0, 300.0, "yaw dead time (s)"),
     "tau_power": TurbineParamSpec(0.0, 0.0, 600.0, "power response lag (s)"),
+    "tau_ct": TurbineParamSpec(
+        0.0, 0.0, 600.0, "thrust-coefficient lag after a cap change (s, setpoint mode)"
+    ),
 }
 TURBINE_PARAM_KEYS = frozenset(TURBINE_PARAM_SPECS)
 
@@ -68,7 +78,7 @@ class TurbineParams:
     """Validated per-turbine parameter arrays plus the derived filter constants.
 
     ``values[key]`` is a float64 array of shape ``(n_turb,)`` for every key in
-    ``TURBINE_PARAM_SPECS``. ``a_yaw`` / ``a_power`` are the first-order filter
+    ``TURBINE_PARAM_SPECS``. ``a_yaw`` / ``a_power`` / ``a_ct`` are the first-order filter
     coefficients ``1 - exp(-dt_sim/tau)`` (exactly 1.0 for tau 0), ``k_delay``
     the dead time in whole sim steps. ``is_nominal`` is True when every value
     equals its default, in which case the env uses the plain dynamiks turbine
@@ -79,6 +89,7 @@ class TurbineParams:
     dt_sim: float
     a_yaw: np.ndarray
     a_power: np.ndarray
+    a_ct: np.ndarray
     k_delay: np.ndarray
     is_nominal: bool
 
@@ -149,6 +160,7 @@ def normalize_turbine_params(params, n_turb: int, dt_sim: float) -> TurbineParam
         dt_sim=dt_sim,
         a_yaw=_first_order_coeff(values["tau_yaw"], dt_sim),
         a_power=_first_order_coeff(values["tau_power"], dt_sim),
+        a_ct=_first_order_coeff(values["tau_ct"], dt_sim),
         k_delay=np.rint(values["delay_yaw"] / dt_sim).astype(int),
         is_nominal=nominal,
     )

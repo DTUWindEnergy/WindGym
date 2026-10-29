@@ -15,12 +15,12 @@ DT = 5.0
 
 def test_spec_keys_and_defaults():
     assert list(TURBINE_PARAM_SPECS) == [
-        "yaw_exp", "cp_gain", "ct_gain", "tau_yaw", "delay_yaw", "tau_power",
+        "yaw_exp", "cp_gain", "ct_gain", "tau_yaw", "delay_yaw", "tau_power", "tau_ct",
     ]
     assert TURBINE_PARAM_KEYS == frozenset(TURBINE_PARAM_SPECS)
     defaults = {k: s.default for k, s in TURBINE_PARAM_SPECS.items()}
     assert defaults == {"yaw_exp": 0.0, "cp_gain": 1.0, "ct_gain": 1.0,
-                        "tau_yaw": 0.0, "delay_yaw": 0.0, "tau_power": 0.0}
+                        "tau_yaw": 0.0, "delay_yaw": 0.0, "tau_power": 0.0, "tau_ct": 0.0}
     for k, s in TURBINE_PARAM_SPECS.items():
         assert s.lo <= s.default <= s.hi, k
 
@@ -34,8 +34,15 @@ def test_defaults_are_nominal():
         v = tp.values[k]
         assert v.shape == (3,) and v.dtype == np.float64
         assert np.all(v == TURBINE_PARAM_SPECS[k].default)
-    assert np.all(tp.a_yaw == 1.0) and np.all(tp.a_power == 1.0)
+    assert np.all(tp.a_yaw == 1.0) and np.all(tp.a_power == 1.0) and np.all(tp.a_ct == 1.0)
     assert np.all(tp.k_delay == 0) and tp.k_delay.dtype.kind == "i"
+
+
+def test_tau_ct_gives_first_order_coefficient():
+    tp = normalize_turbine_params({"tau_ct": [10.0, 0.0]}, n_turb=2, dt_sim=DT)
+    assert not tp.is_nominal
+    np.testing.assert_allclose(tp.a_ct, [1.0 - np.exp(-DT / 10.0), 1.0])
+    assert tp.a_ct[1] == 1.0
 
 
 def test_none_is_treated_as_empty():
