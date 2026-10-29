@@ -25,7 +25,8 @@ from .core.mes_class import FarmMes
 from .core.reward_calculator import RewardCalculator
 from .core.wind_manager import WindManager
 from .core.turbulence_manager import TurbulenceManager
-from .core.episode_timing import episode_time_parameters
+from .core.episode_timing import episode_time_parameters, max_wd_step
+from .core.yaw_frame import frame_offset as _frame_offset, slew_toward
 from .core.env_config import load_config_dict, parse_env_settings, build_farm_mes
 from .core.actuation import step_yaw_command, compute_derate
 from .core.renderer import WindFarmRenderer
@@ -172,6 +173,7 @@ class WindFarmEnv(gym.Env):
         wd_est_tau=None,  # Sensor-derived wd estimator EWMA time constant (s). None = estimator off (env.wd_est unavailable).
         wd_est_consensus="median",  # Cross-turbine consensus for the wd estimator: median / mean / front.
         wd_est_deadband=0.0,  # Hold the wd estimate unless it moves > this many deg (0 = off).
+        yaw_frame_source: str = "true",  # Yaw frame the agent observes / commands in: "true" (the simulator's wind, historical) or "est" (its own wd_est, what a deployed controller has; needs wd_est_tau). See core/yaw_frame.py.
         interpolation=None,  # Particle trajectory interpolation in the DWM solver: 'linear' (fast) or 'pchip' (cubic, original). None = dynamiks default (pchip). Setting it needs the dev dynamiks build.
         lateral_cutoff=None,  # Skip wake deficit evaluation beyond this factor times the deficit profile half-width (r_max*R) from the meandered wake centerline. None disables (original behavior). Setting it needs the dev dynamiks build.
         tilt: Optional[
@@ -315,6 +317,19 @@ class WindFarmEnv(gym.Env):
         self.wd_est_consensus = wd_est_consensus
         self.wd_est_deadband = wd_est_deadband
         self._wd_estimator = None
+        # Yaw frame of the agent (core/yaw_frame.py). "est": yaw observations
+        # and yaw targets are expressed in the frame of the sensor-derived wd
+        # estimate (phi_frame, slew-limited at the true-wd rate limit
+        # max_wd_step); the simulator keeps its true-wind frame and the
+        # conversion happens at the two boundaries (_take_measurements /
+        # _adjust_yaws). "true": identical to the historical behaviour.
+        if yaw_frame_source not in ("true", "est"):
+            raise ValueError(
+                f"yaw_frame_source must be 'true' or 'est', got {yaw_frame_source!r}"
+            )
+        self.yaw_frame_source = str(yaw_frame_source)
+        self.phi_frame = None
+        self._frame_slew_sim = 0.0
         # The maximum time of the simulation. This is used to make sure that the simulation doesnt run forever.
         self.time_max = 0
         # The number of times the flow passes through the farm. This is used to calculate the maximum simulation time.
@@ -719,6 +734,9 @@ class WindFarmEnv(gym.Env):
         # Copy: on dynamiks 0.0.7 the sensor getter returns the live array, so a
         # bare reference would keep changing inside already-returned info dicts.
         self.current_yaw = np.array(self.fs.windTurbines.yaw, dtype=float)
+        # Agent yaw frame (core/yaw_frame.py): move phi_frame toward wd_est; the
+        # agent-frame yaw itself is the derived property current_yaw_ctrl.
+        self._update_yaw_frame()
         self.current_powers = self.fs.windTurbines.power()  # The Power pr turbine
 
         if self.op_lookup is not None:
@@ -738,6 +756,28 @@ class WindFarmEnv(gym.Env):
 
         values = self.farm_measurements.get_measurements(scaled=True)
         return np.clip(values, -1.0, 1.0).astype(np.float32)
+
+    def _update_yaw_frame(self) -> None:
+        """Move the agent's yaw frame toward wd_est (slew-limited); no-op for
+        yaw_frame_source="true"."""
+        if self.yaw_frame_source != "est" or self.phi_frame is None:
+            return
+        self.phi_frame = slew_toward(self.phi_frame, float(self.wd_est), self._frame_slew_sim)
+
+    @property
+    def current_yaw_ctrl(self) -> np.ndarray:
+        """The yaw the AGENT observes / commands against: the simulator yaw plus
+        the frame offset (identical to current_yaw under yaw_frame_source="true").
+        Derived, so an overridden _take_measurements cannot leave it stale."""
+        return np.asarray(self.current_yaw, dtype=float) + self.frame_offset
+
+    @property
+    def frame_offset(self) -> float:
+        """Signed angle (deg) added to a simulator-frame yaw to express it in
+        the agent's frame: wrap180(phi_frame - wd) under "est", 0 under "true"."""
+        if self.yaw_frame_source != "est" or self.phi_frame is None:
+            return 0.0
+        return _frame_offset(self.phi_frame, float(self.wd))
 
     @property
     def wd_est(self) -> float:
@@ -827,6 +867,9 @@ class WindFarmEnv(gym.Env):
         if self._wd_estimator is not None:
             return_dict["Wind direction estimate"] = self.wd_est
             return_dict["Wind direction estimate per turbine"] = self.wd_est_per_turbine
+        if self.yaw_frame_source == "est":
+            return_dict["Yaw frame direction"] = self.phi_frame
+            return_dict["Yaw frame offset"] = self.frame_offset
 
         if self.derate_action:
             return_dict["derate agent"] = self.current_derate
@@ -959,6 +1002,23 @@ class WindFarmEnv(gym.Env):
                 x_pos=self.x_pos,
                 deadband_deg=self.wd_est_deadband,
             )
+        # Agent yaw frame: starts on the true wind (the burn-in holds base_wd
+        # and the estimator warm-starts there), then follows wd_est at the
+        # true-wd frame rate limit.
+        self.phi_frame = float(self.wd)
+        if self.yaw_frame_source == "est":
+            try:
+                self.wd_est
+            except AttributeError as e:
+                raise ValueError(
+                    "yaw_frame_source='est' needs the sensor-derived wd "
+                    "estimator: build the env with wd_est_tau"
+                ) from e
+            self._frame_slew_sim = float(
+                max_wd_step(
+                    np.column_stack([self.x_pos, self.y_pos]), self.D, self.max_turb_move
+                )
+            )
         self.current_derate = np.zeros(self.n_turb)
         # Commanded derate fraction (what the agent asked for). Differs from
         # current_derate (the applied available-power fraction) in "rated"
@@ -991,6 +1051,7 @@ class WindFarmEnv(gym.Env):
             t_developed=self.t_developed,
             steps_on_reset=self.steps_on_reset,
             wd_function=self.wd_function,
+            sim_steps_per_env_step=self.sim_steps_per_env_step,
         )
 
         # 3a) Main flow sim (turbulence box draw happens inside create_sites)
@@ -1289,7 +1350,7 @@ class WindFarmEnv(gym.Env):
             self.farm_measurements.add_measurements(
                 out["mean_windspeed"],
                 out["mean_winddir"],
-                out["mean_yaw"],
+                out["mean_yaw_ctrl"],
                 out["mean_power"],
                 derates=self.current_derate,
             )
@@ -1360,6 +1421,7 @@ class WindFarmEnv(gym.Env):
         windspeeds = np.zeros((T, n), dtype=np.float32)
         winddirs = np.zeros((T, n), dtype=np.float32)
         yaws = np.zeros((T, n), dtype=np.float32)
+        yaws_ctrl = np.zeros((T, n), dtype=np.float32)
         powers = np.zeros((T, n), dtype=np.float32)
         derates = np.zeros((T, n), dtype=np.float32)
         if self.op_lookup is not None:
@@ -1434,6 +1496,7 @@ class WindFarmEnv(gym.Env):
             windspeeds[j] = self.current_ws
             winddirs[j] = self.current_wd
             yaws[j] = self.current_yaw
+            yaws_ctrl[j] = self.current_yaw_ctrl
             powers[j] = self.current_powers
             derates[j] = self.current_derate
             if self.op_lookup is not None:
@@ -1459,6 +1522,8 @@ class WindFarmEnv(gym.Env):
         mean_windspeed = np.mean(windspeeds[ignore_steps:, :], axis=0)
         mean_winddir = utils.circ_mean_deg(winddirs[ignore_steps:, :], axis=0)
         mean_yaw = np.mean(yaws[ignore_steps:, :], axis=0)
+        # The observation carries the agent-frame yaw (== mean_yaw under "true").
+        mean_yaw_ctrl = np.mean(yaws_ctrl[ignore_steps:, :], axis=0)
         mean_power = np.mean(powers[ignore_steps:, :], axis=0)  # per-turbine
 
         result = dict(
@@ -1471,6 +1536,7 @@ class WindFarmEnv(gym.Env):
             mean_windspeed=mean_windspeed,
             mean_winddir=mean_winddir,
             mean_yaw=mean_yaw,
+            mean_yaw_ctrl=mean_yaw_ctrl,
             mean_power=mean_power,
         )
         if self.op_lookup is not None:
@@ -1539,14 +1605,17 @@ class WindFarmEnv(gym.Env):
 
         # self.action_remaining only exists under the "yaw" method (set per env
         # step in _advance_and_measure); the other methods ignore it.
+        _off = self.frame_offset
         self.yaw_command, remaining = step_yaw_command(
             self.ActionMethod,
             action,
             self.yaw_command,
             getattr(self, "action_remaining", None),
             yaw_step_sim=self.yaw_step_sim,
-            yaw_min=self.yaw_min,
-            yaw_max=self.yaw_max,
+            # The action and the yaw band live in the agent's frame; the command
+            # is the simulator's (core/yaw_frame.ctrl_to_sim = subtract the offset).
+            yaw_min=self.yaw_min - _off,
+            yaw_max=self.yaw_max - _off,
             # This clip is only usefull for the pywake turbine model, as the
             # hawc2 model has inertia anyways
             rate_limit=self.HTC_path is None,
@@ -1630,7 +1699,7 @@ class WindFarmEnv(gym.Env):
         self.farm_measurements.add_measurements(
             out["mean_windspeed"],
             out["mean_winddir"],
-            out["mean_yaw"],
+            out["mean_yaw_ctrl"],
             out["mean_power"],
             derates=self.current_derate,
         )

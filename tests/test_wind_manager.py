@@ -533,3 +533,28 @@ class TestEdgeCases:
 
         result = wm.sample_conditions()
         assert isinstance(result, WindConditions)
+
+
+class TestScheduleClock:
+    """The schedule's t = 0 must coincide with the FIRST CONTROL STEP (plan
+    2026-10-29 WP2): reset's warm-up runs steps_on_reset ENV steps, i.e.
+    steps_on_reset * sim_steps_per_env_step SIM steps after the burn-in."""
+
+    def test_make_wind_direction_list_reserves_the_warm_up_sim_steps(self):
+        wm = WindManager(ws_min=5.0, ws_max=15.0, wd_min=250.0, wd_max=290.0, ti_min=0.05, ti_max=0.10)
+        wd_list = wm.make_wind_direction_list(
+            base_wd=270.0, time_max=10.0, dt_sim=1.0, t_developed=2.0, steps_on_reset=3,
+            wd_function=lambda t: 270.0 + t, sim_steps_per_env_step=2,
+        )
+        steady = 2 + 3 * 2
+        assert wd_list[:steady] == [270.0] * steady
+        assert wd_list[steady] == 270.0 and wd_list[steady + 1] == 271.0
+
+    def test_sim_steps_per_env_step_defaults_to_one(self):
+        wm = WindManager(ws_min=5.0, ws_max=15.0, wd_min=250.0, wd_max=290.0, ti_min=0.05, ti_max=0.10)
+        a = wm.make_wind_direction_list(base_wd=270.0, time_max=10.0, dt_sim=1.0, t_developed=2.0,
+                                        steps_on_reset=3, wd_function=lambda t: 270.0 + t)
+        b = wm.make_wind_direction_list(base_wd=270.0, time_max=10.0, dt_sim=1.0, t_developed=2.0,
+                                        steps_on_reset=3, wd_function=lambda t: 270.0 + t,
+                                        sim_steps_per_env_step=1)
+        assert a == b

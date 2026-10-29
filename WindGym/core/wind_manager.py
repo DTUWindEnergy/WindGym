@@ -212,6 +212,7 @@ class WindManager:
         t_developed: float,
         steps_on_reset: int,
         wd_function: Optional[Callable[[float], float]] = None,
+        sim_steps_per_env_step: int = 1,
     ) -> list:
         """
         Generate a time series of wind directions for an episode.
@@ -225,7 +226,16 @@ class WindManager:
             time_max: Maximum simulation time for the episode (seconds)
             dt_sim: Simulation timestep (seconds)
             t_developed: Time for flow to develop (seconds)
-            steps_on_reset: Number of environment steps during reset
+            steps_on_reset: Number of ENVIRONMENT steps of the reset warm-up
+                (sensor fill). Each one advances the simulator
+                ``sim_steps_per_env_step`` times, so the schedule's t = 0 is
+                placed ``steps_on_reset * sim_steps_per_env_step`` sim steps
+                after the burn-in = the first control step. (Before 2026-10-29
+                only ``steps_on_reset`` sim steps were reserved, so a schedule
+                ran ``steps_on_reset * (dt_env - dt_sim)`` s ahead of the first
+                control step; the LESRL harness compensated, the trainer's
+                in-run eval did not.)
+            sim_steps_per_env_step: dt_env / dt_sim (default 1).
             wd_function: Optional callable for time-varying wind. Either
                 ``f(t) -> wd`` (absolute schedule) or ``f(t, base_wd) -> wd``
                 (relative schedule, so the episode's randomized base direction
@@ -237,8 +247,10 @@ class WindManager:
         # Calculate total number of simulation steps
         num_sim_steps = math.ceil(time_max / dt_sim) + 1
 
-        # Calculate steady-state period (burn-in + reset steps)
-        steady_state_steps = math.ceil(t_developed / dt_sim) + steps_on_reset
+        # Steady-state period (burn-in + the reset warm-up, in SIM steps)
+        steady_state_steps = math.ceil(t_developed / dt_sim) + int(steps_on_reset) * int(
+            sim_steps_per_env_step
+        )
 
         wd_list = []
 
