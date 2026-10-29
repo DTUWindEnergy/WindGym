@@ -120,6 +120,12 @@ class WindFarmEnv(gym.Env):
                 f"turbine-parameter keys {turb} require backend='dynamiks' "
                 f"(got {self.backend!r})"
             )
+        if "tau_ct" in turb and not self._setpoint_mode:
+            if np.any(np.asarray(params["tau_ct"], dtype=float) > 0):
+                raise ValueError(
+                    f"dwm_params{where}: tau_ct > 0 only acts in setpoint mode "
+                    "(derate_reference='setpoint'); it would be a silent no-op here."
+                )
 
     def __init__(
         self,
@@ -350,13 +356,28 @@ class WindFarmEnv(gym.Env):
         # Derating: extend the action space. The turbine itself must accept a
         # 'derate' input — the env only forwards per-turbine derate values.
         # With yaw_action=False the agent controls derating only (act_var=1).
+        # Setpoint mode: the PyWake turbine model itself takes an absolute
+        # power cap (SetpointPyWakeWindTurbines); HAWC2 turbines apply the
+        # rated-power cap natively (htc constant 104 = 0), so for them the
+        # "setpoint" reference is the plain pass-through of "rated".
+        self._setpoint_mode = (
+            self.derate_action
+            and self.derate_reference == "setpoint"
+            and self.HTC_path is None
+        )
         if self.derate_action:
             self.act_var = 2 if self.yaw_action else 1
             if self.HTC_path is not None:
                 check_htc_supports_derating(self.HTC_path, self.derate_reference)
             else:
                 check_turbine_supports_derating(turbine)
-            if self.derate_reference == "rated":
+            if self._setpoint_mode and self.backend != "dynamiks":
+                raise NotImplementedError(
+                    "derate_reference='setpoint' needs backend='dynamiks' "
+                    f"(got {self.backend!r}); the steady pywake backend has no "
+                    "turbine model to cap"
+                )
+            if self.derate_reference in {"rated", "setpoint"}:
                 # Power-curve maximum, NOT self.rated_power (that one is the
                 # power at the episode inflow ws, set per-reset for rewards).
                 self.derate_rated_power = float(
@@ -591,10 +612,18 @@ class WindFarmEnv(gym.Env):
                 windTurbine=self.turbine,
                 setup=self.dwm_setup,
                 turbine_params=self._turbine_params,
+                power_setpoint=self._setpoint_mode,
             )
-            if self.derate_action:
+            if self.derate_action and "derate" not in self.wts.sensors.dict:
+                # Fraction mode: plain-storage sensor the env writes. In
+                # setpoint mode the turbine class registers a read-only
+                # 'derate' sensor derived from its power_cap.
                 self.wts.add_sensor("derate", expose=True)
                 self.wts.sensors.derate = np.zeros(self.n_turb)
+            if self._setpoint_mode:
+                # Command 0 = cap at rated (not +inf): the agent farm is
+                # capped at nominal rated power even with cp_gain > 1.
+                self.wts.power_cap = np.full(self.n_turb, self.derate_rated_power)
 
         # Initialize baseline turbines if needed
         if self.Baseline_comp and self.baseline_manager is not None:
@@ -603,6 +632,7 @@ class WindFarmEnv(gym.Env):
             self.wts_baseline = self.baseline_manager.initialize_baseline_turbines(
                 name_string=baseline_name,
                 turbine_params=self._turbine_params,
+                power_setpoint=self._setpoint_mode,
             )
         else:
             self.wts_baseline = None
@@ -718,6 +748,11 @@ class WindFarmEnv(gym.Env):
         # bare reference would keep changing inside already-returned info dicts.
         self.current_yaw = np.array(self.fs.windTurbines.yaw, dtype=float)
         self.current_powers = self.fs.windTurbines.power()  # The Power pr turbine
+        if self._setpoint_mode:
+            # The turbine model derives the derate from its cap: what the
+            # Cp/Ct table sees (lagged by tau_ct) is the observed derate.
+            self.current_derate = self.fs.windTurbines.effective_derate
+            self.current_available_power = self.fs.windTurbines.available_power
 
         if self.op_lookup is not None:
             # Same (ws, yaw, derate) triple the power surrogate sees, so the
@@ -830,6 +865,11 @@ class WindFarmEnv(gym.Env):
             return_dict["derate agent"] = self.current_derate
             return_dict["derate command"] = self.derate_command
             return_dict["derate measured"] = self.farm_measurements.get_derate_turb()
+        if self._setpoint_mode:
+            return_dict["available power agent"] = getattr(
+                self, "current_available_power", np.zeros(self.n_turb)
+            )
+            return_dict["power cap agent"] = np.array(self.fs.windTurbines.power_cap)
 
         if self.power_tracking is not None:
             return_dict["Power reference"] = self.power_setpoint
@@ -961,6 +1001,10 @@ class WindFarmEnv(gym.Env):
         # current_derate (the applied available-power fraction) in "rated"
         # reference mode; identical in "available" mode.
         self.derate_command = np.zeros(self.n_turb)
+        # Setpoint mode: the slewed command (fraction of rated) behind the
+        # turbine cap, power_cap = (1 - derate_applied) * derate_rated_power.
+        # current_derate then holds the model's lagged effective derate.
+        self.derate_applied = np.zeros(self.n_turb)
 
         # Set random generator for turbulence manager
         self.turbulence_manager.np_random = self.np_random
@@ -1359,6 +1403,11 @@ class WindFarmEnv(gym.Env):
         yaws = np.zeros((T, n), dtype=np.float32)
         powers = np.zeros((T, n), dtype=np.float32)
         derates = np.zeros((T, n), dtype=np.float32)
+        if self._setpoint_mode:
+            available_powers = np.zeros((T, n), dtype=np.float32)
+            power_caps = np.zeros((T, n), dtype=np.float32)
+            if include_baseline:
+                available_powers_baseline = np.zeros((T, n), dtype=np.float32)
         if self.op_lookup is not None:
             pitches = np.zeros((T, n), dtype=np.float32)
             rpms = np.zeros((T, n), dtype=np.float32)
@@ -1433,6 +1482,9 @@ class WindFarmEnv(gym.Env):
             yaws[j] = self.current_yaw
             powers[j] = self.current_powers
             derates[j] = self.current_derate
+            if self._setpoint_mode:
+                available_powers[j] = self.current_available_power
+                power_caps[j] = self.fs.windTurbines.power_cap
             if self.op_lookup is not None:
                 pitches[j] = self.current_pitch
                 rpms[j] = self.current_rpm
@@ -1448,6 +1500,10 @@ class WindFarmEnv(gym.Env):
                 windspeeds_baseline[j] = np.linalg.norm(
                     self.fs_baseline.windTurbines.rotor_avg_windspeed, axis=1
                 )
+                if self._setpoint_mode:
+                    available_powers_baseline[j] = (
+                        self.fs_baseline.windTurbines.available_power
+                    )
                 # update probe positions to follow turbine
 
         # 6) Aggregate to per-env-step means (circular mean for wind direction).
@@ -1472,6 +1528,8 @@ class WindFarmEnv(gym.Env):
         )
         if self.op_lookup is not None:
             result.update(pitches=pitches, rpms=rpms)
+        if self._setpoint_mode:
+            result.update(available_powers=available_powers, power_caps=power_caps)
         if include_baseline:
             result.update(
                 baseline_powers=baseline_powers,
@@ -1479,6 +1537,8 @@ class WindFarmEnv(gym.Env):
                 windspeeds_baseline=windspeeds_baseline,
                 baseline_power_mean=np.mean(baseline_powers, axis=0),  # per-turbine
             )
+            if self._setpoint_mode:
+                result["available_powers_baseline"] = available_powers_baseline
         return result
 
     @staticmethod
@@ -1509,6 +1569,12 @@ class WindFarmEnv(gym.Env):
             wts.yaw = command
         else:
             wts.yaw += delta_wd
+
+    @property
+    def _penalised_derate(self) -> np.ndarray:
+        """Derate the reward's change penalty acts on: the command in setpoint
+        mode (``derate_applied``), the applied derate otherwise."""
+        return self.derate_applied if self._setpoint_mode else self.current_derate
 
     @property
     def turbine_params(self):
@@ -1563,8 +1629,33 @@ class WindFarmEnv(gym.Env):
         reference, derate_step_sim slew) live in ``core.actuation.compute_derate``.
         HAWC2 turbines skip the rated-reference conversion: the DTUWEC
         controller applies the rated-power cap (and its dead zone) natively.
+
+        Setpoint mode (``derate_reference="setpoint"``, PyWake turbines): the
+        slewed command is kept in ``derate_applied`` (fraction of rated) and
+        becomes the turbine model's absolute cap
+        ``power_cap = (1 - derate_applied) * derate_rated_power``;
+        ``current_derate`` is left to ``_take_measurements`` (the model's
+        lagged effective derate).
         """
         derate_raw = action[self.n_turb :] if self.yaw_action else action[: self.n_turb]
+
+        if self._setpoint_mode:
+            self.derate_command, self.derate_applied = compute_derate(
+                derate_raw,
+                method=self.derate_method,
+                step_base=self._derate_step_base if self.derate_method == "step" else None,
+                step_env=self.derate_step_env,
+                derate_min=self.derate_min,
+                derate_max=self.derate_max,
+                reference=self.derate_reference,
+                rated_power=self.derate_rated_power,
+                current_powers=self.current_powers,
+                current_derate=self.derate_applied,
+                step_sim=self.derate_step_sim,
+                hawc2=False,
+            )
+            self.wts.power_cap = (1.0 - self.derate_applied) * self.derate_rated_power
+            return
 
         self.derate_command, derate = compute_derate(
             derate_raw,
@@ -1602,8 +1693,10 @@ class WindFarmEnv(gym.Env):
 
         # Save the old yaw angles, so we can calculate the change in yaw angles
         self.old_yaws = copy.copy(self.fs.windTurbines.yaw)
-        # Same for derate levels (used by the derate "change" penalty)
-        self.old_derate = copy.copy(self.current_derate)
+        # Same for derate levels (used by the derate "change" penalty). In
+        # setpoint mode the penalty acts on the COMMAND (derate_applied): the
+        # lagged effective derate would hide exactly the chatter it penalises.
+        self.old_derate = copy.copy(self._penalised_derate)
 
         # Advance the sim `delay` seconds per env step, but only average the final
         # dt_env window into the observation. With delay > dt_env the agent acts on
@@ -1651,6 +1744,11 @@ class WindFarmEnv(gym.Env):
         info["yaws"] = out["yaws"]
         info["powers"] = out["powers"]
         info["derates"] = out["derates"]
+        if self._setpoint_mode:
+            info["available_powers"] = out["available_powers"]
+            info["power_caps"] = out["power_caps"]
+            if self.Baseline_comp:
+                info["available_powers_baseline"] = out["available_powers_baseline"]
         if self.op_lookup is not None:
             info["pitches"] = out["pitches"]
             info["rpms"] = out["rpms"]
@@ -1670,7 +1768,7 @@ class WindFarmEnv(gym.Env):
             n_turbines=self.n_turb,
             nowake_power_deque=self.nowake_pow_deq if self.Baseline_comp else None,
             old_derates=self.old_derate if self.derate_action else None,
-            new_derates=self.current_derate if self.derate_action else None,
+            new_derates=self._penalised_derate if self.derate_action else None,
             derate_max=self.derate_max,
             power_ref_deque=(
                 self.power_tracking.ref_deque if self.power_tracking else None

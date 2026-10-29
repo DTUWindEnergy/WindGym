@@ -289,13 +289,19 @@ def parse_env_settings(config: Dict[str, Any]) -> EnvSettings:
 
     # What the derate command means:
     #   "available": fraction of locally available power (P = (1-d)*P_avail)
-    #   "rated":     fraction of rated power, i.e. an absolute power cap.
-    #                A cap above locally available power is a no-op (dead
-    #                zone), matching a real power-reference controller.
+    #   "rated":     fraction of rated power, i.e. an absolute power cap,
+    #                converted to the available-power fraction from the last
+    #                measured power (one substep old). A cap above locally
+    #                available power is a no-op (dead zone), matching a real
+    #                power-reference controller.
+    #   "setpoint":  fraction of rated power applied as an absolute cap on
+    #                the turbine model itself (SetpointPyWakeWindTurbines:
+    #                inertia-filtered available power, lagged Ct derate).
+    #                dynamiks + PyWake turbines only.
     # Orthogonal to derate_method, which says how the command *evolves*.
     s.derate_reference = str(config.get("derate_reference", "available")).lower()
-    if s.derate_reference not in {"available", "rated"}:
-        raise ValueError("derate_reference must be 'available' or 'rated'")
+    if s.derate_reference not in {"available", "rated", "setpoint"}:
+        raise ValueError("derate_reference must be 'available', 'rated' or 'setpoint'")
 
     # Derate observation (per turbine, mirrors yaw_mes). Defaults to
     # observing the current derate whenever the derate action is enabled.

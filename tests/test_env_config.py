@@ -153,7 +153,7 @@ def test_derate_mes_defaults_follow_derate_action():
     [
         ({"derate_method": "bogus"}, "derate_method must be 'absolute' or 'step'"),
         ({"derate_step_sim": 0}, "derate_step_sim must be positive"),
-        ({"derate_reference": "x"}, "derate_reference must be 'available' or 'rated'"),
+        ({"derate_reference": "x"}, "derate_reference must be 'available', 'rated' or 'setpoint'"),
         ({"track_def": {"track_ref_range": [0.9, 0.1]}}, "track_ref_range must be"),
         ({"track_def": {"track_obs_preview": 1.5}}, "track_obs_preview must be"),
     ],

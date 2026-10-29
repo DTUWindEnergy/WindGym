@@ -120,7 +120,9 @@ class DWMSetup:
     mann: MannBoxSpec = MannBoxSpec()
 
 
-def make_wts(x, y, windTurbine, setup: DWMSetup, turbine_params=None) -> PyWakeWindTurbines:
+def make_wts(
+    x, y, windTurbine, setup: DWMSetup, turbine_params=None, power_setpoint: bool = False
+) -> PyWakeWindTurbines:
     """PyWakeWindTurbines with the rotor-average and TI model of ``setup``.
 
     ``turbine_params`` (a ``core.turbine_params.TurbineParams``) selects the
@@ -128,6 +130,10 @@ def make_wts(x, y, windTurbine, setup: DWMSetup, turbine_params=None) -> PyWakeW
     (per-turbine Cp/Ct gains, yaw actuator lag, power lag) for turbine-parameter
     domain randomization. ``None`` or an all-default vector returns the plain
     dynamiks class, so the nominal path is unchanged.
+
+    ``power_setpoint=True`` (the env's ``derate_reference="setpoint"``) returns
+    ``backend.setpoint_turbines.SetpointPyWakeWindTurbines`` regardless of
+    ``is_nominal`` (it needs a ``TurbineParams`` for its filter constants).
     """
     kwargs = {}
     if setup.rotor_avg_n is not None:
@@ -139,6 +145,14 @@ def make_wts(x, y, windTurbine, setup: DWMSetup, turbine_params=None) -> PyWakeW
         kwargs["turbulenceIntensityModel"] = TISensor(
             mean_method=MeanMethod.TURBULENCE_TRANSPORT_SPEED,
             T=setup.ti_sensor_window_s,
+        )
+    if power_setpoint:
+        if turbine_params is None:
+            raise ValueError("power_setpoint=True requires turbine_params (filter constants)")
+        from ..backend.setpoint_turbines import SetpointPyWakeWindTurbines  # lazy
+
+        return SetpointPyWakeWindTurbines(
+            x=x, y=y, windTurbine=windTurbine, params=turbine_params, **kwargs
         )
     if turbine_params is None or turbine_params.is_nominal:
         return PyWakeWindTurbines(x=x, y=y, windTurbine=windTurbine, **kwargs)

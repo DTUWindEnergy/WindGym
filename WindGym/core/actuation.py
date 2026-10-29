@@ -118,6 +118,9 @@ def compute_derate(
     locally available power apply no derating. HAWC2 turbines
     (``hawc2=True``) skip that conversion: the DTUWEC controller applies the
     rated-power cap natively, so the command passes straight through.
+    ``reference="setpoint"`` also passes the command through (fraction of
+    rated): the env turns it into the turbine model's absolute ``power_cap``
+    and the model derives the effective derate itself.
 
     If ``step_sim`` is set, the applied derate slews toward the setpoint by
     at most ``step_sim`` per sim substep.
