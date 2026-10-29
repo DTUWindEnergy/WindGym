@@ -130,12 +130,20 @@ def test_cap_above_available_is_inactive(turbine):
     np.testing.assert_allclose(wts.power(), np.minimum(wts.power_cap, p_avail(9.0)))
 
 
-def test_effective_derate_is_clipped_to_the_table(turbine):
+def test_cap_below_the_table_edge_delivers_the_table_floor(turbine):
+    # a cap below (1 - d_table_max) P_avail cannot be represented by the Ct table:
+    # the delivered power is floored there so power and Ct stay one operating point
     wts, fs = make_setpoint(turbine, ws=9.0)
     wts.power_cap = np.full(3, 1.0e4)  # would need d = 0.983 > 0.8
     step(fs)
     np.testing.assert_allclose(wts.effective_derate, 0.8)
-    np.testing.assert_allclose(wts.power(), 1.0e4)  # the cap is still delivered
+    np.testing.assert_allclose(wts.power(), 0.2 * p_avail(9.0))
+    np.testing.assert_allclose(wts.power(), make_plain(turbine, derate=0.8).power(), rtol=1e-9)
+    np.testing.assert_array_equal(wts.ct(), make_plain(turbine, derate=0.8).ct())
+    # also before the first handler call
+    wts2, _ = make_setpoint(turbine, ws=9.0)
+    wts2.power_cap = np.full(3, 1.0e4)
+    np.testing.assert_allclose(wts2.power(), 0.2 * p_avail(9.0))
 
 
 def test_below_cut_in_gives_zero_derate_no_nan(turbine):

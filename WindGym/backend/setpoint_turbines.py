@@ -8,7 +8,9 @@ evaluated per turbine once per sim step of length ``dt`` (``params.dt_sim``)::
 
     P_qs    = P_tab(U, yaw, d=0) * gains            quasi-steady available power
     P_avail = P_avail + a_P * (P_qs - P_avail)      a_P = 1 - exp(-dt / tau_power)
-    P       = min(P_cap, P_avail)                   delivered power; the cap acts at once
+    P       = max(min(P_cap, P_avail), (1 - d_table_max) P_avail)
+                                                    delivered power; the cap acts at once,
+                                                    floored at the table edge (see below)
     d_cmd   = clip(1 - P / P_avail, 0, d_table_max) effective derate (0 where P_avail == 0)
     d_eff   = d_eff + a_ct * (d_cmd - d_eff)        a_ct = 1 - exp(-dt / tau_ct)
     Ct      = Ct_tab(U, yaw, d_eff) * ct_gain       slow after a cap change, instant in U
@@ -17,7 +19,10 @@ evaluated per turbine once per sim step of length ``dt`` (``params.dt_sim``)::
 the per-turbine cap in W (``+inf`` = uncapped). The derate axis of the table is
 defined relative to the *yawed* available power (``P_tab(U, yaw, d) =
 (1 - d) P_tab(U, yaw, 0)`` for the min-Ct DTU10MW surrogate), so ``d_cmd`` is
-exactly the table coordinate that delivers ``P``.
+exactly the table coordinate that delivers ``P``. A cap below
+``(1 - d_table_max) P_avail`` (0.2 P_avail for the DTU10MW table) has no Ct in
+the table: the delivered power is floored there, so power and Ct always form
+one table operating point (as the fraction mode's clamp at the table edge).
 
 Sensors (all per turbine):
 
@@ -124,6 +129,12 @@ class SetpointPyWakeWindTurbines(ParamPyWakeWindTurbines):
         """Quasi-steady available power: the table at derate 0, gains applied."""
         return np.asarray(self._static_power(include_wakes=True, derate=0.0), dtype=float)
 
+    def _delivered(self, available):
+        """``min(P_cap, available)`` floored at the table edge ``(1 - d_table_max) available``."""
+        return np.maximum(
+            np.minimum(self.power_cap, available), (1.0 - self.d_table_max) * available
+        )
+
     def _derate_command(self, power, available):
         """Table derate that delivers ``power`` out of ``available`` (0 where idle)."""
         with np.errstate(divide="ignore", invalid="ignore"):
@@ -142,7 +153,7 @@ class SetpointPyWakeWindTurbines(ParamPyWakeWindTurbines):
         """Copy of the lagged effective derate seen by the Cp/Ct table."""
         if self._derate_state is None:
             avail = self._available_qs()
-            return self._derate_command(np.minimum(self.power_cap, avail), avail)
+            return self._derate_command(self._delivered(avail), avail)
         return self._derate_state.copy()
 
     # ------------------------------------------------------ step handler --
@@ -160,7 +171,7 @@ class SetpointPyWakeWindTurbines(ParamPyWakeWindTurbines):
             a = self.params.a_power
             avail = np.where(a >= 1.0, p_qs, self._avail_state + a * (p_qs - self._avail_state))
         self._avail_state = avail
-        d_cmd = self._derate_command(np.minimum(self.power_cap, avail), avail)
+        d_cmd = self._derate_command(self._delivered(avail), avail)
         if self._derate_state is None:
             self._derate_state = np.array(d_cmd, dtype=float)
         else:
@@ -175,7 +186,7 @@ class SetpointPyWakeWindTurbines(ParamPyWakeWindTurbines):
             # No-wake reference stays quasi-static (table at d_eff, like the Param class).
             return self._static_power(include_wakes=False, idx=idx)
         # atleast_1d: an int idx gives shape (1,), as the py_wake table does upstream.
-        return np.atleast_1d(np.minimum(self.power_cap[idx], self.available_power[idx]))
+        return np.atleast_1d(self._delivered(self.available_power)[idx])
 
     def ct(self, idx=slice(None)):
         # get_kwargs reads sensors.derate = d_eff; ct_gain applied by the Param class.
