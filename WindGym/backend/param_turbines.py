@@ -129,8 +129,33 @@ class ParamPyWakeWindTurbines(PyWakeWindTurbines):
             self._power_state = self._power_state + a * (p_qs - self._power_state)
 
     # ------------------------------------------------------------ physics --
-    def _static_power(self, include_wakes=True, idx=slice(None)):
-        p = super().power(include_wakes=include_wakes, idx=idx)
+    def _table_power(self, include_wakes=True, idx=slice(None), **overrides):
+        """``PyWakeWindTurbines.power`` with table-input overrides (e.g. ``derate=0.0``).
+
+        Mirrors dynamiks' ``get_kwargs`` (sensor-fed table inputs + rotor-average
+        ws) but never reads a sensor that is overridden, so a derived sensor
+        (the setpoint class's ``derate``) can itself depend on this evaluation.
+        """
+        pctf = self.windTurbine.powerCtFunction
+        required, optional = pctf.required_inputs, pctf.optional_inputs
+        kwargs = {}
+        for k in set(required) | set(optional):
+            if k in overrides:
+                kwargs[k] = overrides[k]
+            elif k == "type":
+                kwargs[k] = self.types[idx]
+            elif k in required or k in self.sensors.dict:
+                kwargs[k] = getattr(self.sensors, k)[idx]
+        ws = (self.rotor_avg_windspeed if include_wakes else self.rotor_avg_freestream)[idx, 0]
+        return self.windTurbine.power(ws, **kwargs)
+
+    def _static_power(self, include_wakes=True, idx=slice(None), derate=None):
+        """Quasi-steady power with the gains applied; ``derate`` overrides the
+        table's derate input (``None``: the sensor value, the dynamiks path)."""
+        if derate is None:
+            p = super().power(include_wakes=include_wakes, idx=idx)
+        else:
+            p = self._table_power(include_wakes=include_wakes, idx=idx, derate=derate)
         yaw = self._yaw_act[idx]
         cos = np.maximum(np.cos(np.deg2rad(yaw)), 0.0)
         # 0.0 ** 0.0 == 1.0 and cp_gain 1.0: the defaults are a bitwise identity.
