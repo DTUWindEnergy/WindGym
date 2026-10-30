@@ -69,6 +69,7 @@ SETTINGS_ATTRS = {
     "track_obs_preview",
     "derate_reference",
     "derate_mes",
+    "avail_mes",
     "probes_config",
 }
 
@@ -139,6 +140,13 @@ def test_settings_values_and_defaults():
         "derate_history_N": 1,
         "derate_history_length": 10,
         "derate_window_length": 10,
+    }
+    assert s.avail_mes == {
+        "avail_current": False,
+        "avail_rolling_mean": False,
+        "avail_history_N": 1,
+        "avail_history_length": 10,
+        "avail_window_length": 10,
     }
     assert s.probes_config == []
 

@@ -148,6 +148,10 @@ class TestCoverageForMeasurementManager:
                 self.farm_measurements.turb_mes[0].derate = MagicMock(
                     current=False, rolling_mean=False, history_N=0
                 )
+                # Same for the available-power guard.
+                self.farm_measurements.turb_mes[0].avail = MagicMock(
+                    current=False, rolling_mean=False, history_N=0
+                )
                 self.farm_measurements.turb_mes[0].power = MagicMock(
                     current=True, rolling_mean=False, history_N=0
                 )

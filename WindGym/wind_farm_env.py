@@ -385,6 +385,16 @@ class WindFarmEnv(gym.Env):
                 )
         elif not self.yaw_action:
             raise ValueError("yaw_action=False requires derate_action=True")
+        # The available power is a state of the setpoint turbine model only;
+        # elsewhere the env has no per-turbine signal to observe.
+        if (
+            self.avail_mes["avail_current"] or self.avail_mes["avail_rolling_mean"]
+        ) and not self._setpoint_mode:
+            raise ValueError(
+                "avail_mes observes the setpoint turbine model's available "
+                "power: it needs derate_action=True and "
+                "derate_reference='setpoint' (PyWake turbines)"
+            )
 
         self.n_turb = len(x_pos)  # The number of turbines
 
@@ -762,6 +772,16 @@ class WindFarmEnv(gym.Env):
                 self.current_yaw,
                 getattr(self, "current_derate", np.zeros(self.n_turb)),
             )
+
+    def _observed_avail(self) -> np.ndarray | None:
+        """Per-turbine available power for ``avail_mes`` (setpoint mode), else None.
+
+        Like the derate observation it is the last substep's value: the
+        turbine model's inertia-filtered available power.
+        """
+        if not self._setpoint_mode:
+            return None
+        return self.current_available_power
 
     def _get_obs(self) -> np.ndarray:
         """
@@ -1333,6 +1353,7 @@ class WindFarmEnv(gym.Env):
                 out["mean_yaw"],
                 out["mean_power"],
                 derates=self.current_derate,
+                avails=self._observed_avail(),
             )
             # Power history (farm-level)
             self.farm_pow_deq.append(out["mean_power"].sum())
@@ -1723,6 +1744,7 @@ class WindFarmEnv(gym.Env):
             out["mean_yaw"],
             out["mean_power"],
             derates=self.current_derate,
+            avails=self._observed_avail(),
         )
         self.farm_pow_deq.append(out["mean_power"].sum())
         # timestep is incremented further down, so the step we just simulated

@@ -21,7 +21,7 @@ pytestmark = pytest.mark.integration
 RATED = 2.0e6
 
 
-def make_env(derate_reference="setpoint", backend="dynamiks", **env_kwargs):
+def make_env(derate_reference="setpoint", backend="dynamiks", cfg_extra=None, **env_kwargs):
     turbine = _derating_turbine()
     x, y = _row(turbine, 3)
     cfg = _dynamiks_config(
@@ -36,6 +36,7 @@ def make_env(derate_reference="setpoint", backend="dynamiks", **env_kwargs):
     # 12 m/s: the front turbine sits at rated (2 MW), so caps from commands
     # >= 0.1 are active there; waked turbines see less and may be uncapped.
     cfg["wind"] = {k: (12.0 if "ws" in k else v) for k, v in cfg["wind"].items()}
+    cfg.update(cfg_extra or {})
     kw = dict(
         turbine=turbine, x_pos=x, y_pos=y, config=cfg, backend=backend,
         turbtype="None", Baseline_comp=True, yaw_init="Zeros",
@@ -145,6 +146,74 @@ def test_reward_change_penalty_uses_the_command_in_setpoint_mode():
     assert np.all(env.current_derate < 0.2)
     np.testing.assert_allclose(env.derate_applied, 0.6)
     np.testing.assert_allclose(env.old_derate, 0.0)
+    env.close()
+
+
+# ------------------------------------------------- available-power obs --
+AVAIL_HIST = {"avail_current": False, "avail_rolling_mean": True, "avail_history_N": 3,
+              "avail_history_length": 10, "avail_window_length": 1}
+
+
+def _turb_blocks(env, obs):
+    """Per-turbine observation blocks (they come first, farm-level values after)."""
+    w = env.farm_measurements.turb_mes[0].observed_variables()
+    return obs[: env.n_turb * w].reshape(env.n_turb, w)
+
+
+def test_avail_mes_is_off_by_default():
+    env = make_env()
+    env.reset(seed=0)
+    assert all(not (t.avail.current or t.avail.rolling_mean)
+               for t in env.farm_measurements.turb_mes)
+    assert env.farm_measurements.get_avail_turb().size == 0
+    env.close()
+
+
+def test_avail_mes_widens_each_turbine_block_by_its_samples():
+    plain = make_env()
+    env = make_env(cfg_extra={"avail_mes": AVAIL_HIST})
+    assert env.observation_space.shape[0] == plain.observation_space.shape[0] + 3 * env.n_turb
+    obs, _ = env.reset(seed=0)
+    assert obs.shape == env.observation_space.shape
+    obs, *_ = env.step(action(env, 0.3))
+    assert obs.shape == env.observation_space.shape
+    plain.close()
+    env.close()
+
+
+def test_observed_avail_is_the_scaled_available_power_after_the_derate_slots():
+    plain = make_env()
+    env = make_env(cfg_extra={"avail_mes": {"avail_current": True}})
+    plain.reset(seed=0)
+    env.reset(seed=0)
+    obs_plain, *_, info_plain = plain.step(action(plain, [0.0, 0.3, 0.6]))
+    obs, *_, info = env.step(action(env, [0.0, 0.3, 0.6]))
+    np.testing.assert_array_equal(info["powers"], info_plain["powers"])
+    # last substep's inertia-filtered available power, scaled like power
+    avail = info["available_powers"][-1]
+    expected = np.clip(2.0 * avail / env.maxturbpower - 1.0, -1.0, 1.0)
+    t0 = env.farm_measurements.turb_mes[0]
+    k = sum(len(t0.__getattribute__(f"get_{n}")()) for n in ("ws", "wd", "yaw", "derate"))
+    blocks, blocks_plain = _turb_blocks(env, obs), _turb_blocks(plain, obs_plain)
+    np.testing.assert_allclose(blocks[:, k], expected, atol=1e-6)
+    np.testing.assert_array_equal(np.delete(blocks, k, axis=1), blocks_plain)
+    np.testing.assert_array_equal(obs[blocks.size:], obs_plain[blocks_plain.size:])
+    plain.close()
+    env.close()
+
+
+def test_avail_mes_outside_setpoint_mode_raises():
+    with pytest.raises(ValueError, match="avail_mes"):
+        make_env(derate_reference="available", cfg_extra={"avail_mes": {"avail_current": True}})
+
+
+def test_noise_manager_refuses_the_avail_observation():
+    from WindGym.core.measurement_manager import MeasurementManager
+
+    env = make_env(cfg_extra={"avail_mes": {"avail_current": True},
+                              "derate_mes": {"derate_current": False}})
+    with pytest.raises(NotImplementedError, match="available power"):
+        MeasurementManager(env)
     env.close()
 
 

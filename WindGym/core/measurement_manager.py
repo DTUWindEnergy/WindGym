@@ -479,6 +479,15 @@ class MeasurementManager:
                 "derate_mes: {derate_current: False, derate_rolling_mean: "
                 "False} or use the base environment without measurement noise."
             )
+        if any(t.avail.current or t.avail.rolling_mean for t in fm.turb_mes):
+            raise NotImplementedError(
+                "NoisyWindFarmEnv / MeasurementManager does not support "
+                "environments that observe the available power yet: those "
+                "readings sit after the derate slots of every turbine block "
+                "but have no MeasurementSpec, so noise would be applied to "
+                "the wrong observation indices. Disable avail_mes or use the "
+                "base environment without measurement noise."
+            )
 
         def get_mes_names(mes_obj, prefix=""):
             names = []

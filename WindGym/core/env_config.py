@@ -117,6 +117,7 @@ class EnvSettings:
     track_obs_preview: int = 0
     derate_reference: str = "available"
     derate_mes: dict = field(default_factory=dict)
+    avail_mes: dict = field(default_factory=dict)
     # probes (the ProbeManager itself is built by the env)
     probes_config: Any = field(default_factory=list)
 
@@ -314,6 +315,18 @@ def parse_env_settings(config: Dict[str, Any]) -> EnvSettings:
         "derate_window_length": derate_mes.get("derate_window_length", 10),
     }
 
+    # Available-power observation (per turbine, after the derate slots): the
+    # setpoint turbine model's inertia-filtered available power, scaled like
+    # the turbine power. Off by default; setpoint mode only (the env checks).
+    avail_mes = config.get("avail_mes") or {}
+    s.avail_mes = {
+        "avail_current": avail_mes.get("avail_current", False),
+        "avail_rolling_mean": avail_mes.get("avail_rolling_mean", False),
+        "avail_history_N": avail_mes.get("avail_history_N", 1),
+        "avail_history_length": avail_mes.get("avail_history_length", 10),
+        "avail_window_length": avail_mes.get("avail_window_length", 10),
+    }
+
     s.probes_config = config.get("probes", [])
 
     return s
@@ -362,6 +375,11 @@ def build_farm_mes(
         derate_history_N=settings.derate_mes["derate_history_N"],
         derate_history_length=settings.derate_mes["derate_history_length"],
         derate_window_length=settings.derate_mes["derate_window_length"],
+        avail_current=settings.avail_mes["avail_current"],
+        avail_rolling_mean=settings.avail_mes["avail_rolling_mean"],
+        avail_history_N=settings.avail_mes["avail_history_N"],
+        avail_history_length=settings.avail_mes["avail_history_length"],
+        avail_window_length=settings.avail_mes["avail_window_length"],
         power_current=settings.power_mes["power_current"],
         power_rolling_mean=settings.power_mes["power_rolling_mean"],
         power_history_N=settings.power_mes["power_history_N"],
