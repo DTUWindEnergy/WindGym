@@ -1737,8 +1737,8 @@ class WindFarmEnv(gym.Env):
         the shares into reductions (water-filling above the turbine model's
         floor ``(1 - d_table_max) P_hat``); turbine ``i`` is capped at
         ``P_hat_i - reduction_i``, i.e. a command ``1 - cap / rated`` that
-        slews by ``derate_step_sim`` as in the other modes. No deficit leaves
-        every turbine uncapped. The change penalty acts on the shares
+        slews by ``derate_step_sim`` as in the other modes; a turbine with no
+        reduction, and every turbine when there is no deficit, stays uncapped. The change penalty acts on the shares
         (``_penalised_derate``), the agent's decision, not on the caps that
         follow the turbulence.
         """
@@ -1752,7 +1752,12 @@ class WindFarmEnv(gym.Env):
         if red is None:
             target = np.zeros(self.n_turb)
         else:
-            target = 1.0 - (p_hat - red) / self.derate_rated_power
+            # A turbine that gives nothing stays uncapped: capping it at last
+            # substep's available power would clip its gusts (a one-sided
+            # shortfall) and give it a spurious effective derate.
+            target = np.where(
+                red > 0, 1.0 - (p_hat - red) / self.derate_rated_power, 0.0
+            )
         target = np.clip(target, self.derate_min, self.derate_max)
         self.derate_command = target
         if self.derate_step_sim is not None:

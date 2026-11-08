@@ -423,3 +423,20 @@ def test_error_integral_and_history_widen_the_tracking_tail():
     assert tail[1] == pytest.approx(np.clip(e / (0.05 * fm.power_max * 3), -1, 1), abs=1e-6)
     base.close()
     feat.close()
+
+
+def test_share_mode_zero_share_turbines_stay_uncapped():
+    # T1-only: T2/T3 give nothing, so they are not capped at last second's
+    # available power (that would clip gusts and add a spurious derate)
+    # P_ref 5 MW: a deficit of ~0.7 MW (available ~5.7 MW) that T1 (headroom ~1.5 MW) covers alone
+    env = make_share_env(p_ref=5.0e6, dwm_params={"tau_power": 6.0, "tau_ct": 10.0})
+    env.reset(seed=3)
+    for _ in range(5):
+        _, _, _, _, info = env.step(share_action(env, [1.0, -1.0, -1.0]))
+        deficit = info["available_powers"].sum(axis=1) - 5.0e6
+        assert np.all((deficit > 0) & (deficit < 0.8 * info["available_powers"][:, 0]))
+        np.testing.assert_allclose(info["power_caps"][:, 1:], RATED)
+        np.testing.assert_allclose(info["powers"][:, 1:], info["available_powers"][:, 1:])
+        assert np.all(info["power_caps"][:, 0] < RATED)
+    np.testing.assert_allclose(env.derate_applied[1:], 0.0)
+    env.close()
