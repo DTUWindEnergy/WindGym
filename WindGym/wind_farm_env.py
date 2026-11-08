@@ -1732,8 +1732,10 @@ class WindFarmEnv(gym.Env):
         The action gives each turbine's share ``w`` of the farm deficit
         ``D = sum(P_hat) - P_ref`` (``core.actuation.shares_from_action``), with
         ``P_hat`` the agent farm's available power one sim step old (the same
-        signal a proportional controller uses) and ``P_ref`` the reference this
-        env step is scored against. ``core.actuation.allocate_deficit`` turns
+        signal a proportional controller uses) and ``P_ref`` the reference the
+        agent has seen (``share_reference="observed"``, the default: causal,
+        one env step behind the score) or the one this env step is scored
+        against (``"scored"``: a one-env-step preview). ``core.actuation.allocate_deficit`` turns
         the shares into reductions (water-filling above the turbine model's
         floor ``(1 - d_table_max) P_hat``); turbine ``i`` is capped at
         ``P_hat_i - reduction_i``, i.e. a command ``1 - cap / rated`` that
@@ -1745,7 +1747,8 @@ class WindFarmEnv(gym.Env):
         w = shares_from_action(derate_raw)
         self.derate_shares = w
         p_hat = np.asarray(self.current_available_power, dtype=np.float64)
-        p_ref = float(self.power_tracking.reference(self.timestep + 1))
+        step = self.timestep + 1 if self.share_reference == "scored" else self.timestep
+        p_ref = float(self.power_tracking.reference(step))
         red = allocate_deficit(
             p_hat, w, float(p_hat.sum()) - p_ref, 1.0 - self.wts.d_table_max
         )

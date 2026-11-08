@@ -71,6 +71,7 @@ SETTINGS_ATTRS = {
     "track_obs_error_history",
     "track_obs_error_scale",
     "yaw_deadband",
+    "share_reference",
     "derate_reference",
     "derate_mes",
     "avail_mes",
@@ -140,6 +141,7 @@ def test_settings_values_and_defaults():
     assert isinstance(s.track_obs_preview, int)
     assert s.track_obs_error_integral_tau is None and s.track_obs_error_history == 0
     assert s.track_obs_error_scale == 0.05 and s.yaw_deadband == 0.0
+    assert s.share_reference == "observed"
     assert s.derate_mes == {
         "derate_current": False,
         "derate_rolling_mean": False,
@@ -175,6 +177,7 @@ def test_derate_mes_defaults_follow_derate_action():
         ({"track_def": {"track_obs_error_scale": 0}}, "track_obs_error_scale must be"),
         ({"yaw_deadband": -0.1}, "yaw_deadband must be"),
         ({"derate_method": "share"}, "derate_method 'share' needs derate_reference 'setpoint'"),
+        ({"share_reference": "future"}, "share_reference must be 'observed' or 'scored'"),
     ],
 )
 def test_validation_errors(override, match):

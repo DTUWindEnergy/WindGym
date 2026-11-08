@@ -119,6 +119,7 @@ class EnvSettings:
     track_obs_error_history: int = 0
     track_obs_error_scale: float = 0.05
     yaw_deadband: float = 0.0
+    share_reference: str = "observed"
     derate_reference: str = "available"
     derate_mes: dict = field(default_factory=dict)
     avail_mes: dict = field(default_factory=dict)
@@ -341,6 +342,14 @@ def parse_env_settings(config: Dict[str, Any]) -> EnvSettings:
         raise ValueError("derate_reference must be 'available', 'rated' or 'setpoint'")
     if s.derate_method == "share" and s.derate_reference != "setpoint":
         raise ValueError("derate_method 'share' needs derate_reference 'setpoint'")
+    # Which reference the share inner loop delivers during an env step:
+    #   "observed": the one the agent has seen (pushed at the end of the
+    #               previous step) -- causal, one env step behind the score;
+    #   "scored":   the one the step is scored against, i.e. a one-env-step
+    #               preview that observing controllers do not get.
+    s.share_reference = str(config.get("share_reference", "observed")).lower()
+    if s.share_reference not in {"observed", "scored"}:
+        raise ValueError("share_reference must be 'observed' or 'scored'")
 
     # Derate observation (per turbine, mirrors yaw_mes). Defaults to
     # observing the current derate whenever the derate action is enabled.

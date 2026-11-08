@@ -440,3 +440,28 @@ def test_share_mode_zero_share_turbines_stay_uncapped():
         assert np.all(info["power_caps"][:, 0] < RATED)
     np.testing.assert_allclose(env.derate_applied[1:], 0.0)
     env.close()
+
+
+@pytest.mark.parametrize("share_reference, lags", [("observed", True), ("scored", False), (None, True)])
+def test_share_reference_observed_lags_one_env_step(share_reference, lags):
+    # "observed" (default): the loop delivers the reference the agent has seen,
+    # i.e. one env step behind the one the step is scored against; "scored" has
+    # that one-step preview
+    hi, lo = 5.2e6, 4.8e6
+    extra = dict(derate_method="share", Track_power=True,
+                 power_def={"Power_reward": "None", "Power_avg": 1, "Power_scaling": 1.0})
+    if share_reference is not None:
+        extra["share_reference"] = share_reference
+    env = make_env(cfg_extra=extra, turbtype="None", delay=2,
+                   power_ref_function=lambda t, env: hi if t < 7 else lo)
+    env.reset(seed=0)
+    delivered, scored = [], []
+    for _ in range(8):
+        _, _, _, _, info = env.step(share_action(env, [0.0, 0.0, 0.0]))
+        delivered.append(info["powers"][-1].sum())
+        scored.append(info["Power reference"])
+    k = scored.index(lo)  # first step scored against the lower reference
+    assert k >= 1
+    np.testing.assert_allclose(delivered[k], hi if lags else lo, rtol=2e-3)
+    np.testing.assert_allclose(delivered[k + 1], lo, rtol=2e-3)
+    env.close()
