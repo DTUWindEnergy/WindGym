@@ -22,6 +22,7 @@ def step_yaw_command(
     yaw_min: float,
     yaw_max: float,
     rate_limit: bool,
+    deadband: float = 0.0,
 ) -> tuple:
     """Advance the yaw command by one sim step.
 
@@ -38,6 +39,9 @@ def step_yaw_command(
         yaw_min / yaw_max: Yaw bounds (deg).
         rate_limit: Rate-limit the "wind" method toward the setpoint
             (``HTC_path is None`` in the env: HAWC2 has inertia anyway).
+        deadband: "wind" method only: a turbine whose target is less than
+            ``deadband`` deg from its current command keeps the command (no
+            yaw motion for small target changes). 0 disables it.
 
     Returns:
         ``(new_command, new_action_remaining)``
@@ -67,6 +71,11 @@ def step_yaw_command(
         # The new yaw angles are the action, scaled to be between the min and max yaw angles
         # 0 action means to move to 0 yaw angle, and 1 action means to move to the max yaw angle
         new_yaws = (action + 1.0) / 2.0 * (yaw_max - yaw_min) + yaw_min
+        if deadband > 0:
+            # Small target changes are ignored: hold the current command.
+            new_yaws = np.where(
+                np.abs(new_yaws - yaw_command) < deadband, yaw_command, new_yaws
+            )
 
         if rate_limit:  # This clip is only usefull for the pywake turbine model, as the hawc2 model has inertia anyways
             # Rate-limit relative to our own command, not the (physical) readback.
@@ -157,3 +166,59 @@ def compute_derate(
         derate = np.clip(derate, prev - step_sim, prev + step_sim)
 
     return cmd, derate
+
+
+def shares_from_action(derate_raw) -> np.ndarray:
+    """Normalised deficit shares from the derate part of the action (``derate_method="share"``).
+
+    ``u = (clip(a, -1, 1) + 1) / 2``, ``w = u / sum(u)``; equal shares when
+    ``sum(u) < 1e-6`` (every action at -1).
+    """
+    u = (np.clip(np.asarray(derate_raw, dtype=np.float64), -1.0, 1.0) + 1.0) / 2.0
+    total = u.sum()
+    if total < 1e-6:
+        return np.full(u.shape, 1.0 / u.size)
+    return u / total
+
+
+def allocate_deficit(p_hat, shares, deficit: float, floor_frac: float):
+    """Per-turbine power reductions that sum to the farm deficit (water-filling).
+
+    The inner loop of ``derate_method="share"``: turbine ``i`` gives up
+    ``w_i * deficit`` of its available power ``p_hat_i``, at most
+    ``(1 - floor_frac) * p_hat_i`` (the turbine model cannot deliver less than
+    ``floor_frac * p_hat_i``). The part a saturated turbine cannot give goes to
+    the unsaturated ones in proportion to their shares; once every turbine with
+    a positive share is saturated, the rest goes to the zero-share turbines in
+    proportion to their remaining headroom, so the deficit is met whenever the
+    farm can meet it. A deficit beyond the farm's total headroom saturates
+    every turbine.
+
+    Args:
+        p_hat: Available power per turbine (W).
+        shares: Non-negative shares (normalised here).
+        deficit: ``sum(p_hat) - P_ref`` (W).
+        floor_frac: Lowest deliverable fraction of the available power.
+
+    Returns:
+        Reductions (W) per turbine, or ``None`` when ``deficit <= 0`` (no caps).
+    """
+    if deficit <= 0:
+        return None
+    p_hat = np.maximum(np.asarray(p_hat, dtype=np.float64), 0.0)
+    w = np.asarray(shares, dtype=np.float64)
+    headroom = (1.0 - floor_frac) * p_hat
+    red = np.zeros_like(p_hat)
+    remaining = float(deficit)
+    tol = 1e-9 * max(float(p_hat.sum()), 1.0)
+    for _ in range(2 * p_hat.size + 1):
+        free = red < headroom - tol
+        if remaining <= tol or not free.any():
+            break
+        weight = np.where(free, w, 0.0)
+        if weight.sum() <= 0:  # only zero-share turbines left: by headroom
+            weight = np.where(free, headroom - red, 0.0)
+        new = np.minimum(red + remaining * weight / weight.sum(), headroom)
+        remaining -= float((new - red).sum())
+        red = new
+    return red

@@ -529,3 +529,51 @@ def test_farm_mes_wd_circular():
     farm_wd = float(fm.get_wd_farm()[0]) % 360.0
     # 359 and 1 average to 0 (mod 360), not 180
     assert min(farm_wd, 360.0 - farm_wd) == pytest.approx(0.0, abs=1e-3)
+
+
+# ------------------------------------------ tracking error integral / history --
+def _track_fm(**kw):
+    return FarmMes(
+        n_turbines=2, turb_TI=False, farm_TI=False, power_max=1e6,
+        track_setpoint=True, track_error=True, **kw,
+    )
+
+
+@pytest.mark.unit
+def test_tracking_error_integral_and_history_on_a_scripted_sequence():
+    fm = _track_fm(track_error_integral_alpha=0.5, track_error_history=3,
+                   track_error_scale=0.05)
+    # tail: setpoint, error, integral, history x3 (newest first)
+    assert fm.farm_observed_variables == _track_fm().farm_observed_variables + 1 + 3
+    np.testing.assert_allclose(fm.get_tracking()[2:], [0, 0, 0, 0])
+    errors = [1e5, -1e5, 2e5]
+    for e in errors:
+        fm.set_tracking(setpoint=1e6, error=e, preview=np.array([]))
+    # I: 0 -> 0.5e5 -> -0.25e5 -> 0.875e5
+    raw = fm.get_tracking(scaled=False)
+    np.testing.assert_allclose(raw[2], 0.875e5)
+    np.testing.assert_allclose(raw[3:], [2e5, -1e5, 1e5])
+    # scaled: / (0.05 * 2 MW) = / 1e5, clipped to +-1
+    sc = fm.get_tracking(scaled=True)
+    np.testing.assert_allclose(sc[2], 0.875)
+    np.testing.assert_allclose(sc[3:], [1.0, -1.0, 1.0])
+    # the existing error feature keeps its farm-power scale
+    np.testing.assert_allclose(sc[1], 2e5 / 2e6)
+
+
+@pytest.mark.unit
+def test_tracking_error_features_off_by_default():
+    fm = _track_fm()
+    assert fm.farm_observed_variables == FarmMes(
+        n_turbines=2, turb_TI=False, farm_TI=False
+    ).farm_observed_variables + 2
+    fm.set_tracking(setpoint=1e6, error=1e5, preview=np.array([]))
+    assert fm.get_tracking().shape == (2,)
+
+
+@pytest.mark.unit
+def test_tracking_error_features_follow_the_preview():
+    fm = _track_fm(track_preview=2, track_error_history=2)
+    fm.set_tracking(setpoint=1e6, error=1e5, preview=np.array([1.1e6, 1.2e6]))
+    raw = fm.get_tracking()
+    np.testing.assert_allclose(raw, [1e6, 1e5, 1.1e6, 1.2e6, 1e5, 0.0])

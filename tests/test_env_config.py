@@ -67,6 +67,10 @@ SETTINGS_ATTRS = {
     "track_obs_setpoint",
     "track_obs_error",
     "track_obs_preview",
+    "track_obs_error_integral_tau",
+    "track_obs_error_history",
+    "track_obs_error_scale",
+    "yaw_deadband",
     "derate_reference",
     "derate_mes",
     "avail_mes",
@@ -134,6 +138,8 @@ def test_settings_values_and_defaults():
     assert s.derate_step_sim is None
     assert s.track_ref_range == [0.2, 0.8] and s.track_obs_preview == 0
     assert isinstance(s.track_obs_preview, int)
+    assert s.track_obs_error_integral_tau is None and s.track_obs_error_history == 0
+    assert s.track_obs_error_scale == 0.05 and s.yaw_deadband == 0.0
     assert s.derate_mes == {
         "derate_current": False,
         "derate_rolling_mean": False,
@@ -159,11 +165,16 @@ def test_derate_mes_defaults_follow_derate_action():
 @pytest.mark.parametrize(
     "override, match",
     [
-        ({"derate_method": "bogus"}, "derate_method must be 'absolute' or 'step'"),
+        ({"derate_method": "bogus"}, "derate_method must be 'absolute', 'step' or 'share'"),
         ({"derate_step_sim": 0}, "derate_step_sim must be positive"),
         ({"derate_reference": "x"}, "derate_reference must be 'available', 'rated' or 'setpoint'"),
         ({"track_def": {"track_ref_range": [0.9, 0.1]}}, "track_ref_range must be"),
         ({"track_def": {"track_obs_preview": 1.5}}, "track_obs_preview must be"),
+        ({"track_def": {"track_obs_error_history": -1}}, "track_obs_error_history must be"),
+        ({"track_def": {"track_obs_error_integral": {"tau_s": 0}}}, "tau_s must be positive"),
+        ({"track_def": {"track_obs_error_scale": 0}}, "track_obs_error_scale must be"),
+        ({"yaw_deadband": -0.1}, "yaw_deadband must be"),
+        ({"derate_method": "share"}, "derate_method 'share' needs derate_reference 'setpoint'"),
     ],
 )
 def test_validation_errors(override, match):
@@ -207,3 +218,22 @@ def test_yaml_roundtrip_settings_equal_dict_settings(tmp_path):
     p = tmp_path / "c.yaml"
     p.write_text(yaml.safe_dump(cfg))
     assert parse_env_settings(load_config_dict(str(p))[0]) == parse_env_settings(cfg)
+
+
+def test_round3_keys_parse():
+    s = parse_env_settings(
+        get_fast_pywake_config(
+            derate_method="share",
+            derate_reference="setpoint",
+            derate_action=True,
+            yaw_deadband=0.375,
+            track_def={
+                "track_obs_error_integral": {"tau_s": 60},
+                "track_obs_error_history": 6,
+                "track_obs_error_scale": 0.1,
+            },
+        )
+    )
+    assert s.derate_method == "share" and s.yaw_deadband == 0.375
+    assert s.track_obs_error_integral_tau == 60.0
+    assert s.track_obs_error_history == 6 and s.track_obs_error_scale == 0.1

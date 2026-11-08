@@ -515,6 +515,9 @@ class FarmMes:
         track_setpoint: bool = False,
         track_error: bool = False,
         track_preview: int = 0,
+        track_error_integral_alpha: float = 0.0,
+        track_error_history: int = 0,
+        track_error_scale: float = 0.05,
         ws_min: float = 7.0,
         ws_max: float = 20.0,
         wd_min: float = 270.0,
@@ -559,6 +562,16 @@ class FarmMes:
         self._track_setpoint_val: float = 0.0
         self._track_error_val: float = 0.0
         self._track_preview_vals = np.zeros(self.track_preview)
+        # Error integral (exponential moving mean, gain alpha per push; 0 = off)
+        # and error history (newest first), scaled by track_error_scale *
+        # farm power max and clipped to +-1 (the plain error keeps its scale).
+        self.track_error_integral_alpha: float = float(track_error_integral_alpha)
+        self.track_error_history: int = int(track_error_history)
+        self.track_error_scale: float = float(track_error_scale)
+        self._track_error_integral: float = 0.0
+        self._track_error_hist = deque(
+            [0.0] * self.track_error_history, maxlen=max(self.track_error_history, 1)
+        )
 
         if turb_TI or farm_TI:
             # If we return the TI, check the number of data points
@@ -578,6 +591,8 @@ class FarmMes:
             + track_setpoint
             + track_error
             + track_preview
+            + (self.track_error_integral_alpha > 0)
+            + self.track_error_history
         )
 
         # For each turbine, create a class of turbine measurements
@@ -844,6 +859,11 @@ class FarmMes:
         self._track_setpoint_val = float(setpoint)
         self._track_error_val = float(error)
         self._track_preview_vals = np.asarray(preview, dtype=np.float64)
+        a = self.track_error_integral_alpha
+        if a > 0:
+            self._track_error_integral += a * (float(error) - self._track_error_integral)
+        if self.track_error_history > 0:
+            self._track_error_hist.appendleft(float(error))
 
     def get_tracking(self, scaled: bool = False) -> NDArray[np.float32]:
         """Return the enabled tracking observations [setpoint, error, preview].
@@ -875,6 +895,16 @@ class FarmMes:
                 else self._track_preview_vals
             )
             values = np.append(values, vals)
+        extra = []
+        if self.track_error_integral_alpha > 0:
+            extra.append(self._track_error_integral)
+        if self.track_error_history > 0:
+            extra.extend(self._track_error_hist)
+        if extra:
+            extra = np.asarray(extra, dtype=np.float64)
+            if scaled:
+                extra = np.clip(extra / (self.track_error_scale * farm_power_max), -1.0, 1.0)
+            values = np.append(values, extra)
         return values
 
     def get_measurements(self, scaled: bool = False) -> NDArray[np.float32]:
@@ -898,7 +928,13 @@ class FarmMes:
             power_farm = self.get_power_farm(scaled=scaled)
             farm_measurements = np.append(farm_measurements, power_farm)
 
-        if self.track_setpoint or self.track_error or self.track_preview > 0:
+        if (
+            self.track_setpoint
+            or self.track_error
+            or self.track_preview > 0
+            or self.track_error_integral_alpha > 0
+            or self.track_error_history > 0
+        ):
             tracking = self.get_tracking(scaled=scaled)
             farm_measurements = np.append(farm_measurements, tracking)
         turb_measurements = np.array(

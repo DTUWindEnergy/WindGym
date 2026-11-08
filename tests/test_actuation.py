@@ -3,7 +3,12 @@
 import numpy as np
 import pytest
 
-from WindGym.core.actuation import compute_derate, step_yaw_command
+from WindGym.core.actuation import (
+    allocate_deficit,
+    compute_derate,
+    shares_from_action,
+    step_yaw_command,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -100,3 +105,89 @@ def test_step_sim_slews_toward_setpoint():
     kw = dict(DERATE_KW, step_sim=0.05, current_derate=np.array([0.1, 0.7]))
     _, applied = compute_derate(np.array([1.0, -1.0]), **kw)
     np.testing.assert_allclose(applied, [0.15, 0.65])
+
+
+# ------------------------------------------------------------------ deadband --
+def test_wind_method_deadband_holds_a_small_target_change():
+    kw = dict(YAW_KW, deadband=0.375)
+    a = np.array([0.3 / 30.0, -0.3 / 30.0])  # targets +0.3 / -0.3 deg
+    cmd, _ = step_yaw_command("wind", a, np.zeros(2), None, **kw)
+    np.testing.assert_array_equal(cmd, [0.0, 0.0])
+
+
+def test_wind_method_deadband_releases_a_large_target_change():
+    kw = dict(YAW_KW, deadband=0.375)
+    a = np.array([0.5 / 30.0, 0.0])  # target +0.5 deg (outside), 0 (inside: already there)
+    cmd, _ = step_yaw_command("wind", a, np.zeros(2), None, **kw)
+    np.testing.assert_allclose(cmd, [0.5, 0.0], atol=1e-6)
+
+
+def test_wind_method_deadband_stops_short_of_the_target():
+    # moving to 2 deg at 1 deg/step: stops at 1.0, then 2.0 is 1 deg away -> moves;
+    # a target 0.3 deg away holds
+    kw = dict(YAW_KW, deadband=0.375)
+    cmd = np.array([1.7])
+    cmd, _ = step_yaw_command("wind", np.array([2.0 / 30.0]), cmd, None, **kw)
+    np.testing.assert_allclose(cmd, [1.7])
+    cmd, _ = step_yaw_command("wind", np.array([2.5 / 30.0]), cmd, None, **kw)
+    np.testing.assert_allclose(cmd, [2.5], atol=1e-6)
+
+
+def test_wind_method_zero_deadband_is_the_old_behaviour():
+    a = np.array([0.3 / 30.0])
+    cmd, _ = step_yaw_command("wind", a, np.zeros(1), None, **dict(YAW_KW, deadband=0.0))
+    old, _ = step_yaw_command("wind", a, np.zeros(1), None, **YAW_KW)
+    np.testing.assert_array_equal(cmd, old)
+    np.testing.assert_allclose(cmd, [0.3], atol=1e-6)
+
+
+# ------------------------------------------------------------- share inner loop --
+def test_shares_from_action_maps_and_normalises():
+    np.testing.assert_allclose(shares_from_action(np.array([1.0, -1.0, 0.0])), [2 / 3, 0, 1 / 3])
+    np.testing.assert_allclose(shares_from_action(np.array([-1.0, -1.0])), [0.5, 0.5])
+    np.testing.assert_allclose(shares_from_action(np.array([5.0, -3.0])), [1.0, 0.0])  # clipped
+
+
+def test_allocate_deficit_no_deficit_means_no_caps():
+    p = np.array([4.0, 6.0])
+    assert allocate_deficit(p, np.array([0.5, 0.5]), 0.0, 0.2) is None
+    assert allocate_deficit(p, np.array([0.5, 0.5]), -1.0, 0.2) is None
+
+
+def test_allocate_deficit_equal_shares_by_hand():
+    r = allocate_deficit(np.array([4.0, 6.0]), np.array([0.5, 0.5]), 2.0, 0.2)
+    np.testing.assert_allclose(r, [1.0, 1.0])
+
+
+def test_allocate_deficit_t1_only_by_hand():
+    r = allocate_deficit(np.array([4.0, 6.0, 5.0]), np.array([1.0, 0.0, 0.0]), 2.0, 0.2)
+    np.testing.assert_allclose(r, [2.0, 0.0, 0.0])
+
+
+def test_allocate_deficit_saturation_redistributes_by_share():
+    # shares [0.5, 0.25, 0.25] of 6: wants [3, 1.5, 1.5]; T1 can give 0.8*2 = 1.6,
+    # the excess 1.4 goes to T2/T3 by their shares (0.7 each): [1.6, 2.2, 2.2]
+    r = allocate_deficit(np.array([2.0, 6.0, 6.0]), np.array([0.5, 0.25, 0.25]), 6.0, 0.2)
+    np.testing.assert_allclose(r, [1.6, 2.2, 2.2])
+    assert r.sum() == pytest.approx(6.0)
+
+
+def test_allocate_deficit_t1_only_saturation_spills_by_headroom():
+    # T1 gives 1.6 of 3; the zero-share turbines take the rest (1.4) in proportion
+    # to their headroom 0.8*[6, 2] = [4.8, 1.6]: [1.05, 0.35]
+    r = allocate_deficit(np.array([2.0, 6.0, 2.0]), np.array([1.0, 0.0, 0.0]), 3.0, 0.2)
+    np.testing.assert_allclose(r, [1.6, 1.05, 0.35])
+
+
+def test_allocate_deficit_beyond_the_floor_takes_everything_it_can():
+    p = np.array([2.0, 6.0])
+    r = allocate_deficit(p, np.array([0.5, 0.5]), 100.0, 0.2)
+    np.testing.assert_allclose(r, 0.8 * p)
+
+
+def test_allocate_deficit_cascading_saturation():
+    # equal shares of 3.3 over [1, 2, 10] with floor 0.2 (headroom [0.8, 1.6, 8]):
+    # 1.1 each -> T1 saturates at 0.8 (+0.3 spare: 0.15 each) -> T2 at 1.25, T3 1.25;
+    # all within headroom
+    r = allocate_deficit(np.array([1.0, 2.0, 10.0]), np.full(3, 1 / 3), 3.3, 0.2)
+    np.testing.assert_allclose(r, [0.8, 1.25, 1.25])

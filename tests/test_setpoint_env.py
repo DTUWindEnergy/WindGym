@@ -268,3 +268,158 @@ def test_hawc2_setpoint_reference_maps_to_constant_104_zero(tmp_path):
     check_htc_supports_derating(htc, "setpoint")
     with pytest.raises(ValueError, match="constant 104"):
         check_htc_supports_derating(htc, "available")
+
+
+# ------------------------------------------------ share inner loop (round 3) --
+P_REF = 3.0e6
+
+
+def make_share_env(p_ref=P_REF, turbtype="Random", cfg_extra=None, **kw):
+    """Setpoint mode, derate_method 'share', tracking a constant P_ref, dt_env 2 (no delay)."""
+    extra = dict(derate_method="share", Track_power=True,
+                 power_def={"Power_reward": "None", "Power_avg": 1, "Power_scaling": 1.0})
+    extra.update(cfg_extra or {})
+    return make_env(cfg_extra=extra, turbtype=turbtype, delay=2,
+                    power_ref_function=lambda t, env: p_ref, **kw)
+
+
+def share_action(env, derate_raw):
+    a = np.zeros(2 * env.n_turb, dtype=np.float32)
+    a[env.n_turb:] = derate_raw
+    return a
+
+
+@pytest.mark.parametrize("raw, shares", [([1.0, -1.0, -1.0], [1.0, 0.0, 0.0]),
+                                         ([0.0, 0.0, 0.0], [1 / 3, 1 / 3, 1 / 3])])
+def test_share_mode_delivers_the_setpoint_every_sim_step_under_turbulence(raw, shares):
+    # the paper's turbine parameters: the inertia filters the available power
+    env = make_share_env(dwm_params={"tau_power": 6.0, "tau_ct": 10.0})
+    env.reset(seed=3)
+    errs, caps_moved = [], []
+    for _ in range(10):
+        _, _, _, _, info = env.step(share_action(env, raw))
+        p_farm = info["powers"].sum(axis=1)
+        assert np.all(info["available_powers"].sum(axis=1) > P_REF)  # tracking regime
+        errs.append(np.abs(p_farm - P_REF) / (env.n_turb * RATED))
+        caps_moved.append(np.ptp(info["power_caps"], axis=0))
+        np.testing.assert_allclose(info["derate shares"], shares, atol=1e-6)
+    errs = np.concatenate(errs)
+    # P_hat is one sim step old: the only error is the change of the uncapped
+    # turbines' available power within one second
+    assert np.max(errs) < 0.02, np.max(errs)
+    assert np.mean(errs) < 0.005, np.mean(errs)
+    # the caps follow the turbulence within an env step (an inner loop, not a held command)
+    assert np.max(np.concatenate(caps_moved)) > 1e3
+    env.close()
+
+
+def _feasible_low_ref():
+    """A reference T1 alone cannot reach (it sheds at most 0.8 of its available
+    power) but the farm can: halfway between the farm floor and T1's limit."""
+    probe = make_share_env(p_ref=50e6, turbtype="None")
+    _, info = probe.reset(seed=0)
+    avail = np.asarray(info["available power agent"], float)
+    probe.close()
+    t1_limit = avail.sum() - 0.8 * avail[0]
+    return 0.5 * (0.2 * avail.sum() + t1_limit)
+
+
+def test_share_mode_t1_only_spills_past_the_floor_to_the_others():
+    p_ref = _feasible_low_ref()
+    env = make_share_env(p_ref=p_ref, turbtype="None")
+    env.reset(seed=0)
+    for _ in range(3):
+        _, _, _, _, info = env.step(share_action(env, [1.0, -1.0, -1.0]))
+    p, avail = info["powers"][-1], info["available_powers"][-1]
+    np.testing.assert_allclose(p[0], 0.2 * avail[0], rtol=1e-3)
+    assert np.all(p[1:] < avail[1:] - 1e3)
+    np.testing.assert_allclose(p.sum(), p_ref, rtol=1e-3)
+    env.close()
+
+
+def test_share_mode_no_deficit_leaves_the_turbines_uncapped():
+    env = make_share_env(p_ref=50e6, turbtype="None")
+    env.reset(seed=0)
+    _, _, _, _, info = env.step(share_action(env, [1.0, -1.0, -1.0]))
+    np.testing.assert_allclose(info["power_caps"], RATED)
+    np.testing.assert_allclose(env.derate_applied, 0.0)
+    env.close()
+
+
+def test_share_mode_change_penalty_acts_on_the_shares():
+    env = make_share_env()
+    env.reset(seed=3)
+    np.testing.assert_allclose(env._penalised_derate, 1 / 3)  # equal shares before any action
+    env.step(share_action(env, [1.0, -1.0, -1.0]))
+    env.step(share_action(env, [1.0, -1.0, -1.0]))
+    # same shares, different caps: no change for the penalty
+    np.testing.assert_allclose(env.old_derate, [1.0, 0.0, 0.0])
+    np.testing.assert_allclose(env._penalised_derate, [1.0, 0.0, 0.0])
+    env.close()
+
+
+def test_share_mode_honours_derate_step_sim():
+    p_ref = _feasible_low_ref()
+    env = make_share_env(p_ref=p_ref, turbtype="None", cfg_extra={"derate_step_sim": 0.05})
+    env.reset(seed=0)
+    _, _, _, _, info = env.step(share_action(env, [1.0, -1.0, -1.0]))
+    # 2 sim steps of at most 0.05 each from 0
+    assert np.all(env.derate_applied <= 0.1 + 1e-9)
+    assert env.derate_applied[0] == pytest.approx(0.1)
+    np.testing.assert_allclose(info["derate shares"], [1.0, 0.0, 0.0])
+    for _ in range(15):  # slewed up to the inner loop's target: T1 at its floor
+        _, _, _, _, info = env.step(share_action(env, [1.0, -1.0, -1.0]))
+    np.testing.assert_allclose(info["powers"][-1].sum(), p_ref, rtol=1e-3)
+    env.close()
+
+
+def test_share_mode_needs_tracking():
+    with pytest.raises(ValueError, match="share.*Track_power"):
+        make_env(cfg_extra={"derate_method": "share"})
+
+
+# ---------------------------------------------------------- yaw deadband --
+def _yaw_action(env, yaw_deg):
+    a = action(env, 0.0)
+    a[: env.n_turb] = np.asarray(yaw_deg) / env.yaw_max  # symmetric yaw range
+    return a
+
+
+def test_yaw_deadband_holds_small_targets_and_releases_large_ones():
+    env = make_env(cfg_extra={"yaw_deadband": 0.375}, yaw_step_sim=1.0)
+    env.reset(seed=0)
+    env.step(_yaw_action(env, [0.3, -0.3, 0.0]))
+    np.testing.assert_allclose(env.yaw_command, 0.0, atol=1e-6)
+    env.step(_yaw_action(env, [1.0, -0.3, 0.0]))
+    np.testing.assert_allclose(env.yaw_command, [1.0, 0.0, 0.0], atol=1e-5)
+    np.testing.assert_allclose(env.fs_baseline.windTurbines.yaw, 0.0, atol=1e-6)
+    env.close()
+
+
+def test_yaw_deadband_default_off():
+    env = make_env(yaw_step_sim=1.0)
+    env.reset(seed=0)
+    env.step(_yaw_action(env, [0.3, -0.3, 0.0]))
+    np.testing.assert_allclose(env.yaw_command, [0.3, -0.3, 0.0], atol=1e-5)
+    env.close()
+
+
+# ------------------------------------------------ error integral / history --
+def test_error_integral_and_history_widen_the_tracking_tail():
+    base = make_share_env(turbtype="None")
+    feat = make_share_env(turbtype="None", cfg_extra={"track_def": {
+        "track_obs_error_integral": {"tau_s": 60}, "track_obs_error_history": 6}})
+    w0, w1 = base.observation_space.shape[0], feat.observation_space.shape[0]
+    assert w1 == w0 + 7
+    assert feat.farm_measurements.track_error_integral_alpha == pytest.approx(2 / 60)
+    obs, _ = feat.reset(seed=0)
+    assert obs.shape == (w1,)
+    obs, _, _, _, info = feat.step(share_action(feat, [0.0, 0.0, 0.0]))
+    tail = obs[-7:]
+    assert np.all(np.abs(tail) <= 1.0)
+    # history newest first: the latest error, scaled by 0.05 * farm max power
+    fm = feat.farm_measurements
+    e = fm._track_error_val
+    assert tail[1] == pytest.approx(np.clip(e / (0.05 * fm.power_max * 3), -1, 1), abs=1e-6)
+    base.close()
+    feat.close()

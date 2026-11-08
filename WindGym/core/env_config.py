@@ -115,6 +115,10 @@ class EnvSettings:
     track_obs_setpoint: bool = True
     track_obs_error: bool = True
     track_obs_preview: int = 0
+    track_obs_error_integral_tau: Optional[float] = None
+    track_obs_error_history: int = 0
+    track_obs_error_scale: float = 0.05
+    yaw_deadband: float = 0.0
     derate_reference: str = "available"
     derate_mes: dict = field(default_factory=dict)
     avail_mes: dict = field(default_factory=dict)
@@ -251,9 +255,13 @@ def parse_env_settings(config: Dict[str, Any]) -> EnvSettings:
     # How the derate action is applied:
     #   "absolute": action is the setpoint, mapped to [derate_min, derate_max]
     #   "step":     action is a delta, at most derate_step_env change per env step
+    #   "share":    inner loop (setpoint mode only): the action gives each
+    #               turbine's share of the farm deficit sum(P_avail) - P_ref,
+    #               and the env sets the caps every sim step
+    #               (core.actuation.allocate_deficit)
     s.derate_method = str(config.get("derate_method", "absolute")).lower()
-    if s.derate_method not in {"absolute", "step"}:
-        raise ValueError("derate_method must be 'absolute' or 'step'")
+    if s.derate_method not in {"absolute", "step", "share"}:
+        raise ValueError("derate_method must be 'absolute', 'step' or 'share'")
     s.derate_step_env = config.get("derate_step_env", 0.1)
     # Optional slew limit toward the setpoint, per sim substep (mirrors
     # yaw_step_sim in the "wind" yaw method). None = setpoint applies
@@ -287,6 +295,34 @@ def parse_env_settings(config: Dict[str, Any]) -> EnvSettings:
             f"got {s.track_obs_preview}"
         )
     s.track_obs_preview = int(s.track_obs_preview)
+    # Error integral and history (appended to the tracking tail, off by
+    # default): an exponential moving mean of the error with time constant
+    # tau_s, I <- I + (dt_env / tau_s) (e - I), and the last N env-step errors
+    # (newest first). Both are scaled by track_obs_error_scale * farm max power
+    # and clipped to +-1; the plain error keeps its farm-power scale.
+    integral = track_def.get("track_obs_error_integral")
+    if integral:
+        tau_s = float(integral.get("tau_s", 60.0))
+        if tau_s <= 0:
+            raise ValueError(f"track_obs_error_integral tau_s must be positive, got {tau_s}")
+        s.track_obs_error_integral_tau = tau_s
+    else:
+        s.track_obs_error_integral_tau = None
+    hist = track_def.get("track_obs_error_history", 0)
+    if int(hist) != hist or hist < 0:
+        raise ValueError(f"track_obs_error_history must be a non-negative integer, got {hist}")
+    s.track_obs_error_history = int(hist)
+    s.track_obs_error_scale = float(track_def.get("track_obs_error_scale", 0.05))
+    if s.track_obs_error_scale <= 0:
+        raise ValueError(
+            f"track_obs_error_scale must be positive, got {s.track_obs_error_scale}"
+        )
+
+    # Yaw deadband (deg, "wind" ActionMethod, agent farm only): a target less
+    # than yaw_deadband from the current command is ignored. 0 = off.
+    s.yaw_deadband = float(config.get("yaw_deadband", 0.0))
+    if s.yaw_deadband < 0:
+        raise ValueError(f"yaw_deadband must be non-negative, got {s.yaw_deadband}")
 
     # What the derate command means:
     #   "available": fraction of locally available power (P = (1-d)*P_avail)
@@ -303,6 +339,8 @@ def parse_env_settings(config: Dict[str, Any]) -> EnvSettings:
     s.derate_reference = str(config.get("derate_reference", "available")).lower()
     if s.derate_reference not in {"available", "rated", "setpoint"}:
         raise ValueError("derate_reference must be 'available', 'rated' or 'setpoint'")
+    if s.derate_method == "share" and s.derate_reference != "setpoint":
+        raise ValueError("derate_method 'share' needs derate_reference 'setpoint'")
 
     # Derate observation (per turbine, mirrors yaw_mes). Defaults to
     # observing the current derate whenever the derate action is enabled.
@@ -388,6 +426,11 @@ def build_farm_mes(
         track_setpoint=bool(settings.Track_power) and settings.track_obs_setpoint,
         track_error=bool(settings.Track_power) and settings.track_obs_error,
         track_preview=settings.track_obs_preview if settings.Track_power else 0,
+        track_error_integral_alpha=_integral_alpha(settings),
+        track_error_history=(
+            getattr(settings, "track_obs_error_history", 0) if settings.Track_power else 0
+        ),
+        track_error_scale=getattr(settings, "track_obs_error_scale", 0.05),
         ws_min=scaling["ws_min"],
         ws_max=scaling["ws_max"],
         # Max and min values for wind direction measurements   NOTE i have added 5 for some slack in the measurements. so the scaling is better.
@@ -400,3 +443,14 @@ def build_farm_mes(
         power_max=maxturbpower,
         ti_sample_count=settings.ti_sample_count,
     )
+
+
+def _integral_alpha(settings) -> float:
+    """Per-env-step gain ``dt_env / tau_s`` of the error integral (0 = off)."""
+    tau = getattr(settings, "track_obs_error_integral_tau", None)
+    if not settings.Track_power or tau is None:
+        return 0.0
+    dt_env = getattr(settings, "dt_env", None)
+    if dt_env is None:
+        raise ValueError("track_obs_error_integral needs the env's dt_env")
+    return min(1.0, float(dt_env) / tau)

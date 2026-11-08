@@ -27,7 +27,12 @@ from .core.wind_manager import WindManager
 from .core.turbulence_manager import TurbulenceManager
 from .core.episode_timing import episode_time_parameters
 from .core.env_config import load_config_dict, parse_env_settings, build_farm_mes
-from .core.actuation import step_yaw_command, compute_derate
+from .core.actuation import (
+    allocate_deficit,
+    compute_derate,
+    shares_from_action,
+    step_yaw_command,
+)
 from .core.renderer import WindFarmRenderer
 from .core.baseline_manager import BaselineManager
 from .core.probe_manager import ProbeManager
@@ -365,6 +370,13 @@ class WindFarmEnv(gym.Env):
             and self.derate_reference == "setpoint"
             and self.HTC_path is None
         )
+        if self.derate_method == "share" and not (
+            self._setpoint_mode and self.Track_power
+        ):
+            raise ValueError(
+                "derate_method 'share' (the deficit inner loop) needs derate_action, "
+                "PyWake setpoint turbines and Track_power"
+            )
         if self.derate_action:
             self.act_var = 2 if self.yaw_action else 1
             if self.HTC_path is not None:
@@ -884,6 +896,8 @@ class WindFarmEnv(gym.Env):
         if self.derate_action:
             return_dict["derate agent"] = self.current_derate
             return_dict["derate command"] = self.derate_command
+            if self.derate_method == "share":
+                return_dict["derate shares"] = np.array(self.derate_shares)
             return_dict["derate measured"] = self.farm_measurements.get_derate_turb()
         if self._setpoint_mode:
             return_dict["available power agent"] = getattr(
@@ -1025,6 +1039,9 @@ class WindFarmEnv(gym.Env):
         # turbine cap, power_cap = (1 - derate_applied) * derate_rated_power.
         # current_derate then holds the model's lagged effective derate.
         self.derate_applied = np.zeros(self.n_turb)
+        # derate_method "share": the agent's deficit shares (equal = the
+        # neutral all-zero action until the first step)
+        self.derate_shares = np.full(self.n_turb, 1.0 / self.n_turb)
 
         # Set random generator for turbulence manager
         self.turbulence_manager.np_random = self.np_random
@@ -1594,7 +1611,10 @@ class WindFarmEnv(gym.Env):
     @property
     def _penalised_derate(self) -> np.ndarray:
         """Derate the reward's change penalty acts on: the command in setpoint
-        mode (``derate_applied``), the applied derate otherwise."""
+        mode (``derate_applied``), the applied derate otherwise; the deficit
+        shares under ``derate_method="share"``."""
+        if self.derate_method == "share":
+            return self.derate_shares
         return self.derate_applied if self._setpoint_mode else self.current_derate
 
     @property
@@ -1634,6 +1654,7 @@ class WindFarmEnv(gym.Env):
             # This clip is only usefull for the pywake turbine model, as the
             # hawc2 model has inertia anyways
             rate_limit=self.HTC_path is None,
+            deadband=self.yaw_deadband,
         )
         if self.ActionMethod == "yaw":
             self.action_remaining = remaining
@@ -1659,6 +1680,10 @@ class WindFarmEnv(gym.Env):
         lagged effective derate).
         """
         derate_raw = action[self.n_turb :] if self.yaw_action else action[: self.n_turb]
+
+        if self.derate_method == "share":
+            self._apply_share_derating(derate_raw)
+            return
 
         if self._setpoint_mode:
             self.derate_command, self.derate_applied = compute_derate(
@@ -1700,6 +1725,43 @@ class WindFarmEnv(gym.Env):
             self.wts.sensors.derate = derate
         else:
             self.fs._derate = derate
+
+    def _apply_share_derating(self, derate_raw):
+        """Inner loop of ``derate_method="share"`` (setpoint mode), every sim step.
+
+        The action gives each turbine's share ``w`` of the farm deficit
+        ``D = sum(P_hat) - P_ref`` (``core.actuation.shares_from_action``), with
+        ``P_hat`` the agent farm's available power one sim step old (the same
+        signal a proportional controller uses) and ``P_ref`` the reference this
+        env step is scored against. ``core.actuation.allocate_deficit`` turns
+        the shares into reductions (water-filling above the turbine model's
+        floor ``(1 - d_table_max) P_hat``); turbine ``i`` is capped at
+        ``P_hat_i - reduction_i``, i.e. a command ``1 - cap / rated`` that
+        slews by ``derate_step_sim`` as in the other modes. No deficit leaves
+        every turbine uncapped. The change penalty acts on the shares
+        (``_penalised_derate``), the agent's decision, not on the caps that
+        follow the turbulence.
+        """
+        w = shares_from_action(derate_raw)
+        self.derate_shares = w
+        p_hat = np.asarray(self.current_available_power, dtype=np.float64)
+        p_ref = float(self.power_tracking.reference(self.timestep + 1))
+        red = allocate_deficit(
+            p_hat, w, float(p_hat.sum()) - p_ref, 1.0 - self.wts.d_table_max
+        )
+        if red is None:
+            target = np.zeros(self.n_turb)
+        else:
+            target = 1.0 - (p_hat - red) / self.derate_rated_power
+        target = np.clip(target, self.derate_min, self.derate_max)
+        self.derate_command = target
+        if self.derate_step_sim is not None:
+            prev = np.asarray(self.derate_applied, dtype=np.float64)
+            target = np.clip(
+                target, prev - self.derate_step_sim, prev + self.derate_step_sim
+            )
+        self.derate_applied = target
+        self.wts.power_cap = (1.0 - self.derate_applied) * self.derate_rated_power
 
     def step(self, action):
         """
