@@ -260,9 +260,15 @@ def parse_env_settings(config: Dict[str, Any]) -> EnvSettings:
     #               turbine's share of the farm deficit sum(P_avail) - P_ref,
     #               and the env sets the caps every sim step
     #               (core.actuation.allocate_deficit)
+    #   "relative": setpoint mode only: the action maps to d in
+    #               [derate_min, derate_max] and caps each turbine at
+    #               (1 - d) * its available power, every sim step (the same
+    #               d on every turbine is proportional derating)
     s.derate_method = str(config.get("derate_method", "absolute")).lower()
-    if s.derate_method not in {"absolute", "step", "share"}:
-        raise ValueError("derate_method must be 'absolute', 'step' or 'share'")
+    if s.derate_method not in {"absolute", "step", "share", "relative"}:
+        raise ValueError(
+            "derate_method must be 'absolute', 'step', 'share' or 'relative'"
+        )
     s.derate_step_env = config.get("derate_step_env", 0.1)
     # Optional slew limit toward the setpoint, per sim substep (mirrors
     # yaw_step_sim in the "wind" yaw method). None = setpoint applies
@@ -341,8 +347,10 @@ def parse_env_settings(config: Dict[str, Any]) -> EnvSettings:
     s.derate_reference = str(config.get("derate_reference", "available")).lower()
     if s.derate_reference not in {"available", "rated", "setpoint"}:
         raise ValueError("derate_reference must be 'available', 'rated' or 'setpoint'")
-    if s.derate_method == "share" and s.derate_reference != "setpoint":
-        raise ValueError("derate_method 'share' needs derate_reference 'setpoint'")
+    if s.derate_method in ("share", "relative") and s.derate_reference != "setpoint":
+        raise ValueError(
+            f"derate_method '{s.derate_method}' needs derate_reference 'setpoint'"
+        )
     # Which reference the share inner loop delivers during an env step:
     #   "observed": the one the agent has seen (pushed at the end of the
     #               previous step) -- causal, one env step behind the score;

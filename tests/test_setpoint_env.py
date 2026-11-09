@@ -465,3 +465,82 @@ def test_share_reference_observed_lags_one_env_step(share_reference, lags):
     np.testing.assert_allclose(delivered[k], hi if lags else lo, rtol=2e-3)
     np.testing.assert_allclose(delivered[k + 1], lo, rtol=2e-3)
     env.close()
+
+
+# -------------------------------------------- relative derate (round 4) --
+def make_relative_env(cfg_extra=None, **kw):
+    """Setpoint mode, derate_method 'relative' (cap_i = (1 - d_i) * P_hat_i), dt_env 2."""
+    extra = dict(derate_method="relative")
+    extra.update(cfg_extra or {})
+    return make_env(cfg_extra=extra, delay=2, **kw)
+
+
+def relative_action(env, d):
+    """Zero yaw action plus a relative derate d in [0, 0.8] (derate_min 0, derate_max 0.8)."""
+    a = np.zeros(2 * env.n_turb, dtype=np.float32)
+    a[env.n_turb:] = 2.0 * np.asarray(d, float) / 0.8 - 1.0
+    return a
+
+
+def test_relative_mode_caps_each_turbine_at_one_minus_d_of_its_available_power():
+    env = make_relative_env(turbtype="Random", dwm_params={"tau_power": 6.0, "tau_ct": 10.0})
+    env.reset(seed=3)
+    d = np.array([0.4, 0.3, 0.2])
+    for _ in range(4):
+        p_hat_prev = np.array(env.current_available_power, dtype=np.float64)
+        _, _, _, _, info = env.step(relative_action(env, d))
+        avail, caps = info["available_powers"], info["power_caps"]
+        # P_hat is one sim step old: the cap at substep j uses substep j-1's available power
+        p_hat = np.vstack([p_hat_prev, avail[:-1]])
+        np.testing.assert_allclose(caps, (1.0 - d) * p_hat, rtol=1e-5)
+        np.testing.assert_allclose(info["derate command"], d, atol=1e-6)
+    env.close()
+
+
+def test_relative_mode_zero_d_leaves_the_turbine_uncapped():
+    env = make_relative_env(turbtype="Random")
+    env.reset(seed=3)
+    _, _, _, _, info = env.step(relative_action(env, [0.0, 0.3, 0.0]))
+    np.testing.assert_allclose(info["power_caps"][:, [0, 2]], RATED)
+    np.testing.assert_allclose(env.derate_applied[[0, 2]], 0.0)
+    assert np.all(info["power_caps"][:, 1] < info["available_powers"][:, 1])
+    env.close()
+
+
+def test_relative_mode_equal_d_is_proportional_derating():
+    """The same d on every turbine delivers P_ref when d = 1 - P_ref / sum(P_hat)."""
+    env = make_relative_env(turbtype="None")
+    _, info = env.reset(seed=0)
+    p_hat = np.asarray(info["available power agent"], float)
+    p_ref = 0.7 * p_hat.sum()
+    d = 1.0 - p_ref / p_hat.sum()
+    for _ in range(3):
+        _, _, _, _, info = env.step(relative_action(env, np.full(3, d)))
+    np.testing.assert_allclose(info["powers"][-1].sum(), p_ref, rtol=1e-3)
+    np.testing.assert_allclose(info["powers"][-1], 0.7 * info["available_powers"][-1], rtol=1e-3)
+    env.close()
+
+
+def test_relative_mode_honours_derate_step_sim_and_penalises_d():
+    env = make_relative_env(turbtype="None", cfg_extra={"derate_step_sim": 0.05})
+    env.reset(seed=0)
+    np.testing.assert_allclose(env._penalised_derate, 0.0)  # no derate before any action
+    d = np.array([0.5, 0.5, 0.5])
+    _, _, _, _, info = env.step(relative_action(env, d))
+    # 2 sim steps of at most 0.05 (fraction of rated) each from 0
+    assert np.all(env.derate_applied <= 0.1 + 1e-9)
+    assert env.derate_applied[0] == pytest.approx(0.1)
+    np.testing.assert_allclose(info["derate command"], d, atol=1e-6)  # d itself is not slewed
+    # the change penalty acts on d, the agent's decision, not on the slewed cap
+    np.testing.assert_allclose(env._penalised_derate, d, atol=1e-6)
+    env.step(relative_action(env, d))
+    np.testing.assert_allclose(env.old_derate, d, atol=1e-6)
+    for _ in range(15):  # slewed up to (1 - d) P_hat
+        _, _, _, _, info = env.step(relative_action(env, d))
+    np.testing.assert_allclose(info["powers"][-1], 0.5 * info["available_powers"][-1], rtol=1e-3)
+    env.close()
+
+
+def test_relative_mode_needs_the_setpoint_reference():
+    with pytest.raises(ValueError, match="relative.*setpoint"):
+        make_env(derate_reference="rated", cfg_extra={"derate_method": "relative"})

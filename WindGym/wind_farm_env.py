@@ -377,6 +377,11 @@ class WindFarmEnv(gym.Env):
                 "derate_method 'share' (the deficit inner loop) needs derate_action, "
                 "PyWake setpoint turbines and Track_power"
             )
+        if self.derate_method == "relative" and not self._setpoint_mode:
+            raise ValueError(
+                "derate_method 'relative' needs derate_action and PyWake setpoint "
+                "turbines (derate_reference 'setpoint')"
+            )
         if self.derate_action:
             self.act_var = 2 if self.yaw_action else 1
             if self.HTC_path is not None:
@@ -1612,9 +1617,12 @@ class WindFarmEnv(gym.Env):
     def _penalised_derate(self) -> np.ndarray:
         """Derate the reward's change penalty acts on: the command in setpoint
         mode (``derate_applied``), the applied derate otherwise; the deficit
-        shares under ``derate_method="share"``."""
+        shares under ``derate_method="share"``, the relative derate ``d``
+        under ``derate_method="relative"``."""
         if self.derate_method == "share":
             return self.derate_shares
+        if self.derate_method == "relative":
+            return self.derate_command
         return self.derate_applied if self._setpoint_mode else self.current_derate
 
     @property
@@ -1684,6 +1692,9 @@ class WindFarmEnv(gym.Env):
         if self.derate_method == "share":
             self._apply_share_derating(derate_raw)
             return
+        if self.derate_method == "relative":
+            self._apply_relative_derating(derate_raw)
+            return
 
         if self._setpoint_mode:
             self.derate_command, self.derate_applied = compute_derate(
@@ -1725,6 +1736,37 @@ class WindFarmEnv(gym.Env):
             self.wts.sensors.derate = derate
         else:
             self.fs._derate = derate
+
+    def _apply_relative_derating(self, derate_raw):
+        """``derate_method="relative"`` (setpoint mode), every sim step.
+
+        The action maps affinely to ``d`` in [derate_min, derate_max] (as the
+        absolute method maps it to a command) and turbine ``i`` is capped at
+        ``(1 - d_i) * P_hat_i``, with ``P_hat`` its available power one sim
+        step old (the signal of the share inner loop and of a proportional
+        controller), so the same ``d`` on every turbine is proportional
+        derating. The cap becomes a command ``1 - cap / rated`` that slews by
+        ``derate_step_sim`` as in the other modes; ``d_i = 0`` leaves the
+        turbine uncapped (capping it at last substep's available power would
+        clip its gusts). ``derate_command`` holds ``d``, which the change
+        penalty acts on (``_penalised_derate``): the agent's decision, not the
+        caps that follow the turbulence.
+        """
+        a = np.clip(np.asarray(derate_raw, dtype=np.float64), -1.0, 1.0)
+        d = self.derate_min + 0.5 * (a + 1.0) * (self.derate_max - self.derate_min)
+        self.derate_command = d
+        p_hat = np.asarray(self.current_available_power, dtype=np.float64)
+        target = np.where(d > 0, 1.0 - (1.0 - d) * p_hat / self.derate_rated_power, 0.0)
+        # d is already bounded by [derate_min, derate_max]; the cap only has to
+        # stay a valid fraction of rated
+        target = np.clip(target, 0.0, 1.0)
+        if self.derate_step_sim is not None:
+            prev = np.asarray(self.derate_applied, dtype=np.float64)
+            target = np.clip(
+                target, prev - self.derate_step_sim, prev + self.derate_step_sim
+            )
+        self.derate_applied = target
+        self.wts.power_cap = (1.0 - self.derate_applied) * self.derate_rated_power
 
     def _apply_share_derating(self, derate_raw):
         """Inner loop of ``derate_method="share"`` (setpoint mode), every sim step.

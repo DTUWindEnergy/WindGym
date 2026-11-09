@@ -87,7 +87,7 @@ yaw_action:    true        # false -> derate-only agents (yaw fixed at init)
 derate_min:    0.0
 derate_max:    0.8         # surrogate table limit (no full shutdown)
 
-derate_method: "absolute"  # or "step"
+derate_method: "absolute"  # or "step"; "share", "relative" (setpoint reference)
 derate_reference: "available"  # or "rated" (absolute power cap)
 derate_step_env: 0.1       # max |Δderate| per env step (step mode)
 derate_step_sim: null      # max |Δderate| per sim substep toward the
@@ -120,6 +120,18 @@ Two application modes:
   integrated on top of the current derate. Matches the incremental yaw action
   semantics and enforces smooth trajectories, at the cost of an artificial
   rate limit and slower exploration of extremes.
+
+Two further modes need `derate_reference: "setpoint"` (PyWake setpoint
+turbines) and set the turbine caps every simulation substep from the
+turbine's available power one substep old, `P_hat`:
+
+- **share** (also needs `Track_power`): the action gives each turbine's share
+  of the farm deficit `sum(P_hat) − P_ref`; an inner loop turns the shares
+  into caps (`core.actuation.allocate_deficit`).
+- **relative**: the value is affine-mapped to `d` in `[derate_min,
+  derate_max]` and the turbine is capped at `(1 − d) · P_hat`, so the same `d`
+  on every turbine is proportional derating. `d = 0` leaves the turbine
+  uncapped. `"derate command"` and the change penalty act on `d`.
 
 Independently of the mode, `derate_step_sim` limits how fast the plant tracks
 the setpoint: the derate slews by at most that amount per simulation substep

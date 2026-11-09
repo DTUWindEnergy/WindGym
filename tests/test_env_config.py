@@ -167,7 +167,7 @@ def test_derate_mes_defaults_follow_derate_action():
 @pytest.mark.parametrize(
     "override, match",
     [
-        ({"derate_method": "bogus"}, "derate_method must be 'absolute', 'step' or 'share'"),
+        ({"derate_method": "bogus"}, "derate_method must be 'absolute', 'step', 'share' or 'relative'"),
         ({"derate_step_sim": 0}, "derate_step_sim must be positive"),
         ({"derate_reference": "x"}, "derate_reference must be 'available', 'rated' or 'setpoint'"),
         ({"track_def": {"track_ref_range": [0.9, 0.1]}}, "track_ref_range must be"),
@@ -177,12 +177,20 @@ def test_derate_mes_defaults_follow_derate_action():
         ({"track_def": {"track_obs_error_scale": 0}}, "track_obs_error_scale must be"),
         ({"yaw_deadband": -0.1}, "yaw_deadband must be"),
         ({"derate_method": "share"}, "derate_method 'share' needs derate_reference 'setpoint'"),
+        ({"derate_method": "relative"}, "derate_method 'relative' needs derate_reference 'setpoint'"),
         ({"share_reference": "future"}, "share_reference must be 'observed' or 'scored'"),
     ],
 )
 def test_validation_errors(override, match):
     with pytest.raises(ValueError, match=match):
         parse_env_settings(get_fast_pywake_config(**override))
+
+
+def test_relative_derate_method_parses_with_the_setpoint_reference():
+    s = parse_env_settings(
+        get_fast_pywake_config(derate_method="Relative", derate_reference="setpoint")
+    )
+    assert s.derate_method == "relative"
 
 
 def test_missing_section_and_key_messages():
