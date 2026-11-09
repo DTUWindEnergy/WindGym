@@ -1746,7 +1746,10 @@ class WindFarmEnv(gym.Env):
         step old (the signal of the share inner loop and of a proportional
         controller), so the same ``d`` on every turbine is proportional
         derating. The cap becomes a command ``1 - cap / rated`` that slews by
-        ``derate_step_sim`` as in the other modes; ``d_i = 0`` leaves the
+        ``derate_step_sim``; unlike the other modes a tightening cap ramps from
+        the effective cap ``min(previous cap, P_hat)`` (the turbine's output),
+        not from the previous command, so a turbine re-engages from uncapped at
+        once (Marcus 2026-11-09); ``d_i = 0`` leaves the
         turbine uncapped (capping it at last substep's available power would
         clip its gusts). ``derate_command`` holds ``d``, which the change
         penalty acts on (``_penalised_derate``): the agent's decision, not the
@@ -1762,8 +1765,16 @@ class WindFarmEnv(gym.Env):
         target = np.clip(target, 0.0, 1.0)
         if self.derate_step_sim is not None:
             prev = np.asarray(self.derate_applied, dtype=np.float64)
-            target = np.clip(
-                target, prev - self.derate_step_sim, prev + self.derate_step_sim
+            # Tightening ramps from the effective cap min(previous cap, P_hat), i.e.
+            # from the turbine's output: an uncapped turbine (command 0, cap at
+            # rated) re-engages at once instead of slewing down from rated.
+            # Releasing ramps from the previous command, so the turbine reaches
+            # uncapped instead of hovering one slew step above P_hat.
+            effective = np.maximum(prev, 1.0 - p_hat / self.derate_rated_power)
+            target = np.where(
+                target > prev,
+                np.minimum(target, effective + self.derate_step_sim),
+                np.maximum(target, prev - self.derate_step_sim),
             )
         self.derate_applied = target
         self.wts.power_cap = (1.0 - self.derate_applied) * self.derate_rated_power

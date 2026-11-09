@@ -526,9 +526,14 @@ def test_relative_mode_honours_derate_step_sim_and_penalises_d():
     env.reset(seed=0)
     np.testing.assert_allclose(env._penalised_derate, 0.0)  # no derate before any action
     d = np.array([0.5, 0.5, 0.5])
+    p_hat_prev = np.array(env.current_available_power, dtype=np.float64)
     _, _, _, _, info = env.step(relative_action(env, d))
-    # 2 sim steps of at most 0.05 (fraction of rated) each from 0
-    assert np.all(env.derate_applied <= 0.1 + 1e-9)
+    # the cap drops at most 0.05 of rated per sim step below the effective cap,
+    # min(previous cap, P_hat): the front turbine (at rated) moves 2 x 0.05
+    caps = info["power_caps"]
+    p_hat = np.vstack([p_hat_prev, info["available_powers"][:-1]])
+    prev_caps = np.vstack([np.full(3, RATED), caps[:-1]])
+    assert np.all(caps >= np.minimum(prev_caps, p_hat) - 0.05 * RATED - 1.0)
     assert env.derate_applied[0] == pytest.approx(0.1)
     np.testing.assert_allclose(info["derate command"], d, atol=1e-6)  # d itself is not slewed
     # the change penalty acts on d, the agent's decision, not on the slewed cap
@@ -538,6 +543,44 @@ def test_relative_mode_honours_derate_step_sim_and_penalises_d():
     for _ in range(15):  # slewed up to (1 - d) P_hat
         _, _, _, _, info = env.step(relative_action(env, d))
     np.testing.assert_allclose(info["powers"][-1], 0.5 * info["available_powers"][-1], rtol=1e-3)
+    env.close()
+
+
+def test_relative_mode_reengages_from_the_available_power_not_from_rated():
+    """An uncapped turbine (d = 0, cap at rated) that gets a small d is capped at
+    (1 - d) P_hat at once: the slew ramps from its output, not from rated."""
+    # 9 m/s: every turbine below rated, so a ramp from rated (the old slew start)
+    # would leave the cap above the available power for several sim steps
+    wind = {k: (9.0 if "ws" in k else v) for k, v in _dynamiks_config()["wind"].items()}
+    env = make_relative_env(turbtype="None", cfg_extra={"derate_step_sim": 0.05, "wind": wind})
+    env.reset(seed=0)
+    for _ in range(2):
+        env.step(relative_action(env, [0.0, 0.0, 0.0]))
+    np.testing.assert_allclose(env.derate_applied, 0.0)
+    p_hat_prev = np.array(env.current_available_power, dtype=np.float64)
+    assert np.all(p_hat_prev < RATED - 0.2 * RATED)  # more than 4 slew steps below rated
+    # 0.04 P_hat <= 0.08 MW is within one 0.05 x 2 MW slew step of P_hat
+    d = np.array([0.04, 0.04, 0.04])
+    _, _, _, _, info = env.step(relative_action(env, d))
+    np.testing.assert_allclose(info["power_caps"][0], (1.0 - d) * p_hat_prev, rtol=1e-6)
+    np.testing.assert_allclose(info["powers"][0], (1.0 - d) * p_hat_prev, rtol=1e-3)
+    env.close()
+
+
+def test_relative_mode_releases_at_the_slew_rate():
+    """Releasing (d back to 0) still ramps the cap up from the previous command,
+    so the turbine reaches uncapped (applied 0) instead of hovering above P_hat."""
+    env = make_relative_env(turbtype="None", cfg_extra={"derate_step_sim": 0.05})
+    env.reset(seed=0)
+    for _ in range(6):  # the front turbine's command reaches 0.5 in 5 env steps
+        env.step(relative_action(env, [0.5, 0.5, 0.5]))
+    prev = env.derate_applied.copy()
+    assert prev[0] == pytest.approx(0.5)
+    _, _, _, _, info = env.step(relative_action(env, [0.0, 0.0, 0.0]))
+    np.testing.assert_allclose(env.derate_applied, np.maximum(prev - 0.1, 0.0), atol=1e-9)
+    for _ in range(5):
+        env.step(relative_action(env, [0.0, 0.0, 0.0]))
+    np.testing.assert_allclose(env.derate_applied, 0.0)
     env.close()
 
 

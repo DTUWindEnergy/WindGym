@@ -131,7 +131,10 @@ turbine's available power one substep old, `P_hat`:
 - **relative**: the value is affine-mapped to `d` in `[derate_min,
   derate_max]` and the turbine is capped at `(1 − d) · P_hat`, so the same `d`
   on every turbine is proportional derating. `d = 0` leaves the turbine
-  uncapped. `"derate command"` and the change penalty act on `d`.
+  uncapped. `"derate command"` and the change penalty act on `d`. With
+  `derate_step_sim`, a tightening cap ramps from the turbine's output
+  (`min(previous cap, P_hat)`), so a turbine re-engages from uncapped at once;
+  releasing ramps from the previous command as in the other modes.
 
 Independently of the mode, `derate_step_sim` limits how fast the plant tracks
 the setpoint: the derate slews by at most that amount per simulation substep
