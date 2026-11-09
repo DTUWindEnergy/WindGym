@@ -273,8 +273,9 @@ def parse_env_settings(config: Dict[str, Any]) -> EnvSettings:
 
     # Power tracking (optional section; only consumed when Track_power is
     # True). Track_reward selects the reward shape, track_sigma the width
-    # of the gaussian form, track_ref_range the default sampler's fraction
-    # range, and the track_obs_* keys toggle the farm-level observations.
+    # of the gaussian form (scale of the squared one), track_ref_range the
+    # default sampler's fraction range, and the track_obs_* keys toggle the
+    # farm-level observations.
     track_def = config.get("track_def", {}) or {}
     s.track_reward_type = track_def.get("Track_reward", "abs")
     s.track_sigma = track_def.get("track_sigma", 0.1)

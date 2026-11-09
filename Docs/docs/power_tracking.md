@@ -93,9 +93,14 @@ farm — *not* the per-episode freestream power):
   `r = exp(-((mean(P_farm) - mean(P_ref)) / (sigma * P_norm))^2)` — in (0, 1],
   peaked at zero error; `track_sigma` (default 0.1) sets the width as a
   fraction of `P_norm`.
+- `Track_reward: "squared"`:
+  `r = -((mean(P_farm) - mean(P_ref)) / P_norm)^2 / sigma` — always ≤ 0,
+  quadratic in the error; equal to the abs reward at `|err| = sigma * P_norm`,
+  so `track_sigma` sets the error level where the two cross (e.g. 0.005 for
+  0.5 % of rated farm power).
 
 Like every power reward, the tracking reward is multiplied by `Power_scaling`
-before the penalties are applied. Both forms above are already normalized by
+before the penalties are applied. All forms above are already normalized by
 `P_norm`, so the default `Power_scaling: 1.0` is the natural choice — raise it
 only if you deliberately want to reweight tracking against the penalties.
 
@@ -107,8 +112,8 @@ The reward breakdown gains a `tracking_error` entry (window-mean error in W).
 
 ```yaml
 track_def:                       # all optional
-  Track_reward: "abs"            # "abs" or "gaussian"
-  track_sigma: 0.1               # gaussian width (fraction of rated farm power)
+  Track_reward: "abs"            # "abs", "gaussian" or "squared"
+  track_sigma: 0.1               # gaussian width / squared scale (fraction of rated farm power)
   track_ref_range: [0.2, 0.8]    # default sampler range (fraction of episode
                                  # freestream farm power)
   track_obs_setpoint: true       # observe the current reference

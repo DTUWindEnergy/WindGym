@@ -158,15 +158,18 @@ power. It is **mutually exclusive** with every power reward type above:
 `Track_power: true` together with a `Power_reward` other than `"None"` raises
 a `ValueError` at construction.
 
-Both forms compare the `Power_avg`-window mean of the farm power against the
+All forms compare the `Power_avg`-window mean of the farm power against the
 same-window mean of the reference, with `P_norm` the rated (nameplate) farm
 power:
 
 - `Track_reward: "abs"` (default): `r = -|P̄_farm − P̄_ref| / P_norm`
 - `Track_reward: "gaussian"`: `r = exp(-((P̄_farm − P̄_ref) / (sigma · P_norm))²)`
+- `Track_reward: "squared"`: `r = -((P̄_farm − P̄_ref) / P_norm)² / sigma` (equal
+  to the abs reward at an error of `sigma · P_norm`; larger errors cost more,
+  smaller ones less)
 
 Like the maximization rewards, the tracking reward is multiplied by
-`Power_scaling` (§2) before the penalties are subtracted; both forms are
+`Power_scaling` (§2) before the penalties are subtracted; all forms are
 already normalized by `P_norm`, so keep it at `1.0` unless you deliberately
 want to reweight tracking against the penalties. The reward breakdown gains a
 `tracking_error` entry. See [Power tracking](power_tracking.md) for the
@@ -179,7 +182,7 @@ power_def:
   Power_reward: "None"
   Power_avg: 10
 track_def:
-  Track_reward: "abs"   # or "gaussian" (+ track_sigma)
+  Track_reward: "abs"   # or "gaussian" / "squared" (+ track_sigma)
 ```
 
 ---

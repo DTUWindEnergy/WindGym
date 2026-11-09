@@ -50,9 +50,11 @@ class RewardCalculator:
             power_window_size: Window size for Power_diff reward type
             derate_penalty: Weight for derate penalty (0 = no penalty)
             derate_penalty_type: Type of derate penalty ("change" or "total")
-            track_reward_type: Shape of the tracking reward ("abs" or "gaussian")
-            track_sigma: Width of the gaussian tracking reward, as a fraction
-                of the power normalization (rated farm power)
+            track_reward_type: Shape of the tracking reward ("abs",
+                "gaussian" or "squared")
+            track_sigma: Width of the gaussian tracking reward, or the scale of
+                the squared one, as a fraction of the power normalization
+                (rated farm power)
         """
         self.power_reward_type = power_reward_type
         self.track_power = track_power
@@ -100,7 +102,7 @@ class RewardCalculator:
                     "Track_power is mutually exclusive with a power reward: "
                     f"set Power_reward to 'None' (got '{self.power_reward_type}')."
                 )
-            valid_track_rewards = {"abs", "gaussian"}
+            valid_track_rewards = {"abs", "gaussian", "squared"}
             if self.track_reward_type not in valid_track_rewards:
                 raise ValueError(
                     f"track_reward_type must be one of {valid_track_rewards}, "
@@ -207,6 +209,9 @@ class RewardCalculator:
 
         - "abs":      r = -|P_farm - P_ref| / power_norm
         - "gaussian": r = exp(-((P_farm - P_ref) / (sigma * power_norm))^2)
+        - "squared":  r = -((P_farm - P_ref) / power_norm)^2 / sigma
+                      (equals the abs reward at |err| = sigma * power_norm;
+                      larger errors are punished harder, smaller ones softer)
 
         Args:
             farm_power_deque: Farm power history
@@ -230,6 +235,8 @@ class RewardCalculator:
 
         if self.track_reward_type == "abs":
             return -abs(err) / power_norm
+        if self.track_reward_type == "squared":
+            return -((err / power_norm) ** 2) / self.track_sigma
         else:  # "gaussian" (validated in _validate_config)
             return float(np.exp(-((err / (self.track_sigma * power_norm)) ** 2)))
 

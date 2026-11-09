@@ -210,6 +210,39 @@ def test_tracking_reward_gaussian_math():
 
 
 @pytest.mark.unit
+def test_tracking_reward_squared_math():
+    rc = RewardCalculator(
+        power_reward_type="None",
+        track_power=True,
+        track_reward_type="squared",
+        track_sigma=0.1,
+    )
+    # Zero error -> reward 0
+    reward = rc.calculate_power_reward(
+        farm_power_deque=deque([100.0]),
+        power_ref_deque=deque([100.0]),
+        power_norm=200.0,
+    )
+    assert abs(reward) < 1e-12
+
+    # err = sigma * norm -> -sigma (equal to the abs reward there)
+    reward = rc.calculate_power_reward(
+        farm_power_deque=deque([120.0]),
+        power_ref_deque=deque([100.0]),
+        power_norm=200.0,
+    )
+    assert abs(reward - (-0.1)) < 1e-12
+
+    # err = 2 * sigma * norm (sign flipped) -> -(0.2)^2 / 0.1 = -0.4
+    reward = rc.calculate_power_reward(
+        farm_power_deque=deque([60.0]),
+        power_ref_deque=deque([100.0]),
+        power_norm=200.0,
+    )
+    assert abs(reward - (-0.4)) < 1e-12
+
+
+@pytest.mark.unit
 def test_tracking_reward_invalid_config_raises():
     with pytest.raises(ValueError, match="track_reward_type"):
         RewardCalculator(
@@ -629,7 +662,7 @@ def test_tracking_sampler_range_over_reseeds():
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("reward_type", ["abs", "gaussian"])
+@pytest.mark.parametrize("reward_type", ["abs", "gaussian", "squared"])
 def test_tracking_reward_sanity(reward_type):
     """Reference equal to the measured greedy power gives a (near-)perfect
     reward; an unreachable reference gives the worst-case reward."""
@@ -656,7 +689,7 @@ def test_tracking_reward_sanity(reward_type):
     env.reset(seed=7)
     for _ in range(3):
         _, reward, *_ = env.step(np.zeros(env.action_space.shape, dtype=np.float32))
-    if reward_type == "abs":
+    if reward_type in ("abs", "squared"):
         assert abs(reward) < 1e-2
     else:
         assert reward > 0.99
@@ -666,7 +699,7 @@ def test_tracking_reward_sanity(reward_type):
     env = make(10.0 * env.maxturbpower * env.n_turb)
     env.reset(seed=7)
     _, reward, *_ = env.step(np.zeros(env.action_space.shape, dtype=np.float32))
-    if reward_type == "abs":
+    if reward_type in ("abs", "squared"):
         assert reward < -5.0
     else:
         assert reward < 1e-6
