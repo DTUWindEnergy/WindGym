@@ -120,6 +120,9 @@ class EnvSettings:
     track_obs_error_scale: float = 0.05
     yaw_deadband: float = 0.0
     share_reference: str = "observed"
+    share_mapping: str = "raw"
+    yaw_hold_s: float = 0.0
+    derate_penalty_tau_s: float = 0.0
     derate_reference: str = "available"
     derate_mes: dict = field(default_factory=dict)
     avail_mes: dict = field(default_factory=dict)
@@ -359,6 +362,35 @@ def parse_env_settings(config: Dict[str, Any]) -> EnvSettings:
     s.share_reference = str(config.get("share_reference", "observed")).lower()
     if s.share_reference not in {"observed", "scored"}:
         raise ValueError("share_reference must be 'observed' or 'scored'")
+    # What the share action means (derate_method "share" only):
+    #   "raw":  each turbine's share of the farm deficit, w = u / sum(u);
+    #   "tilt": a tilt of proportional shares, w = c P_hat / sum(c P_hat) with
+    #           c = (a + 1) / 2, so equal actions are proportional derating
+    #           and the change penalty acts on c / sum(c).
+    s.share_mapping = str(config.get("share_mapping", "raw")).lower()
+    if s.share_mapping not in {"raw", "tilt"}:
+        raise ValueError("share_mapping must be 'raw' or 'tilt'")
+    if s.share_mapping == "tilt" and s.derate_method != "share":
+        raise ValueError("share_mapping 'tilt' needs derate_method 'share'")
+
+    # Yaw hold (s of sim time, "wind" ActionMethod, agent farm only): the yaw
+    # target is read from the action every yaw_hold_s and kept in between; the
+    # rate limit and the deadband act on the held target. 0 = off.
+    s.yaw_hold_s = float(config.get("yaw_hold_s", 0.0))
+    if s.yaw_hold_s < 0:
+        raise ValueError(f"yaw_hold_s must be non-negative, got {s.yaw_hold_s}")
+    if s.yaw_hold_s > 0 and s.ActionMethod != "wind":
+        raise ValueError(
+            f"yaw_hold_s needs ActionMethod 'wind', got {s.ActionMethod!r}"
+        )
+
+    # Derate-change penalty on a first-order low-pass (time constant in s) of
+    # the penalised derate, updated once per env step. 0 = off (raw decision).
+    s.derate_penalty_tau_s = float(config.get("derate_penalty_tau_s", 0.0))
+    if s.derate_penalty_tau_s < 0:
+        raise ValueError(
+            f"derate_penalty_tau_s must be non-negative, got {s.derate_penalty_tau_s}"
+        )
 
     # Derate observation (per turbine, mirrors yaw_mes). Defaults to
     # observing the current derate whenever the derate action is enabled.

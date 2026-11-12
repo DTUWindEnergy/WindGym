@@ -29,6 +29,9 @@ from .core.episode_timing import episode_time_parameters
 from .core.env_config import load_config_dict, parse_env_settings, build_farm_mes
 from .core.actuation import (
     allocate_deficit,
+    latch_yaw_action,
+    lowpass_step,
+    tilt_from_action,
     compute_derate,
     shares_from_action,
     step_yaw_command,
@@ -370,6 +373,13 @@ class WindFarmEnv(gym.Env):
             and self.derate_reference == "setpoint"
             and self.HTC_path is None
         )
+        # yaw_hold_s: hold the yaw target for this many sim steps (0 = off)
+        self._yaw_hold_steps = round(self.yaw_hold_s / self.dt_sim)
+        if abs(self._yaw_hold_steps * self.dt_sim - self.yaw_hold_s) > 1e-9:
+            raise ValueError(
+                f"yaw_hold_s must be a multiple of dt_sim ({self.dt_sim} s), "
+                f"got {self.yaw_hold_s}"
+            )
         if self.derate_method == "share" and not (
             self._setpoint_mode and self.Track_power
         ):
@@ -903,6 +913,8 @@ class WindFarmEnv(gym.Env):
             return_dict["derate command"] = self.derate_command
             if self.derate_method == "share":
                 return_dict["derate shares"] = np.array(self.derate_shares)
+                if self.share_mapping == "tilt":
+                    return_dict["derate tilt"] = np.array(self.derate_tilt)
             return_dict["derate measured"] = self.farm_measurements.get_derate_turb()
         if self._setpoint_mode:
             return_dict["available power agent"] = getattr(
@@ -1047,6 +1059,14 @@ class WindFarmEnv(gym.Env):
         # derate_method "share": the agent's deficit shares (equal = the
         # neutral all-zero action until the first step)
         self.derate_shares = np.full(self.n_turb, 1.0 / self.n_turb)
+        # share_mapping "tilt": the normalised tilt c / sum(c) (uniform =
+        # proportional derating, the neutral action)
+        self.derate_tilt = np.full(self.n_turb, 1.0 / self.n_turb)
+        # derate_penalty_tau_s: low-pass state of the penalised derate
+        self._derate_lp = np.array(self._penalised_derate, dtype=np.float64)
+        # yaw_hold_s: held yaw action and sim steps since it was latched
+        self._yaw_held_action = None
+        self._yaw_hold_count = 0
 
         # Set random generator for turbulence manager
         self.turbulence_manager.np_random = self.np_random
@@ -1620,10 +1640,22 @@ class WindFarmEnv(gym.Env):
         shares under ``derate_method="share"``, the relative derate ``d``
         under ``derate_method="relative"``."""
         if self.derate_method == "share":
+            if self.share_mapping == "tilt":
+                # the normalised tilt, not the shares: those move with P_hat
+                return self.derate_tilt
             return self.derate_shares
         if self.derate_method == "relative":
             return self.derate_command
         return self.derate_applied if self._setpoint_mode else self.current_derate
+
+    @property
+    def _penalty_derate(self) -> np.ndarray:
+        """What the derate-change penalty compares between env steps:
+        ``_penalised_derate``, or its first-order low-pass when
+        ``derate_penalty_tau_s > 0`` (updated at the end of every env step)."""
+        if self.derate_penalty_tau_s > 0:
+            return self._derate_lp
+        return self._penalised_derate
 
     @property
     def turbine_params(self):
@@ -1648,6 +1680,15 @@ class WindFarmEnv(gym.Env):
         # When derate_action=True action is [yaw_0..yaw_n | derate_0..derate_n];
         # yaw logic only operates on the first n_turb entries.
         action = action[: self.n_turb]
+        if self._yaw_hold_steps:
+            # zero-order hold on the target; rate limit and deadband as before
+            self._yaw_held_action, self._yaw_hold_count = latch_yaw_action(
+                action,
+                self._yaw_held_action,
+                self._yaw_hold_count,
+                hold_steps=self._yaw_hold_steps,
+            )
+            action = self._yaw_held_action
 
         # self.action_remaining only exists under the "yaw" method (set per env
         # step in _advance_and_measure); the other methods ignore it.
@@ -1797,9 +1838,18 @@ class WindFarmEnv(gym.Env):
         (``_penalised_derate``), the agent's decision, not on the caps that
         follow the turbulence.
         """
-        w = shares_from_action(derate_raw)
-        self.derate_shares = w
         p_hat = np.asarray(self.current_available_power, dtype=np.float64)
+        if self.share_mapping == "tilt":
+            # tilt of proportional shares: w = c P_hat / sum(c P_hat), so equal
+            # actions are proportional derating; the penalty acts on c / sum(c)
+            c = tilt_from_action(derate_raw)
+            self.derate_tilt = c / c.sum()
+            weighted = c * np.maximum(p_hat, 0.0)
+            total = weighted.sum()
+            w = weighted / total if total > 0 else self.derate_tilt
+        else:
+            w = shares_from_action(derate_raw)
+        self.derate_shares = w
         step = self.timestep + 1 if self.share_reference == "scored" else self.timestep
         p_ref = float(self.power_tracking.reference(step))
         red = allocate_deficit(
@@ -1840,7 +1890,7 @@ class WindFarmEnv(gym.Env):
         # Same for derate levels (used by the derate "change" penalty). In
         # setpoint mode the penalty acts on the COMMAND (derate_applied): the
         # lagged effective derate would hide exactly the chatter it penalises.
-        self.old_derate = copy.copy(self._penalised_derate)
+        self.old_derate = copy.copy(self._penalty_derate)
 
         # Advance the sim `delay` seconds per env step, but only average the final
         # dt_env window into the observation. With delay > dt_env the agent acts on
@@ -1859,6 +1909,14 @@ class WindFarmEnv(gym.Env):
             include_baseline=self.Baseline_comp,
             ignore_steps=ignore_steps,
         )
+
+        if self.derate_penalty_tau_s > 0 and self.derate_action:
+            self._derate_lp = lowpass_step(
+                self._derate_lp,
+                self._penalised_derate,
+                dt=self.delay,
+                tau=self.derate_penalty_tau_s,
+            )
 
         # add to measurements/history
         self.farm_measurements.add_measurements(
@@ -1913,7 +1971,7 @@ class WindFarmEnv(gym.Env):
             n_turbines=self.n_turb,
             nowake_power_deque=self.nowake_pow_deq if self.Baseline_comp else None,
             old_derates=self.old_derate if self.derate_action else None,
-            new_derates=self._penalised_derate if self.derate_action else None,
+            new_derates=self._penalty_derate if self.derate_action else None,
             derate_max=self.derate_max,
             power_ref_deque=(
                 self.power_tracking.ref_deque if self.power_tracking else None

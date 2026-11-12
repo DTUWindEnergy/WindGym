@@ -587,3 +587,131 @@ def test_relative_mode_releases_at_the_slew_rate():
 def test_relative_mode_needs_the_setpoint_reference():
     with pytest.raises(ValueError, match="relative.*setpoint"):
         make_env(derate_reference="rated", cfg_extra={"derate_method": "relative"})
+
+
+# ------------------------------------------- tilt of proportional shares (round 5) --
+def make_tilt_env(**kw):
+    cfg_extra = dict(share_mapping="tilt")
+    cfg_extra.update(kw.pop("cfg_extra", None) or {})
+    return make_share_env(cfg_extra=cfg_extra, **kw)
+
+
+def test_tilt_mode_by_hand():
+    env = make_tilt_env(turbtype="None")
+    env.reset(seed=0)
+    np.testing.assert_allclose(env._penalised_derate, 1 / 3)  # uniform tilt before any action
+    _, _, _, _, info = env.step(share_action(env, [1.0, 0.0, -1.0]))
+    # c = (a + 1) / 2 = [1, 0.5, 0]; the penalised quantity is c / sum(c)
+    np.testing.assert_allclose(info["derate tilt"], [2 / 3, 1 / 3, 0.0], atol=1e-9)
+    np.testing.assert_allclose(env._penalised_derate, [2 / 3, 1 / 3, 0.0], atol=1e-9)
+    # w = c P_hat / sum(c P_hat), P_hat one sim step old
+    p_hat = info["available_powers"][-2]
+    c = np.array([1.0, 0.5, 0.0])
+    np.testing.assert_allclose(info["derate shares"], c * p_hat / (c * p_hat).sum(), rtol=1e-9)
+    # the zero-tilt turbine sheds nothing; the farm still delivers the setpoint
+    np.testing.assert_allclose(info["power_caps"][-1, 2], RATED)
+    np.testing.assert_allclose(info["powers"][-1].sum(), P_REF, rtol=1e-3)
+    env.close()
+
+
+@pytest.mark.parametrize("a", [0.0, 0.6, -1.0])
+def test_tilt_mode_equal_actions_are_proportional_derating_every_sim_step(a):
+    env = make_tilt_env(dwm_params={"tau_power": 6.0, "tau_ct": 10.0})
+    env.reset(seed=3)
+    p_hat_prev = np.array(env.current_available_power, dtype=np.float64)
+    for _ in range(10):
+        _, _, _, _, info = env.step(share_action(env, [a, a, a]))
+        p_hat = np.vstack([p_hat_prev, info["available_powers"][:-1]])
+        p_hat_prev = info["available_powers"][-1]
+        assert np.all(p_hat.sum(axis=1) > P_REF)  # tracking regime
+        # every turbine at the same fraction P_ref / sum(P_hat) of its available power
+        np.testing.assert_allclose(
+            info["power_caps"], p_hat * P_REF / p_hat.sum(axis=1, keepdims=True), rtol=1e-6
+        )  # info arrays are float32
+        np.testing.assert_allclose(info["derate tilt"], 1 / 3)
+    env.close()
+
+
+def test_tilt_mode_change_penalty_acts_on_the_tilt_not_the_moving_shares():
+    env = make_tilt_env(dwm_params={"tau_power": 6.0, "tau_ct": 10.0})
+    env.reset(seed=3)
+    _, _, _, _, i1 = env.step(share_action(env, [1.0, 0.0, 0.0]))
+    _, _, _, _, i2 = env.step(share_action(env, [1.0, 0.0, 0.0]))
+    assert np.max(np.abs(i1["derate shares"] - i2["derate shares"])) > 1e-6  # w follows P_hat
+    np.testing.assert_allclose(env.old_derate, [0.5, 0.25, 0.25])
+    np.testing.assert_allclose(env._penalised_derate, [0.5, 0.25, 0.25])
+    env.close()
+
+
+def test_raw_share_mapping_has_no_tilt_key():
+    env = make_share_env(turbtype="None")
+    env.reset(seed=0)
+    _, _, _, _, info = env.step(share_action(env, [0.0, 0.0, 0.0]))
+    assert "derate tilt" not in info
+    env.close()
+
+
+# ------------------------------------------------------------ yaw hold (round 5) --
+def test_yaw_hold_latches_the_target_every_hold_and_keeps_it_in_between():
+    # dt_sim 1, env step 2 s, hold 4 s: the target is read on env steps 1, 3, 5, ...
+    env = make_env(cfg_extra={"yaw_hold_s": 4}, yaw_step_sim=1.0, delay=2)
+    env.reset(seed=0)
+    env.step(_yaw_action(env, [2.0, 0.0, 0.0]))
+    np.testing.assert_allclose(env.yaw_command, [2.0, 0.0, 0.0], atol=1e-5)
+    env.step(_yaw_action(env, [-2.0, 0.0, 0.0]))  # ignored: target held
+    np.testing.assert_allclose(env.yaw_command, [2.0, 0.0, 0.0], atol=1e-5)
+    env.step(_yaw_action(env, [-2.0, 0.0, 0.0]))  # latched; the rate limit acts as before
+    np.testing.assert_allclose(env.yaw_command, [0.0, 0.0, 0.0], atol=1e-5)
+    env.step(_yaw_action(env, [5.0, 0.0, 0.0]))  # held at -2
+    np.testing.assert_allclose(env.yaw_command, [-2.0, 0.0, 0.0], atol=1e-5)
+    np.testing.assert_allclose(env.fs_baseline.windTurbines.yaw, 0.0, atol=1e-6)
+    # a new episode latches on its first step again
+    env.reset(seed=0)
+    env.step(_yaw_action(env, [1.0, 0.0, 0.0]))
+    np.testing.assert_allclose(env.yaw_command, [1.0, 0.0, 0.0], atol=1e-5)
+    env.close()
+
+
+def test_yaw_hold_must_be_a_multiple_of_dt_sim():
+    with pytest.raises(ValueError, match="yaw_hold_s must be a multiple of dt_sim"):
+        make_env(cfg_extra={"yaw_hold_s": 2.5})
+
+
+# ------------------------------------- low-passed derate-change penalty (round 5) --
+def test_derate_penalty_tau_low_passes_the_penalised_derate():
+    env = make_relative_env(turbtype="None", cfg_extra={"derate_penalty_tau_s": 4.0})
+    seen = []
+    real = env.reward_calculator.calculate_total_reward
+
+    def spy(**kw):
+        seen.append((np.array(kw["old_derates"]), np.array(kw["new_derates"])))
+        return real(**kw)
+
+    env.reward_calculator.calculate_total_reward = spy
+    env.reset(seed=0)
+    d = np.array([0.5, 0.2, 0.0])
+    a = 1.0 - np.exp(-2.0 / 4.0)  # env step 2 s, tau 4 s
+    env.step(relative_action(env, d))
+    np.testing.assert_allclose(seen[-1][0], 0.0)
+    np.testing.assert_allclose(seen[-1][1], a * d, atol=1e-7)
+    env.step(relative_action(env, d))
+    np.testing.assert_allclose(seen[-1][0], a * d, atol=1e-7)
+    np.testing.assert_allclose(seen[-1][1], a * d + a * (d - a * d), atol=1e-7)
+    np.testing.assert_allclose(env._penalised_derate, d, atol=1e-6)  # the raw decision is kept
+    # the filter state starts again with the episode
+    env.reset(seed=0)
+    env.step(relative_action(env, d))
+    np.testing.assert_allclose(seen[-1][0], 0.0)
+    env.close()
+
+
+def test_derate_penalty_tau_default_penalises_the_raw_decision():
+    env = make_relative_env(turbtype="None")
+    seen = []
+    real = env.reward_calculator.calculate_total_reward
+    env.reward_calculator.calculate_total_reward = lambda **kw: (seen.append(kw), real(**kw))[1]
+    env.reset(seed=0)
+    d = np.array([0.5, 0.2, 0.0])
+    env.step(relative_action(env, d))
+    np.testing.assert_allclose(seen[-1]["new_derates"], d, atol=1e-6)
+    env.close()

@@ -6,8 +6,11 @@ import pytest
 from WindGym.core.actuation import (
     allocate_deficit,
     compute_derate,
+    latch_yaw_action,
+    lowpass_step,
     shares_from_action,
     step_yaw_command,
+    tilt_from_action,
 )
 
 pytestmark = pytest.mark.unit
@@ -191,3 +194,45 @@ def test_allocate_deficit_cascading_saturation():
     # all within headroom
     r = allocate_deficit(np.array([1.0, 2.0, 10.0]), np.full(3, 1 / 3), 3.3, 0.2)
     np.testing.assert_allclose(r, [0.8, 1.25, 1.25])
+
+
+# ------------------------------------------------ tilt mapping (round 5) --
+def test_tilt_from_action_maps_to_zero_one_and_all_zero_is_uniform():
+    np.testing.assert_allclose(tilt_from_action(np.array([1.0, -1.0, 0.0])), [1.0, 0.0, 0.5])
+    np.testing.assert_allclose(tilt_from_action(np.array([5.0, -3.0])), [1.0, 0.0])  # clipped
+    # every action at -1: no tilt information, proportional
+    np.testing.assert_allclose(tilt_from_action(np.array([-1.0, -1.0, -1.0])), [1.0, 1.0, 1.0])
+
+
+def test_tilt_weights_equal_actions_are_proportional_shares():
+    p_hat = np.array([2.0, 1.0, 0.5])
+    for a in (-1.0, -0.3, 0.0, 1.0):
+        c = tilt_from_action(np.full(3, a))
+        w = c * p_hat / (c * p_hat).sum()
+        np.testing.assert_allclose(w, p_hat / p_hat.sum(), rtol=1e-12)
+
+
+# ------------------------------------------------------ yaw hold (round 5) --
+def test_latch_yaw_action_latches_every_hold_steps_and_holds_in_between():
+    held, count = None, 0
+    seen = []
+    for k in range(7):
+        held, count = latch_yaw_action(np.array([float(k)]), held, count, hold_steps=3)
+        seen.append(float(held[0]))
+    assert seen == [0.0, 0.0, 0.0, 3.0, 3.0, 3.0, 6.0]
+
+
+def test_latch_yaw_action_copies_the_action():
+    a = np.array([0.5])
+    held, _ = latch_yaw_action(a, None, 0, hold_steps=2)
+    a[0] = -1.0
+    assert held[0] == 0.5
+
+
+# ------------------------------------------- penalty low-pass (round 5) --
+def test_lowpass_step_by_hand():
+    # a = 1 - exp(-dt / tau); dt = tau ln 2 gives a = 0.5
+    out = lowpass_step(np.array([0.0, 1.0]), np.array([1.0, 0.0]), dt=5.0 * np.log(2.0), tau=5.0)
+    np.testing.assert_allclose(out, [0.5, 0.5])
+    out = lowpass_step(out, np.array([1.0, 0.0]), dt=5.0 * np.log(2.0), tau=5.0)
+    np.testing.assert_allclose(out, [0.75, 0.25])

@@ -72,6 +72,9 @@ SETTINGS_ATTRS = {
     "track_obs_error_scale",
     "yaw_deadband",
     "share_reference",
+    "share_mapping",
+    "yaw_hold_s",
+    "derate_penalty_tau_s",
     "derate_reference",
     "derate_mes",
     "avail_mes",
@@ -142,6 +145,7 @@ def test_settings_values_and_defaults():
     assert s.track_obs_error_integral_tau is None and s.track_obs_error_history == 0
     assert s.track_obs_error_scale == 0.05 and s.yaw_deadband == 0.0
     assert s.share_reference == "observed"
+    assert s.share_mapping == "raw" and s.yaw_hold_s == 0.0 and s.derate_penalty_tau_s == 0.0
     assert s.derate_mes == {
         "derate_current": False,
         "derate_rolling_mean": False,
@@ -179,11 +183,31 @@ def test_derate_mes_defaults_follow_derate_action():
         ({"derate_method": "share"}, "derate_method 'share' needs derate_reference 'setpoint'"),
         ({"derate_method": "relative"}, "derate_method 'relative' needs derate_reference 'setpoint'"),
         ({"share_reference": "future"}, "share_reference must be 'observed' or 'scored'"),
+        ({"share_mapping": "bogus"}, "share_mapping must be 'raw' or 'tilt'"),
+        ({"share_mapping": "tilt"}, "share_mapping 'tilt' needs derate_method 'share'"),
+        ({"yaw_hold_s": -1}, "yaw_hold_s must be"),
+        ({"yaw_hold_s": 10, "ActionMethod": "yaw"}, "yaw_hold_s needs ActionMethod 'wind'"),
+        ({"derate_penalty_tau_s": -1}, "derate_penalty_tau_s must be"),
     ],
 )
 def test_validation_errors(override, match):
     with pytest.raises(ValueError, match=match):
         parse_env_settings(get_fast_pywake_config(**override))
+
+
+def test_round5_keys_parse():
+    s = parse_env_settings(
+        get_fast_pywake_config(
+            derate_method="share",
+            derate_reference="setpoint",
+            derate_action=True,
+            share_mapping="Tilt",
+            ActionMethod="wind",
+            yaw_hold_s=10,
+            derate_penalty_tau_s=5,
+        )
+    )
+    assert s.share_mapping == "tilt" and s.yaw_hold_s == 10.0 and s.derate_penalty_tau_s == 5.0
 
 
 def test_relative_derate_method_parses_with_the_setpoint_reference():

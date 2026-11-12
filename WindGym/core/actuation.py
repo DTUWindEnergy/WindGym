@@ -181,6 +181,41 @@ def shares_from_action(derate_raw) -> np.ndarray:
     return u / total
 
 
+def tilt_from_action(derate_raw) -> np.ndarray:
+    """Tilt factors from the derate part of the action (``share_mapping="tilt"``).
+
+    ``c = (clip(a, -1, 1) + 1) / 2`` in [0, 1]; the share inner loop weights
+    each turbine's available power with it, ``w = c P_hat / sum(c P_hat)``, so
+    equal actions (any value) are proportional derating. Every action at -1
+    (``sum(c) < 1e-6``) carries no tilt and maps to ones.
+    """
+    c = (np.clip(np.asarray(derate_raw, dtype=np.float64), -1.0, 1.0) + 1.0) / 2.0
+    if c.sum() < 1e-6:
+        return np.ones(c.shape)
+    return c
+
+
+def latch_yaw_action(action, held, steps_since_latch: int, *, hold_steps: int) -> tuple:
+    """Zero-order hold on the yaw action (``yaw_hold_s``), called every sim step.
+
+    The action is latched (copied) when ``steps_since_latch`` is 0 and kept for
+    ``hold_steps`` sim steps; the counter wraps so the next latch follows
+    ``hold_steps`` sim steps after the last one, whatever the env step.
+
+    Returns:
+        ``(held_action, new_steps_since_latch)``
+    """
+    if held is None or steps_since_latch == 0:
+        held = np.array(action, copy=True)
+    return held, (steps_since_latch + 1) % hold_steps
+
+
+def lowpass_step(state, x, *, dt: float, tau: float) -> np.ndarray:
+    """One step of a first-order low-pass: ``state + (1 - exp(-dt / tau)) (x - state)``."""
+    state = np.asarray(state, dtype=np.float64)
+    return state + (1.0 - np.exp(-dt / tau)) * (np.asarray(x, dtype=np.float64) - state)
+
+
 def allocate_deficit(p_hat, shares, deficit: float, floor_frac: float):
     """Per-turbine power reductions that sum to the farm deficit (water-filling).
 
